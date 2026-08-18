@@ -21,7 +21,6 @@ import net.minecraft.world.item.component.ResolvableProfile;
 import net.minecraft.world.flag.FeatureFlags;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -175,6 +174,6 @@ public final class CheckinScreenHandler extends ChestMenu {
     }
 
     private static LocalDate today() {
-        return LocalDate.now(ZoneId.systemDefault());
+        return CheckinData.today();
     }
 }

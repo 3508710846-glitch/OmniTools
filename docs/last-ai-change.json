@@ -1,12 +1,20 @@
 {
-  "prompt": "添加一个功能：玩家签到完成后会有音效，当玩家签到成功后全服广播（例如；玩家xxx今天第一个签到！）",
+  "prompt": "新增功能：玩家加入游戏时，如果当天未签到，在聊天框里发送一条提醒消息（例如今天你还未签到，点击签到）。玩家在聊天框里“点击签到”四个字后会打开签到GUI",
   "backend": "quota",
-  "createdAt": "2026-08-18T08:52:45.069Z",
-  "summary": "功能已添加：\n\n- 签到成功后，玩家播放 `UI_TOAST_CHALLENGE_COMPLETE` 音效。\n- 全服广播签到结果：\n  - 第一位：`玩家xxx今天第一个签到！`\n  - 后续玩家：`玩家xxx今天第N个签到！`\n- 增加中英文语言文本。\n\n修改位置：[CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java:100)、[zh_cn.json](/D:/mod/qiandao/src/main/resources/assets/qiandao/lang/zh_cn.json:16)、[en_us.json](/D:/mod/qiandao/src/main/resources/assets/qiandao/lang/en_us.json:16)。\n\n已通过 `./gradlew.bat build` 构建验证，JAR 已生成。",
+  "createdAt": "2026-08-18T09:28:58.068Z",
+  "summary": "已完成：\n\n- 玩家加入游戏时，若当天未签到，会收到“今天你还未签到，点击签到”提醒。\n- “点击签到”带下划线并可点击，点击后执行 `/qiandao` 打开签到 GUI。\n- 已签到玩家不会重复收到提醒。\n- 增加中英文语言文本，并统一使用服务器本地日期。\n\n主要修改：[ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:21)、[CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:47)。\n\n已验证：`./gradlew.bat build` 构建成功。",
   "tasks": [],
   "files": [
     {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinData.java",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/ModMindEntry.java",
       "purpose": "外部代理修改"
     },
     {
@@ -20,7 +28,7 @@
   ],
   "tests": [],
   "warnings": [],
-  "snapshotId": "2026-08-18T08-44-15-870Z",
+  "snapshotId": "2026-08-18T09-17-16-078Z",
   "buildVerified": false,
   "runtimeVerified": false
 }

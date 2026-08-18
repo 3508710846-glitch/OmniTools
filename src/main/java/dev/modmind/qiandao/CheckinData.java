@@ -9,6 +9,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -40,6 +42,10 @@ public final class CheckinData extends SavedData {
 
     public static CheckinData get(ServerPlayer player) {
         return get(player.level().getServer());
+    }
+
+    public static LocalDate today() {
+        return LocalDate.now(ZoneId.systemDefault());
     }
 
     public synchronized SignInResult signIn(UUID playerId, long day) {
