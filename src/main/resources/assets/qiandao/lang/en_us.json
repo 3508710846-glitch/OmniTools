@@ -13,6 +13,8 @@
   "gui.qiandao.profile.total": "Total days: %d",
   "gui.qiandao.profile.streak": "Current streak: %d days",
   "message.qiandao.success": "Check-in complete! You are #%d today.",
+  "message.qiandao.broadcast.first": "Player %s was the first to check in today!",
+  "message.qiandao.broadcast": "Player %s was #%d to check in today!",
   "message.qiandao.already_signed": "You have already checked in today.",
   "message.qiandao.only_today": "Only today's date can be checked in.",
   "message.qiandao.invalid_date": "The check-in date changed; the menu was refreshed."

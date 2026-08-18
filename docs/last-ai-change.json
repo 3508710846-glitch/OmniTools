@@ -1,18 +1,26 @@
 {
-  "prompt": "将自述文件补充完整，语言设置为中文",
+  "prompt": "添加一个功能：玩家签到完成后会有音效，当玩家签到成功后全服广播（例如；玩家xxx今天第一个签到！）",
   "backend": "quota",
-  "createdAt": "2026-08-18T08:41:05.111Z",
-  "summary": "已完成 [README.md](D:/mod/qiandao/README.md) 的中文化与补充，新增了功能说明、环境要求、安装步骤、命令用法、签到规则、构建方式、项目结构、数据存储和许可证信息。\n\n已通过 `git diff --check`；本次仅修改 README，未重新执行构建。",
+  "createdAt": "2026-08-18T08:52:45.069Z",
+  "summary": "功能已添加：\n\n- 签到成功后，玩家播放 `UI_TOAST_CHALLENGE_COMPLETE` 音效。\n- 全服广播签到结果：\n  - 第一位：`玩家xxx今天第一个签到！`\n  - 后续玩家：`玩家xxx今天第N个签到！`\n- 增加中英文语言文本。\n\n修改位置：[CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java:100)、[zh_cn.json](/D:/mod/qiandao/src/main/resources/assets/qiandao/lang/zh_cn.json:16)、[en_us.json](/D:/mod/qiandao/src/main/resources/assets/qiandao/lang/en_us.json:16)。\n\n已通过 `./gradlew.bat build` 构建验证，JAR 已生成。",
   "tasks": [],
   "files": [
     {
-      "path": "README.md",
+      "path": "src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/qiandao/lang/en_us.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/qiandao/lang/zh_cn.json",
       "purpose": "外部代理修改"
     }
   ],
   "tests": [],
   "warnings": [],
-  "snapshotId": "2026-08-18T08-26-38-313Z",
+  "snapshotId": "2026-08-18T08-44-15-870Z",
   "buildVerified": false,
   "runtimeVerified": false
 }

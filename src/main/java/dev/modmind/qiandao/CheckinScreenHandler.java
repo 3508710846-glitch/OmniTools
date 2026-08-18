@@ -7,6 +7,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -97,8 +98,14 @@ public final class CheckinScreenHandler extends ChestMenu {
         refreshContents(serverPlayer, currentDate);
         broadcastChanges();
         if (result.newlySigned()) {
+            serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             serverPlayer.displayClientMessage(
                     Component.translatable("message.qiandao.success", result.stats().todayOrdinal()), true);
+            Component broadcastMessage = result.stats().todayOrdinal() == 1
+                    ? Component.translatable("message.qiandao.broadcast.first", serverPlayer.getName())
+                    : Component.translatable("message.qiandao.broadcast", serverPlayer.getName(),
+                    result.stats().todayOrdinal());
+            serverPlayer.level().getServer().getPlayerList().broadcastSystemMessage(broadcastMessage, false);
         } else {
             serverPlayer.displayClientMessage(Component.translatable("message.qiandao.already_signed"), true);
         }
