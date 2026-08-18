@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "qiandao",
+  "version": "${version}",
+  "name": "qiandao",
+  "description": "A persistent daily check-in GUI for Fabric.",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.modmind.qiandao.ModMindEntry"
+    ],
+    "client": [
+      "dev.modmind.qiandao.ModMindClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": "*",
+    "minecraft": "1.21.11",
+    "java": ">=21"
+  }
+}

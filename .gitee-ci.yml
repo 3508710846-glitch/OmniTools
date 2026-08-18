@@ -1,0 +1,13 @@
+stages:
+  - build
+
+build:
+  stage: build
+  script:
+    - chmod +x gradlew
+    - ./gradlew build --no-daemon --stacktrace
+  artifacts:
+    name: modmind
+    paths:
+      - build/libs/*.jar
+    expire_in: 30 days

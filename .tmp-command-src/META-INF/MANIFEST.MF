@@ -1,0 +1,23 @@
+Manifest-Version: 1.0
+Fabric-Jar-Type: sources
+Fabric-Loom-Client-Only-Entries: fabric-command-api-v2.client.mixins.jso
+ n;net/fabricmc/fabric/api/client/command/v2/ClientCommandManager.java;n
+ et/fabricmc/fabric/api/client/command/v2/ClientCommandRegistrationCallb
+ ack.java;net/fabricmc/fabric/api/client/command/v2/FabricClientCommandS
+ ource.java;net/fabricmc/fabric/api/client/command/v2/package-info.java;
+ net/fabricmc/fabric/impl/command/client/ClientCommandInternals.java;net
+ /fabricmc/fabric/impl/command/client/package-info.java;net/fabricmc/fab
+ ric/mixin/command/client/ClientPacketListenerMixin.java;net/fabricmc/fa
+ bric/mixin/command/client/ClientSuggestionProviderMixin.java;net/fabric
+ mc/fabric/mixin/command/client/package-info.java
+Fabric-Loom-Split-Environment: true
+Fabric-Gradle-Version: 9.1.0
+Fabric-Loom-Version: 1.13.3
+Fabric-Mixin-Compile-Extensions-Version: 0.6.0
+Fabric-Minecraft-Version: 1.21.11
+Fabric-Tiny-Remapper-Version: 0.12.0
+Fabric-Loader-Version: 0.17.3
+Fabric-Mixin-Version: 0.16.5+mixin.0.8.7
+Fabric-Mixin-Group: net.fabricmc
+Fabric-Mapping-Namespace: intermediary
+

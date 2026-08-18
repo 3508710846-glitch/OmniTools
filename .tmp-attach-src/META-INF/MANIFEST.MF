@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Fabric-Jar-Type: sources
+Fabric-Loom-Client-Only-Entries: fabric-data-attachment-api-v1.client.mi
+ xins.json;net/fabricmc/fabric/impl/attachment/client/AttachmentSyncClie
+ nt.java;net/fabricmc/fabric/impl/attachment/client/package-info.java;ne
+ t/fabricmc/fabric/mixin/attachment/client/ClientPacketListenerMixin.jav
+ a;net/fabricmc/fabric/mixin/attachment/client/package-info.java
+Fabric-Loom-Split-Environment: true
+Fabric-Gradle-Version: 9.1.0
+Fabric-Loom-Version: 1.13.3
+Fabric-Mixin-Compile-Extensions-Version: 0.6.0
+Fabric-Minecraft-Version: 1.21.11
+Fabric-Tiny-Remapper-Version: 0.12.0
+Fabric-Loader-Version: 0.17.3
+Fabric-Mixin-Version: 0.16.5+mixin.0.8.7
+Fabric-Mixin-Group: net.fabricmc
+Fabric-Mapping-Namespace: intermediary
+

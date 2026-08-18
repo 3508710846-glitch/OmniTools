@@ -1,0 +1,19 @@
+{
+  "gui.qiandao.title": "Daily Check-in",
+  "gui.qiandao.day": "Day %d",
+  "gui.qiandao.date": "%d/%d",
+  "gui.qiandao.empty": "",
+  "gui.qiandao.status.signed": "Checked in",
+  "gui.qiandao.status.today": "Click to check in today",
+  "gui.qiandao.status.missed": "Not checked in",
+  "gui.qiandao.status.future": "Not available yet",
+  "gui.qiandao.profile": "%s's check-in stats",
+  "gui.qiandao.profile.ordinal": "Today's position: #%d",
+  "gui.qiandao.profile.ordinal_waiting": "Expected position: #%d",
+  "gui.qiandao.profile.total": "Total days: %d",
+  "gui.qiandao.profile.streak": "Current streak: %d days",
+  "message.qiandao.success": "Check-in complete! You are #%d today.",
+  "message.qiandao.already_signed": "You have already checked in today.",
+  "message.qiandao.only_today": "Only today's date can be checked in.",
+  "message.qiandao.invalid_date": "The check-in date changed; the menu was refreshed."
+}

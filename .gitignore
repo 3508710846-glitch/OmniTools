@@ -1,0 +1,7 @@
+.gradle/
+build/
+run/
+run-*/
+logs/
+.modmind/
+.modtool/

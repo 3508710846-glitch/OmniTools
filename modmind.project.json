@@ -1,0 +1,14 @@
+{
+  "name": "qiandao",
+  "loader": "fabric",
+  "minecraftVersion": "1.21.11",
+  "kind": "mod",
+  "namespace": "qiandao",
+  "path": "D:\\mod\\qiandao",
+  "createdAt": "2026-08-18T05:18:03.251Z",
+  "loaderVersion": "0.19.3",
+  "apiVersion": "0.141.6+1.21.11",
+  "javaVersion": 21,
+  "projectVersion": "1.1.3",
+  "toolDataDirectory": ".modmind"
+}

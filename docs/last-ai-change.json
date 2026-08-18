@@ -1,0 +1,62 @@
+{
+  "prompt": "做一个签到mod，玩家可以通过指令打开签到GUI（这个GUI大小为5*9，前四行为签到日期格子，最后一行的中间显示当前玩家的头颅，玩家鼠标悬浮在上面可以看到今天是第几个签到的人、累计签到的天数、连续签到的天数）。\n玩家可以点击当前日期的格子，完成签到\n玩家点击日期槽位时，从服务器端校验槽位索引是否对应当前日期，并执行签到逻辑。如果当天已签到，显示附魔书；如果未签到，显示普通书。",
+  "backend": "quota",
+  "createdAt": "2026-08-18T08:04:36.342Z",
+  "summary": "签到 Mod 已完成：\n\n- `/qiandao`、`/qiandao open`、`/checkin` 打开 5×9 GUI。\n- 前四行显示当月日期，当前日期由服务端校验槽位；已签到显示附魔书，未签到显示普通书。\n- 底部中间显示玩家头颅，悬浮可查看今日序号、累计签到天数和连续签到天数。\n- 使用世界 `SavedData` 持久化签到记录，并处理重复签到、连续签到和跨午夜刷新。\n- 详见 [CheckinScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java) 与 [CheckinData.java](D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java)。\n\n验证：`.\\gradlew.bat clean build` 构建成功，产物位于 [qiandao-0.1.0.jar](D:/mod/qiandao/build/libs/qiandao-0.1.0.jar)。",
+  "tasks": [],
+  "files": [
+    {
+      "path": "README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug.log",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/latest.log",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/server.properties",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/qiandao/lang/en_us.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/qiandao/lang/zh_cn.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-18-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-18-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-18-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-2.log.gz",
+      "purpose": "外部代理修改"
+    }
+  ],
+  "tests": [],
+  "warnings": [],
+  "snapshotId": "2026-08-18T07-25-48-191Z",
+  "buildVerified": false,
+  "runtimeVerified": false
+}
