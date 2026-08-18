@@ -11,8 +11,11 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -22,6 +25,8 @@ public final class CheckinData extends SavedData {
     private static final String DATA_ID = ModMindEntry.MOD_ID + "_data";
     private static final String PLAYERS_KEY = "players";
     private static final String DAILY_SIGNERS_KEY = "daily_signers";
+    private static final String SIGN_IN_TIMES_KEY = "sign_in_times";
+    private static final String LAST_KNOWN_NAME_KEY = "last_known_name";
 
     public static final SavedDataType<CheckinData> TYPE = new SavedDataType<>(
             DATA_ID,
@@ -49,7 +54,19 @@ public final class CheckinData extends SavedData {
     }
 
     public synchronized SignInResult signIn(UUID playerId, long day) {
+        return signIn(playerId, day, "", System.currentTimeMillis());
+    }
+
+    public synchronized SignInResult signIn(UUID playerId, long day, String playerName) {
+        return signIn(playerId, day, playerName, System.currentTimeMillis());
+    }
+
+    public synchronized SignInResult signIn(UUID playerId, long day, String playerName, long signedAt) {
         PlayerRecord record = players.computeIfAbsent(playerId, ignored -> new PlayerRecord());
+        if (playerName != null && !playerName.isBlank() && !playerName.equals(record.lastKnownName)) {
+            record.lastKnownName = playerName;
+            setDirty();
+        }
         if (record.signedDays.contains(day)) {
             return new SignInResult(false, getStats(playerId, day));
         }
@@ -57,6 +74,7 @@ public final class CheckinData extends SavedData {
         int ordinal = dailySigners.merge(day, 1, Integer::sum);
         record.signedDays.add(day);
         record.signInOrdinals.put(day, ordinal);
+        record.signInTimes.put(day, signedAt);
         record.totalDays++;
         record.streakDays = record.lastSignedDay == day - 1 ? record.streakDays + 1 : 1;
         record.lastSignedDay = day;
@@ -82,6 +100,72 @@ public final class CheckinData extends SavedData {
         return record != null && record.signedDays.contains(day);
     }
 
+    public synchronized int clearToday() {
+        return clearDay(today().toEpochDay());
+    }
+
+    public synchronized int clearDay(long day) {
+        int clearedPlayers = 0;
+        for (PlayerRecord record : players.values()) {
+            if (!record.signedDays.remove(day)) {
+                continue;
+            }
+            record.signInOrdinals.remove(day);
+            record.signInTimes.remove(day);
+            record.totalDays = Math.max(0, record.totalDays - 1);
+            rebuildLatestStats(record);
+            clearedPlayers++;
+        }
+        boolean hadDailyCount = dailySigners.remove(day) != null;
+        if (clearedPlayers > 0 || hadDailyCount) {
+            setDirty();
+        }
+        return clearedPlayers;
+    }
+
+    public synchronized List<DailySignInRecord> getDailyRecords(long day) {
+        List<DailySignInRecord> records = new ArrayList<>();
+        for (Map.Entry<UUID, PlayerRecord> entry : players.entrySet()) {
+            PlayerRecord record = entry.getValue();
+            if (!record.signedDays.contains(day)) {
+                continue;
+            }
+            records.add(new DailySignInRecord(
+                    entry.getKey(),
+                    record.lastKnownName,
+                    record.signInOrdinals.getOrDefault(day, 0),
+                    record.signInTimes.getOrDefault(day, 0L)));
+        }
+        // Legacy records have no timestamp and necessarily precede records created after this feature.
+        records.sort(Comparator
+                .comparingLong((DailySignInRecord record) -> record.signedAt() > 0L
+                        ? record.signedAt() : Long.MIN_VALUE)
+                .thenComparingInt(DailySignInRecord::ordinal)
+                .thenComparing(record -> record.playerId().toString()));
+        return List.copyOf(records);
+    }
+
+    private static void rebuildLatestStats(PlayerRecord record) {
+        if (record.signedDays.isEmpty()) {
+            record.lastSignedDay = Long.MIN_VALUE;
+            record.streakDays = 0;
+            return;
+        }
+
+        long latestDay = Long.MIN_VALUE;
+        for (long signedDay : record.signedDays) {
+            latestDay = Math.max(latestDay, signedDay);
+        }
+        int streak = 1;
+        long cursor = latestDay;
+        while (cursor > Long.MIN_VALUE && record.signedDays.contains(cursor - 1)) {
+            cursor--;
+            streak++;
+        }
+        record.lastSignedDay = latestDay;
+        record.streakDays = streak;
+    }
+
     private static CheckinData fromTag(CompoundTag root) {
         CheckinData data = new CheckinData();
         CompoundTag playerTags = root.getCompoundOrEmpty(PLAYERS_KEY);
@@ -101,6 +185,15 @@ public final class CheckinData extends SavedData {
                         // Ignore malformed day keys.
                     }
                 }
+                CompoundTag timeTags = playerTag.getCompoundOrEmpty(SIGN_IN_TIMES_KEY);
+                for (String dayKey : timeTags.keySet()) {
+                    try {
+                        record.signInTimes.put(Long.parseLong(dayKey), timeTags.getLongOr(dayKey, 0L));
+                    } catch (NumberFormatException ignored) {
+                        // Ignore malformed day keys.
+                    }
+                }
+                record.lastKnownName = playerTag.getStringOr(LAST_KNOWN_NAME_KEY, "");
                 record.totalDays = playerTag.getIntOr("total_days", record.signedDays.size());
                 record.streakDays = playerTag.getIntOr("streak_days", 0);
                 record.lastSignedDay = playerTag.getLongOr("last_signed_day", Long.MIN_VALUE);
@@ -137,6 +230,12 @@ public final class CheckinData extends SavedData {
                 ordinalTags.putInt(Long.toString(ordinalEntry.getKey()), ordinalEntry.getValue());
             }
             playerTag.put("sign_in_ordinals", ordinalTags);
+            CompoundTag timeTags = new CompoundTag();
+            for (Map.Entry<Long, Long> timeEntry : record.signInTimes.entrySet()) {
+                timeTags.putLong(Long.toString(timeEntry.getKey()), timeEntry.getValue());
+            }
+            playerTag.put(SIGN_IN_TIMES_KEY, timeTags);
+            playerTag.putString(LAST_KNOWN_NAME_KEY, record.lastKnownName);
             playerTags.put(entry.getKey().toString(), playerTag);
         }
         root.put(PLAYERS_KEY, playerTags);
@@ -155,9 +254,14 @@ public final class CheckinData extends SavedData {
     public record SignInResult(boolean newlySigned, PlayerStats stats) {
     }
 
+    public record DailySignInRecord(UUID playerId, String playerName, int ordinal, long signedAt) {
+    }
+
     private static final class PlayerRecord {
         private final Set<Long> signedDays = new HashSet<>();
         private final Map<Long, Integer> signInOrdinals = new HashMap<>();
+        private final Map<Long, Long> signInTimes = new HashMap<>();
+        private String lastKnownName = "";
         private int totalDays;
         private int streakDays;
         private long lastSignedDay = Long.MIN_VALUE;

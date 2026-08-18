@@ -1,0 +1,12 @@
+{
+  "version": "0.1.1",
+  "displayName": "qiandao 0.1.1",
+  "summary": "",
+  "changelog": "",
+  "autoBump": true,
+  "bumpMode": "patch",
+  "channel": "release",
+  "modrinthProjectId": "",
+  "curseForgeProjectId": "",
+  "githubRepository": ""
+}

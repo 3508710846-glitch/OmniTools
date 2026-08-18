@@ -7,6 +7,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -28,6 +29,7 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static final int ROWS = 5;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int DATE_SLOT_COUNT = 4 * 9;
+    public static final int RECORDS_SLOT = DATE_SLOT_COUNT;
     public static final int PROFILE_SLOT = 4 * 9 + 4;
     public static final MenuType<CheckinScreenHandler> TYPE = Registry.register(
             BuiltInRegistries.MENU,
@@ -75,6 +77,10 @@ public final class CheckinScreenHandler extends ChestMenu {
                 || !ownerId.equals(serverPlayer.getUUID())) {
             return;
         }
+        if (slotId == RECORDS_SLOT && clickType == ClickType.PICKUP) {
+            openRecordsMenu(serverPlayer);
+            return;
+        }
         if (slotId >= DATE_SLOT_COUNT || clickType != ClickType.PICKUP) {
             return;
         }
@@ -93,7 +99,8 @@ public final class CheckinScreenHandler extends ChestMenu {
         }
 
         CheckinData data = CheckinData.get(serverPlayer);
-        CheckinData.SignInResult result = data.signIn(serverPlayer.getUUID(), currentDate.toEpochDay());
+        CheckinData.SignInResult result = data.signIn(
+                serverPlayer.getUUID(), currentDate.toEpochDay(), serverPlayer.getGameProfile().name());
         refreshContents(serverPlayer, currentDate);
         broadcastChanges();
         if (result.newlySigned()) {
@@ -157,6 +164,13 @@ public final class CheckinScreenHandler extends ChestMenu {
             }
         }
 
+        ItemStack recordsButton = new ItemStack(Items.CLOCK);
+        recordsButton.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.records.button")
+                .withStyle(ChatFormatting.GOLD));
+        recordsButton.set(DataComponents.LORE, new ItemLore(List.of(
+                Component.translatable("gui.qiandao.records.button_hint"))));
+        checkinContainer.setItem(RECORDS_SLOT, recordsButton);
+
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
         profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.profile", owner.getName()));
@@ -171,6 +185,12 @@ public final class CheckinScreenHandler extends ChestMenu {
                         ? "gui.qiandao.status.signed"
                         : "gui.qiandao.status.today"))));
         checkinContainer.setItem(PROFILE_SLOT, profile);
+    }
+
+    private static void openRecordsMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> CheckinRecordsScreenHandler.createServer(syncId, inventory, player),
+                Component.translatable("gui.qiandao.records.title")));
     }
 
     private static LocalDate today() {

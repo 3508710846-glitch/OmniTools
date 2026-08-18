@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -18,6 +19,7 @@ public final class ModMindEntry implements ModInitializer {
     @Override
     public void onInitialize() {
         CheckinScreenHandler.register();
+        CheckinRecordsScreenHandler.register();
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             LocalDate date = CheckinData.today();
@@ -29,12 +31,29 @@ public final class ModMindEntry implements ModInitializer {
             var command = Commands.literal("qiandao")
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
-                            .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())));
+                            .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())))
+                    .then(clearCommand());
             dispatcher.register(command);
             dispatcher.register(Commands.literal("checkin")
-                    .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())));
+                    .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
+                    .then(clearCommand()));
         });
         System.out.println("[ModMind] qiandao initialized");
+    }
+
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
+        return Commands.literal("clear")
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .executes(context -> clearToday(context.getSource()))
+                .then(Commands.literal("today")
+                        .executes(context -> clearToday(context.getSource())));
+    }
+
+    private static int clearToday(CommandSourceStack source) {
+        int clearedPlayers = CheckinData.get(source.getServer()).clearToday();
+        source.sendSuccess(() -> Component.translatable(
+                "command.qiandao.clear.success", clearedPlayers), true);
+        return 1;
     }
 
     private static void sendCheckinReminder(ServerPlayer player) {
@@ -46,7 +65,7 @@ public final class ModMindEntry implements ModInitializer {
         player.sendSystemMessage(Component.translatable("message.qiandao.join_reminder.prefix").append(action));
     }
 
-    private static int openCheckinMenu(ServerPlayer player) {
+    static int openCheckinMenu(ServerPlayer player) {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.title")));

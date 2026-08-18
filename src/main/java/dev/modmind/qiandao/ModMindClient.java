@@ -7,5 +7,6 @@ public final class ModMindClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         MenuScreens.register(CheckinScreenHandler.TYPE, CheckinScreen::new);
+        MenuScreens.register(CheckinRecordsScreenHandler.TYPE, CheckinRecordsScreen::new);
     }
 }
