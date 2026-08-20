@@ -35,6 +35,15 @@
   "gui.qiandao.online_reward.available": "\u5f53\u524d\u53ef\u9886\u53d6\u5956\u52b1",
   "gui.qiandao.online_reward.claimed": "\u5df2\u9886\u53d6",
   "gui.qiandao.online_reward.coins": "\u5956\u52b1\uff1a%d\u8d27\u5e01",
+  "gui.qiandao.shop.title": "\u7b7e\u5230\u5546\u5e97",
+  "gui.qiandao.shop.previous": "\u4e0a\u4e00\u9875",
+  "gui.qiandao.shop.previous_hint": "\u67e5\u770b\u4e0a\u4e00\u9875\u5546\u54c1",
+  "gui.qiandao.shop.next": "\u4e0b\u4e00\u9875",
+  "gui.qiandao.shop.next_hint": "\u67e5\u770b\u4e0b\u4e00\u9875\u5546\u54c1",
+  "gui.qiandao.shop.balance_title": "\u5f53\u524d\u8d27\u5e01",
+  "gui.qiandao.shop.balance": "\u4f59\u989d\uff1a%d",
+  "gui.qiandao.shop.page": "\u7b2c%d/%d\u9875",
+  "gui.qiandao.shop.price": "\u4ef7\u683c\uff1a%d \u8d27\u5e01",
   "gui.qiandao.record.rank": "\u7b7e\u5230\u540d\u6b21\uff1a\u7b2c%d\u540d",
   "gui.qiandao.record.time": "\u7b7e\u5230\u65f6\u95f4\uff1a%s",
   "gui.qiandao.record.time_unknown": "\u7b7e\u5230\u65f6\u95f4\uff1a\u672a\u77e5",
@@ -54,9 +63,11 @@
   "message.qiandao.online_reward.broadcast": "\u73a9\u5bb6%s\u9886\u53d6\u4e86\u5728\u7ebf%d\u5206\u949f\u5956\u52b1\uff0c\u83b7\u5f97%d\u8d27\u5e01\uff01",
   "message.qiandao.online_reward.already_claimed": "\u8be5\u5728\u7ebf\u65f6\u957f\u5956\u52b1\u5df2\u9886\u53d6\u3002",
   "message.qiandao.online_reward.not_ready": "\u5f53\u524d\u5728\u7ebf\u65f6\u95f4\u4e0d\u8db3\uff0c\u6682\u65f6\u4e0d\u53ef\u9886\u53d6\u3002",
+  "message.qiandao.shop.insufficient": "\u8d27\u5e01\u4e0d\u8db3\uff1a\u9700\u8981%d\uff0c\u5f53\u524d%d\u3002",
+  "message.qiandao.shop.purchased": "\u8d2d\u4e70\u6210\u529f\uff1a\u5df2\u83b7\u5f97%d\u4e2a\u5546\u54c1\uff0c\u6d88\u8d39%d\u8d27\u5e01\uff08\u4f59\u989d\uff1a%d\uff09\u3002",
   "command.qiandao.balance.self": "\u4f60\u7684\u8d27\u5e01\u4f59\u989d\uff1a%d",
   "command.qiandao.balance.other": "\u73a9\u5bb6%s\u7684\u8d27\u5e01\u4f59\u989d\uff1a%d",
   "command.qiandao.currency.add": "\u5df2\u589e\u52a0%d\u8d27\u5e01\u7ed9%s\uff0c\u5f53\u524d\u4f59\u989d\uff1a%d",
   "command.qiandao.currency.remove": "\u5df2\u6263\u9664%d\u8d27\u5e01\uff08\u73a9\u5bb6%s\uff09\uff0c\u5f53\u524d\u4f59\u989d\uff1a%d",
-  "command.qiandao.reload.success": "\u5df2\u91cd\u8f7d\u8d27\u5e01\u5956\u52b1\u914d\u7f6e：%s"
+  "command.qiandao.reload.success": "\u5df2\u91cd\u8f7d\u5956\u52b1\u4e0e\u5546\u5e97\u914d\u7f6e\uff1a%s\u3001%s"
 }

@@ -25,16 +25,19 @@ public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
     private static CheckinRewardService rewardService;
     private static OnlineTimeRewardService onlineTimeRewardService;
+    private static ShopConfig shopConfig = ShopConfig.empty();
 
     @Override
     public void onInitialize() {
         CheckinScreenHandler.register();
         CheckinRecordsScreenHandler.register();
         OnlineTimeRewardScreenHandler.register();
+        ShopScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.load();
             onlineTimeRewardService = new OnlineTimeRewardService();
         });
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
         ServerTickEvents.END_SERVER_TICK.register(server -> onlineTimeRewardService().tick(server));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -53,6 +56,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(Commands.literal("open")
                             .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())))
                     .then(onlineTimeCommand())
+                    .then(shopCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -71,6 +75,7 @@ public final class ModMindEntry implements ModInitializer {
             dispatcher.register(Commands.literal("checkin")
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(onlineTimeCommand())
+                    .then(shopCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -100,11 +105,22 @@ public final class ModMindEntry implements ModInitializer {
         return onlineTimeRewardService;
     }
 
+    static ShopConfig shopConfig() {
+        return shopConfig;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("rewards")
                         .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> shopCommand() {
+        return Commands.literal("shop")
+                .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open")
+                        .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
@@ -205,8 +221,9 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int reloadRewards(CommandSourceStack source) {
         rewardService().reload();
+        shopConfig = ShopConfig.load(source.getServer().registryAccess());
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
-                CheckinRewardConfig.path().toString()), true);
+                CheckinRewardConfig.path().toString(), ShopConfig.path().toString()), true);
         return 1;
     }
 
@@ -230,6 +247,14 @@ public final class ModMindEntry implements ModInitializer {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> OnlineTimeRewardScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.online_reward.menu_title")));
+        return 1;
+    }
+
+    static int openShopMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> ShopScreenHandler.createServer(syncId, inventory, player,
+                        shopConfig(), 0),
+                Component.translatable("gui.qiandao.shop.title")));
         return 1;
     }
 }

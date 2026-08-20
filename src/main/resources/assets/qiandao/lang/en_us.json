@@ -35,6 +35,15 @@
   "gui.qiandao.online_reward.available": "Reward available",
   "gui.qiandao.online_reward.claimed": "Claimed",
   "gui.qiandao.online_reward.coins": "Reward: %d currency",
+  "gui.qiandao.shop.title": "Check-in Shop",
+  "gui.qiandao.shop.previous": "Previous page",
+  "gui.qiandao.shop.previous_hint": "View the previous page of products",
+  "gui.qiandao.shop.next": "Next page",
+  "gui.qiandao.shop.next_hint": "View the next page of products",
+  "gui.qiandao.shop.balance_title": "Current currency",
+  "gui.qiandao.shop.balance": "Balance: %d",
+  "gui.qiandao.shop.page": "Page %d/%d",
+  "gui.qiandao.shop.price": "Price: %d currency",
   "gui.qiandao.record.rank": "Check-in rank: #%d",
   "gui.qiandao.record.time": "Check-in time: %s",
   "gui.qiandao.record.time_unknown": "Check-in time: unknown",
@@ -54,9 +63,11 @@
   "message.qiandao.online_reward.broadcast": "Player %s claimed the %d minute online reward: %d currency!",
   "message.qiandao.online_reward.already_claimed": "This online-time reward has already been claimed.",
   "message.qiandao.online_reward.not_ready": "You have not been online long enough to claim this reward.",
+  "message.qiandao.shop.insufficient": "Insufficient currency: need %d, current balance %d.",
+  "message.qiandao.shop.purchased": "Purchase complete: received %d item(s), spent %d currency (balance: %d).",
   "command.qiandao.balance.self": "Your currency balance: %d",
   "command.qiandao.balance.other": "%s's currency balance: %d",
   "command.qiandao.currency.add": "Added %d currency to %s (balance: %d).",
   "command.qiandao.currency.remove": "Removed %d currency from %s (balance: %d).",
-  "command.qiandao.reload.success": "Reloaded currency reward config: %s"
+  "command.qiandao.reload.success": "Reloaded reward and shop configs: %s, %s"
 }
