@@ -14,6 +14,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -22,7 +23,10 @@ import net.minecraft.world.item.component.ResolvableProfile;
 import net.minecraft.world.flag.FeatureFlags;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 public final class CheckinScreenHandler extends ChestMenu {
@@ -31,6 +35,7 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static final int DATE_SLOT_COUNT = 4 * 9;
     public static final int RECORDS_SLOT = DATE_SLOT_COUNT;
     public static final int PROFILE_SLOT = 4 * 9 + 4;
+    private static final int NEXT_CHECKIN_SECONDS_DATA_SLOT = 1;
     public static final MenuType<CheckinScreenHandler> TYPE = Registry.register(
             BuiltInRegistries.MENU,
             Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, "checkin"),
@@ -38,7 +43,11 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     private final SimpleContainer checkinContainer;
     private final UUID ownerId;
+    private final DataSlot openedDayData = addDataSlot(DataSlot.standalone());
+    private final DataSlot nextCheckinSeconds = addDataSlot(DataSlot.standalone());
     private LocalDate openedDate;
+    private long nextCheckinDeadlineMillis;
+    private long clientCountdownDeadlineNanos;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -62,6 +71,28 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static CheckinScreenHandler createServer(int syncId, Inventory inventory, ServerPlayer owner) {
         LocalDate openedDate = today();
         return new CheckinScreenHandler(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), owner, openedDate);
+    }
+
+    public LocalDate getOpenedDate() {
+        int syncedEpochDay = openedDayData.get();
+        return syncedEpochDay > 0 ? LocalDate.ofEpochDay(syncedEpochDay) : (openedDate == null ? today() : openedDate);
+    }
+
+    public boolean hasSignedToday() {
+        if (getSecondsUntilNextCheckin() == 0L) {
+            return false;
+        }
+        int todaySlot = getOpenedDate().getDayOfMonth() - 1;
+        return todaySlot >= 0 && todaySlot < DATE_SLOT_COUNT
+                && checkinContainer.getItem(todaySlot).is(Items.ENCHANTED_BOOK);
+    }
+
+    public String getTimeUntilNextCheckin() {
+        long remainingSeconds = getSecondsUntilNextCheckin();
+        long hours = remainingSeconds / 3_600L;
+        long minutes = (remainingSeconds % 3_600L) / 60L;
+        long seconds = remainingSeconds % 60L;
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds);
     }
 
     @Override
@@ -123,8 +154,25 @@ public final class CheckinScreenHandler extends ChestMenu {
         return ItemStack.EMPTY;
     }
 
+    @Override
+    public void setData(int id, int value) {
+        super.setData(id, value);
+        if (ownerId == null && id == NEXT_CHECKIN_SECONDS_DATA_SLOT) {
+            clientCountdownDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(Math.max(0, value));
+        }
+    }
+
+    @Override
+    public void broadcastChanges() {
+        if (ownerId != null) {
+            updateCountdown();
+        }
+        super.broadcastChanges();
+    }
+
     private void refreshContents(ServerPlayer owner, LocalDate date) {
         this.openedDate = date;
+        updateCheckinDeadline(date);
         CheckinData data = CheckinData.get(owner);
         CheckinData.PlayerStats stats = data.getStats(owner.getUUID(), date.toEpochDay());
         int daysInMonth = date.lengthOfMonth();
@@ -133,23 +181,28 @@ public final class CheckinScreenHandler extends ChestMenu {
             if (day <= daysInMonth) {
                 LocalDate slotDate = date.withDayOfMonth(day);
                 boolean signed = data.hasSigned(owner.getUUID(), slotDate.toEpochDay());
+                String statusKey;
+                ChatFormatting statusColor;
+                if (day == date.getDayOfMonth()) {
+                    statusKey = signed ? "gui.qiandao.status.signed" : "gui.qiandao.status.today";
+                    statusColor = signed ? ChatFormatting.GREEN : ChatFormatting.YELLOW;
+                } else if (day < date.getDayOfMonth()) {
+                    statusKey = signed ? "gui.qiandao.status.signed" : "gui.qiandao.status.missed";
+                    statusColor = signed ? ChatFormatting.GREEN : ChatFormatting.RED;
+                } else {
+                    statusKey = "gui.qiandao.status.future";
+                    statusColor = ChatFormatting.DARK_GRAY;
+                }
                 stack = new ItemStack(signed ? Items.ENCHANTED_BOOK : Items.BOOK);
                 if (signed) {
                     stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
                 }
                 stack.set(DataComponents.CUSTOM_NAME, Component.translatable(
-                        "gui.qiandao.day", day).withStyle(signed ? ChatFormatting.GREEN : ChatFormatting.WHITE));
-                String statusKey;
-                if (day == date.getDayOfMonth()) {
-                    statusKey = signed ? "gui.qiandao.status.signed" : "gui.qiandao.status.today";
-                } else if (day < date.getDayOfMonth()) {
-                    statusKey = signed ? "gui.qiandao.status.signed" : "gui.qiandao.status.missed";
-                } else {
-                    statusKey = "gui.qiandao.status.future";
-                }
+                        "gui.qiandao.day", day).withStyle(statusColor, ChatFormatting.BOLD));
                 stack.set(DataComponents.LORE, new ItemLore(List.of(
-                        Component.translatable("gui.qiandao.date", date.getMonthValue(), day),
-                        Component.translatable(statusKey))));
+                        Component.translatable("gui.qiandao.date", date.getMonthValue(), day)
+                                .withStyle(ChatFormatting.GRAY),
+                        Component.translatable(statusKey).withStyle(statusColor))));
             } else {
                 stack = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
                 stack.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.empty"));
@@ -167,24 +220,28 @@ public final class CheckinScreenHandler extends ChestMenu {
 
         ItemStack recordsButton = new ItemStack(Items.CLOCK);
         recordsButton.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.records.button")
-                .withStyle(ChatFormatting.GOLD));
+                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
         recordsButton.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.qiandao.records.button_hint"))));
+                Component.translatable("gui.qiandao.records.button_hint").withStyle(ChatFormatting.GRAY))));
         checkinContainer.setItem(RECORDS_SLOT, recordsButton);
 
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
-        profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.profile", owner.getName()));
+        profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.profile", owner.getName())
+                .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD));
         String ordinalKey = stats.signedToday()
                 ? "gui.qiandao.profile.ordinal"
                 : "gui.qiandao.profile.ordinal_waiting";
         profile.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable(ordinalKey, stats.todayOrdinal()),
-                Component.translatable("gui.qiandao.profile.total", stats.totalDays()),
-                Component.translatable("gui.qiandao.profile.streak", stats.streakDays()),
+                Component.translatable(ordinalKey, stats.todayOrdinal()).withStyle(ChatFormatting.GOLD),
+                Component.translatable("gui.qiandao.profile.total", stats.totalDays())
+                        .withStyle(ChatFormatting.AQUA),
+                Component.translatable("gui.qiandao.profile.streak", stats.streakDays())
+                        .withStyle(ChatFormatting.LIGHT_PURPLE),
                 Component.translatable(stats.signedToday()
                         ? "gui.qiandao.status.signed"
-                        : "gui.qiandao.status.today"))));
+                        : "gui.qiandao.status.today")
+                        .withStyle(stats.signedToday() ? ChatFormatting.GREEN : ChatFormatting.YELLOW))));
         checkinContainer.setItem(PROFILE_SLOT, profile);
     }
 
@@ -196,5 +253,24 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     private static LocalDate today() {
         return CheckinData.today();
+    }
+
+    private void updateCheckinDeadline(LocalDate date) {
+        openedDayData.set(Math.toIntExact(date.toEpochDay()));
+        nextCheckinDeadlineMillis = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        updateCountdown();
+    }
+
+    private void updateCountdown() {
+        long remainingMillis = Math.max(0L, nextCheckinDeadlineMillis - System.currentTimeMillis());
+        nextCheckinSeconds.set(Math.toIntExact((remainingMillis + 999L) / 1_000L));
+    }
+
+    private long getSecondsUntilNextCheckin() {
+        if (ownerId != null || clientCountdownDeadlineNanos == 0L) {
+            return Math.max(0L, nextCheckinSeconds.get());
+        }
+        long remainingNanos = clientCountdownDeadlineNanos - System.nanoTime();
+        return Math.max(0L, (remainingNanos + TimeUnit.SECONDS.toNanos(1L) - 1L) / TimeUnit.SECONDS.toNanos(1L));
     }
 }

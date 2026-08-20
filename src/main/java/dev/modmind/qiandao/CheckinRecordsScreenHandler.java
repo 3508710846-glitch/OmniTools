@@ -123,23 +123,27 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
 
         recordsContainer.setItem(BACK_SLOT, namedItem(
                 Items.ARROW,
-                Component.translatable("gui.qiandao.records.back"),
-                List.of(Component.translatable("gui.qiandao.records.back_hint"))));
+                Component.translatable("gui.qiandao.records.back").withStyle(ChatFormatting.GOLD),
+                List.of(Component.translatable("gui.qiandao.records.back_hint").withStyle(ChatFormatting.GRAY))));
         if (page > 0) {
             recordsContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(
                     Items.ARROW,
-                    Component.translatable("gui.qiandao.records.previous"),
-                    List.of(Component.translatable("gui.qiandao.records.previous_hint"))));
+                    Component.translatable("gui.qiandao.records.previous").withStyle(ChatFormatting.AQUA),
+                    List.of(Component.translatable("gui.qiandao.records.previous_hint")
+                            .withStyle(ChatFormatting.GRAY))));
         }
         recordsContainer.setItem(PAGE_INFO_SLOT, namedItem(
                 Items.PAPER,
-                Component.translatable("gui.qiandao.records.page", page + 1, pageCount),
-                List.of(Component.translatable("gui.qiandao.records.total", records.size()))));
+                Component.translatable("gui.qiandao.records.page", page + 1, pageCount)
+                        .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD),
+                List.of(Component.translatable("gui.qiandao.records.total", records.size())
+                        .withStyle(ChatFormatting.GRAY))));
         if (page + 1 < pageCount) {
             recordsContainer.setItem(NEXT_PAGE_SLOT, namedItem(
                     Items.ARROW,
-                    Component.translatable("gui.qiandao.records.next"),
-                    List.of(Component.translatable("gui.qiandao.records.next_hint"))));
+                    Component.translatable("gui.qiandao.records.next").withStyle(ChatFormatting.AQUA),
+                    List.of(Component.translatable("gui.qiandao.records.next_hint")
+                            .withStyle(ChatFormatting.GRAY))));
         }
     }
 
@@ -156,14 +160,20 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
         if (playerName == null || playerName.isBlank()) {
             playerName = recordedPlayer == null ? record.playerId().toString() : recordedPlayer.getGameProfile().name();
         }
-        head.set(DataComponents.CUSTOM_NAME, Component.literal(playerName).withStyle(ChatFormatting.AQUA));
+        head.set(DataComponents.CUSTOM_NAME, Component.literal(playerName)
+                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
 
         int rank = record.ordinal() > 0 ? record.ordinal() : displayRank;
-        Component time = record.signedAt() > 0L
+        ChatFormatting rankColor = rank == 1 ? ChatFormatting.GOLD
+                : rank == 2 ? ChatFormatting.GRAY
+                : rank == 3 ? ChatFormatting.DARK_AQUA
+                : ChatFormatting.YELLOW;
+        Component time = (record.signedAt() > 0L
                 ? Component.translatable("gui.qiandao.record.time", formatTime(record.signedAt()))
-                : Component.translatable("gui.qiandao.record.time_unknown");
+                : Component.translatable("gui.qiandao.record.time_unknown"))
+                .withStyle(ChatFormatting.GRAY);
         head.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.qiandao.record.rank", rank),
+                Component.translatable("gui.qiandao.record.rank", rank).withStyle(rankColor, ChatFormatting.BOLD),
                 time)));
         return head;
     }
@@ -175,7 +185,8 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
     }
 
     private static ItemStack emptySlot() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, Component.translatable("gui.qiandao.empty"), List.of());
+        return namedItem(Items.GRAY_STAINED_GLASS_PANE,
+                Component.translatable("gui.qiandao.empty").withStyle(ChatFormatting.DARK_GRAY), List.of());
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name,

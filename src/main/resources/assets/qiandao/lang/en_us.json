@@ -1,5 +1,7 @@
 {
   "gui.qiandao.title": "Daily Check-in",
+  "gui.qiandao.month": "%d-%02d",
+  "gui.qiandao.next_checkin": "Next check-in in: %s",
   "gui.qiandao.day": "Day %d",
   "gui.qiandao.date": "%d/%d",
   "gui.qiandao.empty": "",
@@ -15,6 +17,7 @@
   "gui.qiandao.records.button": "View today's check-ins",
   "gui.qiandao.records.button_hint": "View today's check-in order and times",
   "gui.qiandao.records.title": "Today's Check-in Records",
+  "gui.qiandao.records.subtitle": "Today",
   "gui.qiandao.records.back": "Back to check-in",
   "gui.qiandao.records.back_hint": "Return to the check-in screen",
   "gui.qiandao.records.previous": "Previous page",
