@@ -15,6 +15,7 @@
 - 签到成功播放音效，并向全服广播签到名次。
 - 使用世界持久化数据保存签到记录，服务器重启后数据仍然保留，所有维度共享同一份记录。
 - 管理员可以清除当天的全部签到；清除后签到记录、当天名次和当天时间都会移除，玩家可以重新签到。
+- 每次成功签到都会发放每日奖励；连续签到第 3、5、10、15、25 天还会额外发放阶段奖励，奖励可通过服务器配置改为物品或命令。
 
 ## 运行环境
 
@@ -70,6 +71,45 @@
 ### 加入提醒
 
 玩家加入服务器时，若当天尚未签到，聊天栏会显示“点击签到”文本。点击该文本会执行 `/qiandao` 并打开签到界面；已经签到的玩家不会重复收到这条提醒。
+
+### 签到奖励
+
+玩家首次完成当天签到后，会立刻获得每日签到奖励。连续签到达到 3、5、10、15、25 天时，会在当天奖励之外再获得对应的连续签到奖励；同一天重复点击不会重复发放。
+
+服务器首次启动本模组时会创建 `config/qiandao-rewards.json`。默认配置会发放 2 个面包，并分别在第 3、5、10、15、25 天额外发放铁锭、金锭、钻石、绿宝石和下界合金碎片。修改后重启服务器即可应用新奖励。
+
+配置包含 `dailyRewards` 和 `streakRewards` 两部分。以下是展示物品奖励与命令奖励混用方式的示例，可按需替换生成的默认配置：
+
+```json
+{
+  "dailyRewards": [
+    { "type": "item", "item": "minecraft:bread", "count": 2 },
+    { "type": "command", "command": "effect give {player} minecraft:regeneration 5 0 true" }
+  ],
+  "streakRewards": {
+    "3": [
+      { "type": "item", "item": "minecraft:iron_ingot", "count": 3 }
+    ],
+    "5": [
+      { "type": "command", "command": "your_currency_mod add {player} 100" }
+    ],
+    "10": [
+      { "type": "item", "item": "minecraft:diamond", "count": 2 }
+    ],
+    "15": [
+      { "type": "item", "item": "minecraft:emerald", "count": 8 }
+    ],
+    "25": [
+      { "type": "item", "item": "minecraft:netherite_scrap", "count": 2 }
+    ]
+  }
+}
+```
+
+- 物品奖励使用 `type: "item"`，`item` 为命名空间物品 ID，`count` 必须是 1 到 256 的整数。数量超过单组上限时会自动拆分；背包满时物品会掉落在玩家脚下。
+- 命令奖励使用 `type: "command"`。命令不需要写 `/`，由服务器以最高权限、签到玩家为命令实体执行。
+- 命令中的 `{player}` 会替换为签到玩家名称；由于命令实体就是签到玩家，也可以使用 `@s`。例如效果命令可写为 `effect give @s minecraft:speed 30 0 true`。
+- 无效物品 ID 或执行失败的命令会记录到服务器日志，并跳过该奖励，不会阻止签到数据保存或其他奖励发放。
 
 ## 管理员命令
 
@@ -134,6 +174,8 @@ src/main/java/dev/modmind/qiandao/
 ├── ModMindEntry.java                 # 模组初始化、加入提醒和命令注册
 ├── ModMindClient.java                # 客户端菜单界面注册
 ├── CheckinData.java                  # 世界持久化签到数据和统计逻辑
+├── CheckinRewardConfig.java           # 奖励配置读取、校验与默认配置生成
+├── CheckinRewardService.java          # 物品与命令奖励发放
 ├── CheckinScreenHandler.java         # 签到菜单、日期槽位和服务端校验
 ├── CheckinScreen.java                # 签到界面渲染
 ├── CheckinRecordsScreenHandler.java  # 今日记录菜单、排序、分页和头颅物品

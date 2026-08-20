@@ -3,6 +3,7 @@ package dev.modmind.qiandao;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -15,11 +16,13 @@ import java.time.LocalDate;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
+    private static CheckinRewardService rewardService;
 
     @Override
     public void onInitialize() {
         CheckinScreenHandler.register();
         CheckinRecordsScreenHandler.register();
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> rewardService = CheckinRewardService.load());
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             LocalDate date = CheckinData.today();
@@ -39,6 +42,13 @@ public final class ModMindEntry implements ModInitializer {
                     .then(clearCommand()));
         });
         System.out.println("[ModMind] qiandao initialized");
+    }
+
+    static CheckinRewardService rewardService() {
+        if (rewardService == null) {
+            rewardService = CheckinRewardService.load();
+        }
+        return rewardService;
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {

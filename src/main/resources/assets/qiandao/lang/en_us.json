@@ -27,6 +27,8 @@
   "gui.qiandao.record.time": "Check-in time: %s",
   "gui.qiandao.record.time_unknown": "Check-in time: unknown",
   "command.qiandao.clear.success": "Cleared today's check-in for %d players. They can check in again.",
+  "message.qiandao.reward.daily": "Daily check-in reward received.",
+  "message.qiandao.reward.streak": "%d-day streak reward received.",
   "message.qiandao.success": "Check-in complete! You are #%d today.",
   "message.qiandao.broadcast.first": "Player %s was the first to check in today!",
   "message.qiandao.broadcast": "Player %s was #%d to check in today!",

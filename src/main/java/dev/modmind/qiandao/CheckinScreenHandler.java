@@ -107,6 +107,7 @@ public final class CheckinScreenHandler extends ChestMenu {
             serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             serverPlayer.displayClientMessage(
                     Component.translatable("message.qiandao.success", result.stats().todayOrdinal()), true);
+            ModMindEntry.rewardService().grant(serverPlayer, result.stats().streakDays());
             Component broadcastMessage = result.stats().todayOrdinal() == 1
                     ? Component.translatable("message.qiandao.broadcast.first", serverPlayer.getName())
                     : Component.translatable("message.qiandao.broadcast", serverPlayer.getName(),
