@@ -138,7 +138,7 @@ public final class CheckinScreenHandler extends ChestMenu {
             serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             serverPlayer.displayClientMessage(
                     Component.translatable("message.qiandao.success", result.stats().todayOrdinal()), true);
-            ModMindEntry.rewardService().grant(serverPlayer, result.stats().streakDays());
+            ModMindEntry.rewardService().grant(serverPlayer, result);
             Component broadcastMessage = result.stats().todayOrdinal() == 1
                     ? Component.translatable("message.qiandao.broadcast.first", serverPlayer.getName())
                     : Component.translatable("message.qiandao.broadcast", serverPlayer.getName(),
@@ -238,6 +238,10 @@ public final class CheckinScreenHandler extends ChestMenu {
                         .withStyle(ChatFormatting.AQUA),
                 Component.translatable("gui.qiandao.profile.streak", stats.streakDays())
                         .withStyle(ChatFormatting.LIGHT_PURPLE),
+                Component.translatable("gui.qiandao.profile.monthly", stats.monthlyDays())
+                        .withStyle(ChatFormatting.YELLOW),
+                Component.translatable("gui.qiandao.profile.balance", data.getBalance(owner.getUUID()))
+                        .withStyle(ChatFormatting.GOLD),
                 Component.translatable(stats.signedToday()
                         ? "gui.qiandao.status.signed"
                         : "gui.qiandao.status.today")

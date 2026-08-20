@@ -10,6 +10,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,6 +28,8 @@ public final class CheckinData extends SavedData {
     private static final String DAILY_SIGNERS_KEY = "daily_signers";
     private static final String SIGN_IN_TIMES_KEY = "sign_in_times";
     private static final String LAST_KNOWN_NAME_KEY = "last_known_name";
+    private static final String BALANCE_KEY = "balance";
+    private static final String MONTHLY_REWARDS_KEY = "monthly_rewards";
 
     public static final SavedDataType<CheckinData> TYPE = new SavedDataType<>(
             DATA_ID,
@@ -68,7 +71,7 @@ public final class CheckinData extends SavedData {
             setDirty();
         }
         if (record.signedDays.contains(day)) {
-            return new SignInResult(false, getStats(playerId, day));
+            return new SignInResult(false, day, getStats(playerId, day));
         }
 
         int ordinal = dailySigners.merge(day, 1, Integer::sum);
@@ -79,20 +82,90 @@ public final class CheckinData extends SavedData {
         record.streakDays = record.lastSignedDay == day - 1 ? record.streakDays + 1 : 1;
         record.lastSignedDay = day;
         setDirty();
-        return new SignInResult(true, new PlayerStats(true, ordinal, record.totalDays, record.streakDays));
+        return new SignInResult(true, day, new PlayerStats(true, ordinal, record.totalDays, record.streakDays,
+                monthDayCount(record, LocalDate.ofEpochDay(day))));
     }
 
     public synchronized PlayerStats getStats(UUID playerId, long day) {
         PlayerRecord record = players.get(playerId);
         if (record == null) {
-            return new PlayerStats(false, dailySigners.getOrDefault(day, 0) + 1, 0, 0);
+            return new PlayerStats(false, dailySigners.getOrDefault(day, 0) + 1, 0, 0, 0);
         }
         boolean signed = record.signedDays.contains(day);
         int ordinal = signed
                 ? record.signInOrdinals.getOrDefault(day, dailySigners.getOrDefault(day, 1))
                 : dailySigners.getOrDefault(day, 0) + 1;
         int visibleStreak = signed || record.lastSignedDay == day - 1 ? record.streakDays : 0;
-        return new PlayerStats(signed, Math.max(ordinal, 1), record.totalDays, visibleStreak);
+        return new PlayerStats(signed, Math.max(ordinal, 1), record.totalDays, visibleStreak,
+                monthDayCount(record, LocalDate.ofEpochDay(day)));
+    }
+
+    public synchronized long getBalance(UUID playerId) {
+        PlayerRecord record = players.get(playerId);
+        return record == null ? 0L : record.balance;
+    }
+
+    public synchronized long addCurrency(UUID playerId, long amount, String playerName) {
+        requireNonNegative(amount);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        record.balance = saturatingAdd(record.balance, amount);
+        setDirty();
+        return record.balance;
+    }
+
+    /** Removes up to {@code amount} and returns the amount actually removed. */
+    public synchronized long removeCurrency(UUID playerId, long amount, String playerName) {
+        requireNonNegative(amount);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        long removed = Math.min(record.balance, amount);
+        record.balance -= removed;
+        setDirty();
+        return removed;
+    }
+
+    public synchronized boolean claimMonthlyReward(UUID playerId, YearMonth month, int days, String playerName) {
+        if (days <= 0) {
+            throw new IllegalArgumentException("Monthly reward threshold must be positive");
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        boolean claimed = record.claimedMonthlyRewards.add(month + ":" + days);
+        if (claimed) {
+            setDirty();
+        }
+        return claimed;
+    }
+
+    private PlayerRecord getOrCreateRecord(UUID playerId, String playerName) {
+        PlayerRecord record = players.computeIfAbsent(playerId, ignored -> new PlayerRecord());
+        if (playerName != null && !playerName.isBlank() && !playerName.equals(record.lastKnownName)) {
+            record.lastKnownName = playerName;
+            setDirty();
+        }
+        return record;
+    }
+
+    private static int monthDayCount(PlayerRecord record, LocalDate date) {
+        YearMonth month = YearMonth.from(date);
+        int count = 0;
+        for (long signedDay : record.signedDays) {
+            if (YearMonth.from(LocalDate.ofEpochDay(signedDay)).equals(month)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static void requireNonNegative(long amount) {
+        if (amount < 0L) {
+            throw new IllegalArgumentException("Currency amount must not be negative");
+        }
+    }
+
+    private static long saturatingAdd(long left, long right) {
+        if (right > Long.MAX_VALUE - left) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
     }
 
     public synchronized boolean hasSigned(UUID playerId, long day) {
@@ -194,6 +267,9 @@ public final class CheckinData extends SavedData {
                     }
                 }
                 record.lastKnownName = playerTag.getStringOr(LAST_KNOWN_NAME_KEY, "");
+                record.balance = Math.max(0L, playerTag.getLongOr(BALANCE_KEY, 0L));
+                CompoundTag claimedTags = playerTag.getCompoundOrEmpty(MONTHLY_REWARDS_KEY);
+                record.claimedMonthlyRewards.addAll(claimedTags.keySet());
                 record.totalDays = playerTag.getIntOr("total_days", record.signedDays.size());
                 record.streakDays = playerTag.getIntOr("streak_days", 0);
                 record.lastSignedDay = playerTag.getLongOr("last_signed_day", Long.MIN_VALUE);
@@ -236,6 +312,12 @@ public final class CheckinData extends SavedData {
             }
             playerTag.put(SIGN_IN_TIMES_KEY, timeTags);
             playerTag.putString(LAST_KNOWN_NAME_KEY, record.lastKnownName);
+            playerTag.putLong(BALANCE_KEY, record.balance);
+            CompoundTag claimedTags = new CompoundTag();
+            for (String rewardKey : record.claimedMonthlyRewards) {
+                claimedTags.putBoolean(rewardKey, true);
+            }
+            playerTag.put(MONTHLY_REWARDS_KEY, claimedTags);
             playerTags.put(entry.getKey().toString(), playerTag);
         }
         root.put(PLAYERS_KEY, playerTags);
@@ -248,10 +330,10 @@ public final class CheckinData extends SavedData {
         return root;
     }
 
-    public record PlayerStats(boolean signedToday, int todayOrdinal, int totalDays, int streakDays) {
+    public record PlayerStats(boolean signedToday, int todayOrdinal, int totalDays, int streakDays, int monthlyDays) {
     }
 
-    public record SignInResult(boolean newlySigned, PlayerStats stats) {
+    public record SignInResult(boolean newlySigned, long day, PlayerStats stats) {
     }
 
     public record DailySignInRecord(UUID playerId, String playerName, int ordinal, long signedAt) {
@@ -265,5 +347,7 @@ public final class CheckinData extends SavedData {
         private int totalDays;
         private int streakDays;
         private long lastSignedDay = Long.MIN_VALUE;
+        private long balance;
+        private final Set<String> claimedMonthlyRewards = new HashSet<>();
     }
 }

@@ -14,6 +14,8 @@
   "gui.qiandao.profile.ordinal_waiting": "Expected position: #%d",
   "gui.qiandao.profile.total": "Total days: %d",
   "gui.qiandao.profile.streak": "Current streak: %d days",
+  "gui.qiandao.profile.monthly": "This month: %d days",
+  "gui.qiandao.profile.balance": "Currency: %d",
   "gui.qiandao.records.button": "View today's check-ins",
   "gui.qiandao.records.button_hint": "View today's check-in order and times",
   "gui.qiandao.records.title": "Today's Check-in Records",
@@ -30,8 +32,9 @@
   "gui.qiandao.record.time": "Check-in time: %s",
   "gui.qiandao.record.time_unknown": "Check-in time: unknown",
   "command.qiandao.clear.success": "Cleared today's check-in for %d players. They can check in again.",
-  "message.qiandao.reward.daily": "Daily check-in reward received.",
-  "message.qiandao.reward.streak": "%d-day streak reward received.",
+  "message.qiandao.reward.daily": "Daily check-in: +%d currency (balance: %d).",
+  "message.qiandao.reward.monthly": "Check-in rewards: +%d currency (balance: %d).",
+  "message.qiandao.reward.milestones": "Monthly milestones reached: %s days.",
   "message.qiandao.success": "Check-in complete! You are #%d today.",
   "message.qiandao.broadcast.first": "Player %s was the first to check in today!",
   "message.qiandao.broadcast": "Player %s was #%d to check in today!",
@@ -39,5 +42,10 @@
   "message.qiandao.join_reminder.action": "Click to check in",
   "message.qiandao.already_signed": "You have already checked in today.",
   "message.qiandao.only_today": "Only today's date can be checked in.",
-  "message.qiandao.invalid_date": "The check-in date changed; the menu was refreshed."
+  "message.qiandao.invalid_date": "The check-in date changed; the menu was refreshed.",
+  "command.qiandao.balance.self": "Your currency balance: %d",
+  "command.qiandao.balance.other": "%s's currency balance: %d",
+  "command.qiandao.currency.add": "Added %d currency to %s (balance: %d).",
+  "command.qiandao.currency.remove": "Removed %d currency from %s (balance: %d).",
+  "command.qiandao.reload.success": "Reloaded currency reward config: %s"
 }
