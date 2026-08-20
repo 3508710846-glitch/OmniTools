@@ -46,6 +46,18 @@
 
 控制台不能直接打开玩家 GUI，但可以执行管理命令。
 
+### 在线时长奖励
+
+玩家可使用下列命令打开每日在线时长奖励界面：
+
+```text
+/qiandao online
+/qiandao online rewards
+/checkin online
+```
+
+在线时长以服务器实际连接时间累计，并按服务器时区在每日零点重置。奖励格会显示今日已累计分钟数；未达到档位时显示红色未附魔时钟，达到后显示绿色可领取状态，领取后时钟会附魔并向全服广播。每个档位每天只能领取一次。
+
 ### 完成签到
 
 打开界面后，在当前月份找到今天的日期槽位并点击。签到成功后，槽位会变为附魔书，界面显示当天名次，玩家收到奖励并触发广播。重复点击不会重复签到或重复领取奖励。
@@ -74,11 +86,16 @@ config/qiandao-rewards.json
     "10": 1000,
     "15": 2000,
     "25": 5000
-  }
+  },
+  "onlineTimeRewards": [
+    { "minutes": 30, "coins": 50 },
+    { "minutes": 60, "coins": 100 },
+    { "minutes": 120, "coins": 250 }
+  ]
 }
 ```
 
-`dailyCoins` 是每次签到奖励；`monthlyRewards` 的键是本月累计签到天数，奖励在每个自然月中每个里程碑只领取一次。所有数值必须是非负整数，当前支持的里程碑键为 `5`、`10`、`15`、`25`。奖励是模组内部的数字货币，不会生成物品，也不会自动调用其他经济模组。
+`dailyCoins` 是每次签到奖励；`monthlyRewards` 的键是本月累计签到天数，奖励在每个自然月中每个里程碑只领取一次。`onlineTimeRewards` 必须恰好包含三个按 `minutes` 升序排列的档位，`minutes` 为正整数，`coins` 为非负整数。所有奖励都是模组内部的数字货币，不会生成物品，也不会自动调用其他经济模组。
 
 修改后重启服务器，或由有权限的管理员执行：
 
@@ -95,6 +112,7 @@ config/qiandao-rewards.json
 | 用途 | 命令 |
 | --- | --- |
 | 打开签到界面 | `/qiandao`、`/qiandao open`、`/checkin` |
+| 打开在线时长奖励界面 | `/qiandao online`、`/qiandao online rewards`、`/checkin online` |
 | 查询自己的余额 | `/qiandao balance`、`/checkin balance`、`/qiandao currency`、`/qiandao currency balance`、`/qiandao currency get`、`/checkin currency`、`/checkin currency balance`、`/checkin currency get`、`/money`、`/money balance`、`/money get`、`/balance` |
 
 ### 管理员命令

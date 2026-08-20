@@ -25,6 +25,10 @@ public final class CheckinRewardService {
         config = CheckinRewardConfig.load();
     }
 
+    public List<CheckinRewardConfig.OnlineTimeReward> onlineTimeRewards() {
+        return config.onlineTimeRewards();
+    }
+
     public void grant(ServerPlayer player, CheckinData.SignInResult result) {
         if (!result.newlySigned()) {
             return;

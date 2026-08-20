@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -23,24 +24,35 @@ import java.util.Collection;
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
     private static CheckinRewardService rewardService;
+    private static OnlineTimeRewardService onlineTimeRewardService;
 
     @Override
     public void onInitialize() {
         CheckinScreenHandler.register();
         CheckinRecordsScreenHandler.register();
-        ServerLifecycleEvents.SERVER_STARTING.register(server -> rewardService = CheckinRewardService.load());
+        OnlineTimeRewardScreenHandler.register();
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
+            rewardService = CheckinRewardService.load();
+            onlineTimeRewardService = new OnlineTimeRewardService();
+        });
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
+        ServerTickEvents.END_SERVER_TICK.register(server -> onlineTimeRewardService().tick(server));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
+            onlineTimeRewardService().onJoin(player);
             LocalDate date = CheckinData.today();
             if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
                 sendCheckinReminder(player);
             }
         });
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+                onlineTimeRewardService().onDisconnect(handler.getPlayer()));
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var command = Commands.literal("qiandao")
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())))
+                    .then(onlineTimeCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -58,6 +70,7 @@ public final class ModMindEntry implements ModInitializer {
             dispatcher.register(command);
             dispatcher.register(Commands.literal("checkin")
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
+                    .then(onlineTimeCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -78,6 +91,20 @@ public final class ModMindEntry implements ModInitializer {
             rewardService = CheckinRewardService.load();
         }
         return rewardService;
+    }
+
+    static OnlineTimeRewardService onlineTimeRewardService() {
+        if (onlineTimeRewardService == null) {
+            onlineTimeRewardService = new OnlineTimeRewardService();
+        }
+        return onlineTimeRewardService;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
+        return Commands.literal("online")
+                .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("rewards")
+                        .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException())));
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
@@ -196,6 +223,13 @@ public final class ModMindEntry implements ModInitializer {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.title")));
+        return 1;
+    }
+
+    static int openOnlineTimeRewardMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> OnlineTimeRewardScreenHandler.createServer(syncId, inventory, player),
+                Component.translatable("gui.qiandao.online_reward.menu_title")));
         return 1;
     }
 }

@@ -30,6 +30,9 @@ public final class CheckinData extends SavedData {
     private static final String LAST_KNOWN_NAME_KEY = "last_known_name";
     private static final String BALANCE_KEY = "balance";
     private static final String MONTHLY_REWARDS_KEY = "monthly_rewards";
+    private static final String ONLINE_TIME_DAY_KEY = "online_time_day";
+    private static final String ONLINE_TIME_MILLIS_KEY = "online_time_millis";
+    private static final String ONLINE_TIME_REWARDS_KEY = "online_time_rewards";
 
     public static final SavedDataType<CheckinData> TYPE = new SavedDataType<>(
             DATA_ID,
@@ -135,6 +138,45 @@ public final class CheckinData extends SavedData {
         return claimed;
     }
 
+    public synchronized long addOnlineTime(UUID playerId, long day, long milliseconds, String playerName) {
+        requireNonNegative(milliseconds);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.onlineTimeDay != day) {
+            record.onlineTimeDay = day;
+            record.onlineTimeMillis = 0L;
+            record.claimedOnlineTimeRewards.removeIf(key -> !key.startsWith(day + ":"));
+        }
+        if (milliseconds > 0L) {
+            record.onlineTimeMillis = saturatingAdd(record.onlineTimeMillis, milliseconds);
+            setDirty();
+        }
+        return record.onlineTimeMillis;
+    }
+
+    public synchronized long getOnlineTime(UUID playerId, long day) {
+        PlayerRecord record = players.get(playerId);
+        return record != null && record.onlineTimeDay == day ? record.onlineTimeMillis : 0L;
+    }
+
+    public synchronized boolean hasClaimedOnlineTimeReward(UUID playerId, long day, int rewardSlot) {
+        validateOnlineTimeRewardSlot(rewardSlot);
+        PlayerRecord record = players.get(playerId);
+        return record != null && record.claimedOnlineTimeRewards.contains(onlineTimeRewardKey(day, rewardSlot));
+    }
+
+    public synchronized boolean claimOnlineTimeReward(UUID playerId, long day, int rewardSlot, String playerName) {
+        validateOnlineTimeRewardSlot(rewardSlot);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.onlineTimeDay != day) {
+            return false;
+        }
+        boolean claimed = record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, rewardSlot));
+        if (claimed) {
+            setDirty();
+        }
+        return claimed;
+    }
+
     private PlayerRecord getOrCreateRecord(UUID playerId, String playerName) {
         PlayerRecord record = players.computeIfAbsent(playerId, ignored -> new PlayerRecord());
         if (playerName != null && !playerName.isBlank() && !playerName.equals(record.lastKnownName)) {
@@ -166,6 +208,16 @@ public final class CheckinData extends SavedData {
             return Long.MAX_VALUE;
         }
         return left + right;
+    }
+
+    private static void validateOnlineTimeRewardSlot(int rewardSlot) {
+        if (rewardSlot < 0 || rewardSlot >= CheckinRewardConfig.ONLINE_TIME_REWARD_COUNT) {
+            throw new IllegalArgumentException("Online time reward slot is out of range");
+        }
+    }
+
+    private static String onlineTimeRewardKey(long day, int rewardSlot) {
+        return day + ":" + rewardSlot;
     }
 
     public synchronized boolean hasSigned(UUID playerId, long day) {
@@ -270,6 +322,10 @@ public final class CheckinData extends SavedData {
                 record.balance = Math.max(0L, playerTag.getLongOr(BALANCE_KEY, 0L));
                 CompoundTag claimedTags = playerTag.getCompoundOrEmpty(MONTHLY_REWARDS_KEY);
                 record.claimedMonthlyRewards.addAll(claimedTags.keySet());
+                record.onlineTimeDay = playerTag.getLongOr(ONLINE_TIME_DAY_KEY, Long.MIN_VALUE);
+                record.onlineTimeMillis = Math.max(0L, playerTag.getLongOr(ONLINE_TIME_MILLIS_KEY, 0L));
+                CompoundTag onlineClaimedTags = playerTag.getCompoundOrEmpty(ONLINE_TIME_REWARDS_KEY);
+                record.claimedOnlineTimeRewards.addAll(onlineClaimedTags.keySet());
                 record.totalDays = playerTag.getIntOr("total_days", record.signedDays.size());
                 record.streakDays = playerTag.getIntOr("streak_days", 0);
                 record.lastSignedDay = playerTag.getLongOr("last_signed_day", Long.MIN_VALUE);
@@ -318,6 +374,13 @@ public final class CheckinData extends SavedData {
                 claimedTags.putBoolean(rewardKey, true);
             }
             playerTag.put(MONTHLY_REWARDS_KEY, claimedTags);
+            playerTag.putLong(ONLINE_TIME_DAY_KEY, record.onlineTimeDay);
+            playerTag.putLong(ONLINE_TIME_MILLIS_KEY, record.onlineTimeMillis);
+            CompoundTag onlineClaimedTags = new CompoundTag();
+            for (String rewardKey : record.claimedOnlineTimeRewards) {
+                onlineClaimedTags.putBoolean(rewardKey, true);
+            }
+            playerTag.put(ONLINE_TIME_REWARDS_KEY, onlineClaimedTags);
             playerTags.put(entry.getKey().toString(), playerTag);
         }
         root.put(PLAYERS_KEY, playerTags);
@@ -349,5 +412,8 @@ public final class CheckinData extends SavedData {
         private long lastSignedDay = Long.MIN_VALUE;
         private long balance;
         private final Set<String> claimedMonthlyRewards = new HashSet<>();
+        private long onlineTimeDay = Long.MIN_VALUE;
+        private long onlineTimeMillis;
+        private final Set<String> claimedOnlineTimeRewards = new HashSet<>();
     }
 }
