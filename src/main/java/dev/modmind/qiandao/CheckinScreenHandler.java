@@ -35,6 +35,7 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static final int DATE_SLOT_COUNT = 4 * 9;
     public static final int RECORDS_SLOT = DATE_SLOT_COUNT;
     public static final int PROFILE_SLOT = 4 * 9 + 4;
+    public static final int ACHIEVEMENTS_SLOT = CONTAINER_SIZE - 1;
     private static final int NEXT_CHECKIN_SECONDS_DATA_SLOT = 1;
     public static final MenuType<CheckinScreenHandler> TYPE = Registry.register(
             BuiltInRegistries.MENU,
@@ -110,6 +111,10 @@ public final class CheckinScreenHandler extends ChestMenu {
         }
         if (slotId == RECORDS_SLOT && clickType == ClickType.PICKUP) {
             openRecordsMenu(serverPlayer);
+            return;
+        }
+        if (slotId == ACHIEVEMENTS_SLOT && clickType == ClickType.PICKUP) {
+            openAchievementsMenu(serverPlayer);
             return;
         }
         if (slotId >= DATE_SLOT_COUNT || clickType != ClickType.PICKUP) {
@@ -225,6 +230,13 @@ public final class CheckinScreenHandler extends ChestMenu {
                 Component.translatable("gui.qiandao.records.button_hint").withStyle(ChatFormatting.GRAY))));
         checkinContainer.setItem(RECORDS_SLOT, recordsButton);
 
+        ItemStack achievementsButton = new ItemStack(Items.NETHER_STAR);
+        achievementsButton.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.achievements.button")
+                .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD));
+        achievementsButton.set(DataComponents.LORE, new ItemLore(List.of(
+                Component.translatable("gui.qiandao.achievements.button_hint").withStyle(ChatFormatting.GRAY))));
+        checkinContainer.setItem(ACHIEVEMENTS_SLOT, achievementsButton);
+
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
         profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.qiandao.profile", owner.getName())
@@ -253,6 +265,13 @@ public final class CheckinScreenHandler extends ChestMenu {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinRecordsScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.records.title")));
+    }
+
+    private static void openAchievementsMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
+                        ModMindEntry.achievementService(), 0),
+                Component.translatable("gui.qiandao.achievement.title")));
     }
 
     private static LocalDate today() {

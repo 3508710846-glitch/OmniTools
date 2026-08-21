@@ -39,6 +39,7 @@ public final class ModMindEntry implements ModInitializer {
     private static TitleConfig titleConfig = TitleConfig.empty();
     private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
+    private static AchievementService achievementService = AchievementService.empty();
 
     @Override
     public void onInitialize() {
@@ -48,18 +49,23 @@ public final class ModMindEntry implements ModInitializer {
         ShopScreenHandler.register();
         TitleScreenHandler.register();
         CloudStorageScreenHandler.register();
+        AchievementScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.load();
             onlineTimeRewardService = new OnlineTimeRewardService();
             titleConfig = TitleConfig.load();
             titleEffectConfig = TitleEffectConfig.load();
             cloudStorageConfig = CloudStorageConfig.load();
+            achievementService = AchievementService.load();
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             onlineTimeRewardService().tick(server);
             TitleEffectService.tick(server);
+            if (server.getTickCount() % AchievementService.CHECK_INTERVAL_TICKS == 0) {
+                achievementService().checkAll(server);
+            }
         });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
@@ -67,6 +73,7 @@ public final class ModMindEntry implements ModInitializer {
             titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
             TitleDisplayService.refreshPlayer(player);
             TitleEffectService.refresh(player);
+            achievementService().check(player);
             LocalDate date = CheckinData.today();
             if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
                 sendCheckinReminder(player);
@@ -91,6 +98,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(shopCommand())
                     .then(titleCommand())
                     .then(cloudStorageCommand("storage"))
+                    .then(achievementCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -112,6 +120,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(shopCommand())
                     .then(titleCommand())
                     .then(cloudStorageCommand("storage"))
+                    .then(achievementCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -160,6 +169,10 @@ public final class ModMindEntry implements ModInitializer {
         return cloudStorageConfig;
     }
 
+    static AchievementService achievementService() {
+        return achievementService;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
@@ -180,6 +193,13 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> achievementCommand() {
+        return Commands.literal("achievements")
+                .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open")
+                        .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
     }
 
     private static boolean hasCloudStoragePermission(CommandSourceStack source) {
@@ -349,11 +369,13 @@ public final class ModMindEntry implements ModInitializer {
         titleConfig = TitleConfig.load();
         titleEffectConfig = TitleEffectConfig.load();
         cloudStorageConfig = CloudStorageConfig.load();
+        achievementService().reload(source.getServer());
         TitleDisplayService.refreshAll(source.getServer());
         TitleEffectService.refreshAll(source.getServer());
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
                 CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString(),
-                TitleEffectConfig.path().toString(), CloudStorageConfig.path().toString()), true);
+                TitleEffectConfig.path().toString(), CloudStorageConfig.path().toString(),
+                AchievementConfig.path().toString()), true);
         return 1;
     }
 
@@ -414,6 +436,14 @@ public final class ModMindEntry implements ModInitializer {
                 (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
                         cloudStorageConfig(), 0),
                 Component.translatable("gui.qiandao.storage.title")));
+        return 1;
+    }
+
+    static int openAchievementMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
+                        achievementService(), 0),
+                Component.translatable("gui.qiandao.achievement.title")));
         return 1;
     }
 }
