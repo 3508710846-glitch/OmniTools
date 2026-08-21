@@ -554,3 +554,15 @@ effects是一些效果，他的数据类型是数组。
 ## Development request 2026/8/21 17:14:19
 
 根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 18:02:10
+
+README中，关于佩戴称号的效果和效果相关的配置缺失
+
+---
+
+## Development request 2026/8/21 18:47:16
+
+bug：我为一个称号配置了佩戴效果，但是在GUI列表中显示“该称号没有配置效果”，在GUI下方的称号效果开关显示正常

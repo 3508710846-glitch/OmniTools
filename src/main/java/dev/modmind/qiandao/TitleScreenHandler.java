@@ -172,10 +172,12 @@ public final class TitleScreenHandler extends ChestMenu {
             List<Component> lore = new java.util.ArrayList<>();
             lore.add(Component.translatable("gui.qiandao.title.rarity." + title.rarity().serializedName())
                     .withStyle(rarityColor(title.rarity())));
-            if (title.tooltip().isEmpty()) {
+            if (!title.tooltip().isEmpty()) {
+                lore.addAll(title.tooltip().stream().map(TitleScreenHandler::legacyComponent).toList());
+            } else if (title.effects().isEmpty()) {
                 lore.add(Component.translatable("gui.qiandao.title.no_effects").withStyle(ChatFormatting.DARK_GRAY));
             } else {
-                lore.addAll(title.tooltip().stream().map(TitleScreenHandler::legacyComponent).toList());
+                lore.addAll(title.effects().stream().map(TitleScreenHandler::effectComponent).toList());
             }
             lore.add(Component.translatable(selected ? "gui.qiandao.title.selected" : "gui.qiandao.title.select_hint")
                     .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY));
@@ -258,15 +260,18 @@ public final class TitleScreenHandler extends ChestMenu {
         if (!selectedId.isEmpty()) {
             config.definition(selectedId).ifPresent(title -> {
                 for (String effectId : title.effects()) {
-                    Component effectDisplay = ModMindEntry.titleEffectConfig().definition(effectId)
-                            .<Component>map(effect -> legacyComponent(effect.display()))
-                            .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
-                    lore.add(effectDisplay);
+                    lore.add(effectComponent(effectId));
                 }
                 item.set(DataComponents.LORE, new ItemLore(lore));
             });
         }
         return item;
+    }
+
+    private static Component effectComponent(String effectId) {
+        return ModMindEntry.titleEffectConfig().definition(effectId)
+                .<Component>map(effect -> legacyComponent(effect.display()))
+                .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
     }
 
     private static Component legacyComponent(String text) {
