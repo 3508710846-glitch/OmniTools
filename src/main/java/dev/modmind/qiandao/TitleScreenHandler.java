@@ -29,6 +29,7 @@ public final class TitleScreenHandler extends ChestMenu {
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int TITLE_SLOTS = 45;
     public static final int PREVIOUS_PAGE_SLOT = 45;
+    public static final int EFFECTS_SLOT = 47;
     public static final int UNEQUIP_SLOT = 48;
     public static final int PROFILE_SLOT = 49;
     public static final int NEXT_PAGE_SLOT = 53;
@@ -96,7 +97,16 @@ public final class TitleScreenHandler extends ChestMenu {
             if (config.clearSelection(ownerId, serverPlayer.getGameProfile().name())) {
                 serverPlayer.displayClientMessage(Component.translatable("message.qiandao.title.unequipped"), true);
                 TitleDisplayService.refreshPlayer(serverPlayer);
+                TitleEffectService.refresh(serverPlayer);
             }
+            refreshContents();
+            return;
+        }
+        if (slotId == EFFECTS_SLOT) {
+            boolean enabled = config.toggleEffects(ownerId, serverPlayer.getGameProfile().name());
+            serverPlayer.displayClientMessage(Component.translatable(
+                    enabled ? "message.qiandao.title.effects_enabled" : "message.qiandao.title.effects_disabled"), true);
+            TitleEffectService.refresh(serverPlayer);
             refreshContents();
             return;
         }
@@ -117,6 +127,7 @@ public final class TitleScreenHandler extends ChestMenu {
             serverPlayer.displayClientMessage(Component.translatable("message.qiandao.title.equipped", title.displayComponent()), true);
         }
         TitleDisplayService.refreshPlayer(serverPlayer);
+        TitleEffectService.refresh(serverPlayer);
         refreshContents();
     }
 
@@ -158,12 +169,18 @@ public final class TitleScreenHandler extends ChestMenu {
             if (selected) {
                 titleItem.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
             }
-            titleItem.set(DataComponents.LORE, new ItemLore(List.of(
-                    Component.translatable("gui.qiandao.title.rarity." + title.rarity().serializedName())
-                            .withStyle(rarityColor(title.rarity())),
-                    Component.translatable(selected ? "gui.qiandao.title.selected" : "gui.qiandao.title.select_hint")
-                            .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY),
-                    Component.literal(title.id()).withStyle(ChatFormatting.DARK_GRAY))));
+            List<Component> lore = new java.util.ArrayList<>();
+            lore.add(Component.translatable("gui.qiandao.title.rarity." + title.rarity().serializedName())
+                    .withStyle(rarityColor(title.rarity())));
+            if (title.tooltip().isEmpty()) {
+                lore.add(Component.translatable("gui.qiandao.title.no_effects").withStyle(ChatFormatting.DARK_GRAY));
+            } else {
+                lore.addAll(title.tooltip().stream().map(TitleScreenHandler::legacyComponent).toList());
+            }
+            lore.add(Component.translatable(selected ? "gui.qiandao.title.selected" : "gui.qiandao.title.select_hint")
+                    .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY));
+            lore.add(Component.literal(title.id()).withStyle(ChatFormatting.DARK_GRAY));
+            titleItem.set(DataComponents.LORE, new ItemLore(lore));
             titleContainer.setItem(slot, titleItem);
         }
 
@@ -174,7 +191,8 @@ public final class TitleScreenHandler extends ChestMenu {
         }
         titleContainer.setItem(UNEQUIP_SLOT, namedItem(Items.BARRIER,
                 Component.translatable("gui.qiandao.title.unequip").withStyle(ChatFormatting.RED),
-                List.of(Component.translatable("gui.qiandao.title.unequip_hint").withStyle(ChatFormatting.GRAY))));
+                    List.of(Component.translatable("gui.qiandao.title.unequip_hint").withStyle(ChatFormatting.GRAY))));
+        titleContainer.setItem(EFFECTS_SLOT, effectsItem(selectedId));
         titleContainer.setItem(PROFILE_SLOT, profileItem(unlockedTitles.size(), selectedId, page + 1, pageCount));
         if (page + 1 < pageCount) {
             titleContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
@@ -206,6 +224,7 @@ public final class TitleScreenHandler extends ChestMenu {
             return 0;
         }
         int hash = 31 * page + config.selectedTitleId(ownerId).hashCode();
+        hash = 31 * hash + Boolean.hashCode(config.effectsEnabled(ownerId));
         for (TitleConfig.TitleDefinition title : config.unlockedTitles(ownerId)) {
             hash = 31 * hash + title.id().hashCode();
         }
@@ -226,6 +245,32 @@ public final class TitleScreenHandler extends ChestMenu {
 
     private static ItemStack filler() {
         return namedItem(Items.GRAY_STAINED_GLASS_PANE, Component.translatable("gui.qiandao.empty"), List.of());
+    }
+
+    private ItemStack effectsItem(String selectedId) {
+        boolean enabled = config.effectsEnabled(ownerId);
+        List<Component> lore = new java.util.ArrayList<>();
+        lore.add(Component.translatable("gui.qiandao.title.effects_hint").withStyle(ChatFormatting.GRAY));
+        ItemStack item = namedItem(enabled ? Items.LIME_DYE : Items.GRAY_DYE,
+                Component.translatable(enabled ? "gui.qiandao.title.effects_on" : "gui.qiandao.title.effects_off")
+                        .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY),
+                lore);
+        if (!selectedId.isEmpty()) {
+            config.definition(selectedId).ifPresent(title -> {
+                for (String effectId : title.effects()) {
+                    Component effectDisplay = ModMindEntry.titleEffectConfig().definition(effectId)
+                            .<Component>map(effect -> legacyComponent(effect.display()))
+                            .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
+                    lore.add(effectDisplay);
+                }
+                item.set(DataComponents.LORE, new ItemLore(lore));
+            });
+        }
+        return item;
+    }
+
+    private static Component legacyComponent(String text) {
+        return LegacyTitleText.parse(text);
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

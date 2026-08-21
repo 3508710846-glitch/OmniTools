@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import com.mojang.brigadier.arguments.LongArgumentType;
@@ -32,6 +33,7 @@ public final class ModMindEntry implements ModInitializer {
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
     private static TitleConfig titleConfig = TitleConfig.empty();
+    private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
 
     @Override
     public void onInitialize() {
@@ -44,22 +46,34 @@ public final class ModMindEntry implements ModInitializer {
             rewardService = CheckinRewardService.load();
             onlineTimeRewardService = new OnlineTimeRewardService();
             titleConfig = TitleConfig.load();
+            titleEffectConfig = TitleEffectConfig.load();
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
-        ServerTickEvents.END_SERVER_TICK.register(server -> onlineTimeRewardService().tick(server));
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            onlineTimeRewardService().tick(server);
+            TitleEffectService.tick(server);
+        });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             onlineTimeRewardService().onJoin(player);
             titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
             TitleDisplayService.refreshPlayer(player);
+            TitleEffectService.refresh(player);
             LocalDate date = CheckinData.today();
             if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
                 sendCheckinReminder(player);
             }
         });
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
-                onlineTimeRewardService().onDisconnect(handler.getPlayer()));
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            TitleEffectService.remove(handler.getPlayer());
+            onlineTimeRewardService().onDisconnect(handler.getPlayer());
+        });
+        ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
+            TitleEffectService.forget(oldPlayer);
+            TitleDisplayService.refreshPlayer(newPlayer);
+            TitleEffectService.refresh(newPlayer);
+        });
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var command = Commands.literal("qiandao")
@@ -125,6 +139,10 @@ public final class ModMindEntry implements ModInitializer {
 
     static TitleConfig titleConfig() {
         return titleConfig;
+    }
+
+    static TitleEffectConfig titleEffectConfig() {
+        return titleEffectConfig;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
@@ -291,6 +309,7 @@ public final class ModMindEntry implements ModInitializer {
             ServerPlayer onlinePlayer = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
             if (onlinePlayer != null) {
                 TitleDisplayService.refreshPlayer(onlinePlayer);
+                TitleEffectService.refresh(onlinePlayer);
             }
         }
         return profiles.size();
@@ -300,9 +319,12 @@ public final class ModMindEntry implements ModInitializer {
         rewardService().reload();
         shopConfig = ShopConfig.load(source.getServer().registryAccess());
         titleConfig = TitleConfig.load();
+        titleEffectConfig = TitleEffectConfig.load();
         TitleDisplayService.refreshAll(source.getServer());
+        TitleEffectService.refreshAll(source.getServer());
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
-                CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString()), true);
+                CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString(),
+                TitleEffectConfig.path().toString()), true);
         return 1;
     }
 

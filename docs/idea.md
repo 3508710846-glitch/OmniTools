@@ -372,3 +372,185 @@ price：购买所需货币数量（这里为 20）。
 ## Development request 2026/8/21 11:56:49
 
 根据现有玩法，将mod主要内容、指令、模块写到README.md里
+
+---
+
+## Development request 2026/8/21 14:29:15
+
+优化称号系统：
+1.每个称号都会有特殊效果，可以给药水效果，可以提高生命上限，可以解锁某些权限
+2.在称号GUI添加一个效果开关，玩家可以自主开启或关闭已使用称号的效果，即使关闭，称号正常显示。
+3.添加一个配置文件，用于预设效果，例如：
+{
+  "speed_1": {
+    "name": "速度 I",
+    "type": "POTION",
+    "effect": "minecraft:speed",
+    "amplifier": 0,
+    "duration": -1,
+    "display": "§a移动速度提升 20%"
+  },
+  "speed_2": {
+    "name": "速度 II",
+    "type": "POTION",
+    "effect": "minecraft:speed",
+    "amplifier": 1,
+    "duration": -1,
+    "display": "§a移动速度提升 40%"
+  },
+  "health_2": {
+    "name": "生命提升 II",
+    "type": "ATTRIBUTE",
+    "attribute": "minecraft:generic.max_health",
+    "operation": "ADDITION",
+    "amount": 4.0,
+    "display": "§c❤ 生命上限 +4"
+  },
+  "night_vision": {
+    "name": "夜视",
+    "type": "POTION",
+    "effect": "minecraft:night_vision",
+    "amplifier": 0,
+    "duration": -1,
+    "display": "§f👁 永久夜视"
+  },
+  "fire_resistance": {
+    "name": "防火",
+    "type": "POTION",
+    "effect": "minecraft:fire_resistance",
+    "amplifier": 0,
+    "duration": -1,
+    "display": "§6🔥 免疫火焰伤害"
+  },
+  "particle_redstone": {
+    "name": "红石粒子",
+    "type": "PARTICLE",
+    "particle": "minecraft:redstone",
+    "frequency": 10,
+    "display": "§c✨ 行走时飘落红石粒子"
+  }
+}
+这个文件负责定义所有可用的效果，每个效果有唯一的 id。
+然后在称号的配置文件下添加：
+{
+  "id": "legend",
+  "display": "§6[§r传说§6] §r",
+  "rarity": "legendary",
+  "effects": ["resistance_1", "night_vision"],
+  "tooltip": [
+    "§7佩戴效果：",
+    "§a✔ 抗性提升 I（减少所受伤害）",
+    "§a✔ 永久夜视（无需药水）"
+  ]
+}
+其中tooltip是对这个称号的介绍。
+effects是一些效果，他的数据类型是数组。
+如果玩家切换称号，立即去掉前一个称号的效果。
+
+---
+
+## Development request 2026/8/21 15:45:39
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:04:54
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:09:16
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:21:24
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:22:33
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:36:55
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:37:03
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:37:43
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:40:01
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:44:24
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:48:31
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:48:40
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:51:55
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:52:20
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 16:59:51
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 17:13:56
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 17:14:04
+
+根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 17:14:19
+
+根据现有内容，将README.md补充完整

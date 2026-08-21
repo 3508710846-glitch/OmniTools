@@ -1,7 +1,1 @@
-已补齐审计所需证据，未改动 README 或其他项目文件。
-
-- ModMind 受管构建成功，产物：`.modmind/minecraft/mods/modmind-current-project.jar`（112,420 字节）。
-- ModMind 隔离服务端运行测试成功：Fabric 0.19.3 加载 `qiandao 0.1.0`，服务器就绪后稳定运行 15 秒。
-- 运行日志：[runServer-1787285722242.log](D:/mod/qiandao/.modmind/builds/runServer-1787285722242.log)
-
-客户端无界面入口曾在启动器层报 `spawn UNKNOWN`，但服务端受管运行时验证已通过。
+运行时测试已通过：服务端就绪后稳定运行 15 秒。日志位于 [runServer-1787305773075.log](D:/mod/qiandao/.modmind/builds/runServer-1787305773075.log)。

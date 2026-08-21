@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
 public final class TitleConfig {
     public static final String FILE_NAME = "qiandao-titles.json";
     private static final int MAX_TITLE_DISPLAY_LENGTH = 128;
+    private static final int MAX_TOOLTIP_LINE_LENGTH = 256;
     private static final Pattern TITLE_ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
@@ -107,6 +108,19 @@ public final class TitleConfig {
     public synchronized String selectedTitleId(UUID playerId) {
         PlayerTitles titlesForPlayer = players.get(playerId);
         return titlesForPlayer == null ? "" : titlesForPlayer.selected;
+    }
+
+    public synchronized boolean effectsEnabled(UUID playerId) {
+        PlayerTitles titlesForPlayer = players.get(playerId);
+        return titlesForPlayer == null || titlesForPlayer.effectsEnabled;
+    }
+
+    public synchronized boolean toggleEffects(UUID playerId, String playerName) {
+        PlayerTitles titlesForPlayer = player(playerId, playerName);
+        titlesForPlayer.effectsEnabled = !titlesForPlayer.effectsEnabled;
+        updateName(titlesForPlayer, playerName);
+        save();
+        return titlesForPlayer.effectsEnabled;
     }
 
     public synchronized void rememberPlayer(UUID playerId, String playerName) {
@@ -199,7 +213,9 @@ public final class TitleConfig {
                         + MAX_TITLE_DISPLAY_LENGTH + " characters");
             }
             TitleRarity rarity = TitleRarity.parse(requiredString(titleObject, "rarity"));
-            titleDefinitions.put(id, new TitleDefinition(id, display, rarity));
+            List<String> effects = parseEffectIds(titleObject, id);
+            List<String> tooltip = parseStringArray(titleObject, "tooltip", id);
+            titleDefinitions.put(id, new TitleDefinition(id, display, rarity, effects, tooltip));
         }
 
         Map<UUID, PlayerTitles> playerTitles = new LinkedHashMap<>();
@@ -230,7 +246,9 @@ public final class TitleConfig {
                     }
                 }
                 String selected = normalizeId(optionalString(player, "selected"));
-                playerTitles.put(playerId, new PlayerTitles(name == null ? "" : name, titleIds, selected));
+                boolean effectsEnabled = optionalBoolean(player, "effects_enabled", true);
+                playerTitles.put(playerId, new PlayerTitles(name == null ? "" : name, titleIds, selected,
+                        effectsEnabled));
             }
         }
         return new TitleConfig(titleDefinitions, playerTitles);
@@ -238,14 +256,18 @@ public final class TitleConfig {
 
     private static TitleConfig defaults() {
         Map<String, TitleDefinition> definitions = new LinkedHashMap<>();
-        definitions.put("geologist", new TitleDefinition("geologist", "\u00a77[\u00a7r\u5730\u8d28\u5b66\u5bb6\u00a77] \u00a7r", TitleRarity.COMMON));
-        definitions.put("architect", new TitleDefinition("architect", "\u00a7b[\u00a7r\u5efa\u7b51\u5e08\u00a7b] \u00a7r", TitleRarity.RARE));
-        definitions.put("legend", new TitleDefinition("legend", "\u00a76[\u00a7r\u4f20\u8bf4\u00a76] \u00a7r", TitleRarity.LEGENDARY));
+        definitions.put("geologist", new TitleDefinition("geologist", "\u00a77[\u00a7r\u5730\u8d28\u5b66\u5bb6\u00a77] \u00a7r", TitleRarity.COMMON,
+                List.of("health_2"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7c\u2665 \u751f\u547d\u4e0a\u9650 +4")));
+        definitions.put("architect", new TitleDefinition("architect", "\u00a7b[\u00a7r\u5efa\u7b51\u5e08\u00a7b] \u00a7r", TitleRarity.RARE,
+                List.of("speed_1"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u79fb\u52a8\u901f\u5ea6\u63d0\u5347")));
+        definitions.put("legend", new TitleDefinition("legend", "\u00a76[\u00a7r\u4f20\u8bf4\u00a76] \u00a7r", TitleRarity.LEGENDARY,
+                List.of("resistance_1", "night_vision"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u6297\u6027\u63d0\u5347 I", "\u00a7a\u2714 \u6c38\u4e45\u591c\u89c6")));
         return new TitleConfig(definitions, Map.of());
     }
 
     private PlayerTitles player(UUID playerId, String playerName) {
-        return players.computeIfAbsent(playerId, ignored -> new PlayerTitles(cleanName(playerName), new LinkedHashSet<>(), ""));
+        return players.computeIfAbsent(playerId,
+                ignored -> new PlayerTitles(cleanName(playerName), new LinkedHashSet<>(), "", true));
     }
 
     private static boolean updateName(PlayerTitles titlesForPlayer, String playerName) {
@@ -267,6 +289,16 @@ public final class TitleConfig {
                 titleObject.addProperty("id", title.id());
                 titleObject.addProperty("display", title.display());
                 titleObject.addProperty("rarity", title.rarity().serializedName());
+                JsonArray effects = new JsonArray();
+                for (String effectId : title.effects()) {
+                    effects.add(effectId);
+                }
+                titleObject.add("effects", effects);
+                JsonArray tooltip = new JsonArray();
+                for (String line : title.tooltip()) {
+                    tooltip.add(line);
+                }
+                titleObject.add("tooltip", tooltip);
                 definitions.add(titleObject);
             }
             root.add("titles", definitions);
@@ -282,6 +314,7 @@ public final class TitleConfig {
                 }
                 player.add("unlocked", unlocked);
                 player.addProperty("selected", titlesForPlayer.selected);
+                player.addProperty("effects_enabled", titlesForPlayer.effectsEnabled);
                 playerObject.add(entry.getKey().toString(), player);
             }
             root.add("players", playerObject);
@@ -312,6 +345,55 @@ public final class TitleConfig {
         return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
     }
 
+    private static List<String> parseStringArray(JsonObject object, String key, String context) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return List.of();
+        }
+        if (!element.isJsonArray()) {
+            throw new JsonParseException(key + " for " + context + " must be an array");
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonElement value : element.getAsJsonArray()) {
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                throw new JsonParseException(key + " for " + context + " must contain strings");
+            }
+            String text = value.getAsString();
+            if (text.length() > MAX_TOOLTIP_LINE_LENGTH) {
+                throw new JsonParseException(key + " for " + context + " contains an overly long string");
+            }
+            values.add(text);
+        }
+        return List.copyOf(values);
+    }
+
+    private static List<String> parseEffectIds(JsonObject object, String titleId) {
+        List<String> values = parseStringArray(object, "effects", titleId);
+        Set<String> ids = new LinkedHashSet<>();
+        for (String value : values) {
+            String id = normalizeId(value);
+            if (!TITLE_ID.matcher(id).matches()) {
+                throw new JsonParseException("Effect id " + value + " on title " + titleId
+                        + " must match " + TITLE_ID.pattern());
+            }
+            if (!ids.add(id)) {
+                throw new JsonParseException("Effect id " + id + " is configured more than once on title " + titleId);
+            }
+        }
+        return List.copyOf(ids);
+    }
+
+    private static boolean optionalBoolean(JsonObject object, String key, boolean fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
+            throw new JsonParseException(key + " must be a boolean");
+        }
+        return element.getAsBoolean();
+    }
+
     private static String requiredString(JsonObject object, String key) {
         String value = optionalString(object, key);
         if (value == null || value.isBlank()) {
@@ -339,7 +421,13 @@ public final class TitleConfig {
         return name == null ? "" : name.trim();
     }
 
-    public record TitleDefinition(String id, String display, TitleRarity rarity) {
+    public record TitleDefinition(String id, String display, TitleRarity rarity, List<String> effects,
+                                  List<String> tooltip) {
+        public TitleDefinition {
+            effects = effects == null ? List.of() : List.copyOf(effects);
+            tooltip = tooltip == null ? List.of() : List.copyOf(tooltip);
+        }
+
         public Component displayComponent() {
             return LegacyTitleText.parse(display);
         }
@@ -371,11 +459,13 @@ public final class TitleConfig {
         private String name;
         private final Set<String> unlocked;
         private String selected;
+        private boolean effectsEnabled;
 
-        private PlayerTitles(String name, Set<String> unlocked, String selected) {
+        private PlayerTitles(String name, Set<String> unlocked, String selected, boolean effectsEnabled) {
             this.name = cleanName(name);
             this.unlocked = new LinkedHashSet<>(unlocked);
             this.selected = selected == null ? "" : selected;
+            this.effectsEnabled = effectsEnabled;
         }
     }
 }
