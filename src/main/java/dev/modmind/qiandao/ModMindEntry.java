@@ -19,7 +19,9 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.network.chat.ChatType;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
 
@@ -29,11 +31,14 @@ import java.util.Optional;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
+    private static final Permission CLOUD_STORAGE_PERMISSION = Permission.Atom.create(
+            Identifier.fromNamespaceAndPath(MOD_ID, "cloud_storage"));
     private static CheckinRewardService rewardService;
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
     private static TitleConfig titleConfig = TitleConfig.empty();
     private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
+    private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
 
     @Override
     public void onInitialize() {
@@ -42,11 +47,13 @@ public final class ModMindEntry implements ModInitializer {
         OnlineTimeRewardScreenHandler.register();
         ShopScreenHandler.register();
         TitleScreenHandler.register();
+        CloudStorageScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.load();
             onlineTimeRewardService = new OnlineTimeRewardService();
             titleConfig = TitleConfig.load();
             titleEffectConfig = TitleEffectConfig.load();
+            cloudStorageConfig = CloudStorageConfig.load();
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
@@ -83,6 +90,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(onlineTimeCommand())
                     .then(shopCommand())
                     .then(titleCommand())
+                    .then(cloudStorageCommand("storage"))
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -103,6 +111,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(onlineTimeCommand())
                     .then(shopCommand())
                     .then(titleCommand())
+                    .then(cloudStorageCommand("storage"))
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -110,6 +119,8 @@ public final class ModMindEntry implements ModInitializer {
                             .then(targetBalanceArgument())));
             dispatcher.register(walletCommand("money"));
             dispatcher.register(titleCommand());
+            dispatcher.register(cloudStorageCommand("cloudstorage"));
+            dispatcher.register(cloudStorageCommand("cstorage"));
             dispatcher.register(Commands.literal("balance")
                     .executes(context -> queryOwnBalance(context.getSource()))
                     .then(Commands.argument("player", GameProfileArgument.gameProfile())
@@ -145,6 +156,10 @@ public final class ModMindEntry implements ModInitializer {
         return titleEffectConfig;
     }
 
+    static CloudStorageConfig cloudStorageConfig() {
+        return cloudStorageConfig;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
@@ -157,6 +172,19 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> cloudStorageCommand(String literal) {
+        return Commands.literal(literal)
+                .requires(ModMindEntry::hasCloudStoragePermission)
+                .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open")
+                        .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static boolean hasCloudStoragePermission(CommandSourceStack source) {
+        return source.permissions().hasPermission(CLOUD_STORAGE_PERMISSION)
+                || Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(source);
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> titleCommand() {
@@ -320,11 +348,12 @@ public final class ModMindEntry implements ModInitializer {
         shopConfig = ShopConfig.load(source.getServer().registryAccess());
         titleConfig = TitleConfig.load();
         titleEffectConfig = TitleEffectConfig.load();
+        cloudStorageConfig = CloudStorageConfig.load();
         TitleDisplayService.refreshAll(source.getServer());
         TitleEffectService.refreshAll(source.getServer());
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
                 CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString(),
-                TitleEffectConfig.path().toString()), true);
+                TitleEffectConfig.path().toString(), CloudStorageConfig.path().toString()), true);
         return 1;
     }
 
@@ -377,6 +406,14 @@ public final class ModMindEntry implements ModInitializer {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> TitleScreenHandler.createServer(syncId, inventory, player, titleConfig()),
                 Component.translatable("gui.qiandao.title.menu_title")));
+        return 1;
+    }
+
+    static int openCloudStorageMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
+                        cloudStorageConfig(), 0),
+                Component.translatable("gui.qiandao.storage.title")));
         return 1;
     }
 }
