@@ -13,6 +13,9 @@
       "dev.modmind.qiandao.ModMindClient"
     ]
   },
+  "mixins": [
+    "qiandao.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.19.3",
     "fabric-api": "*",

@@ -5,7 +5,9 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.ChatFormatting;
@@ -14,18 +16,22 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.network.chat.ChatType;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
 
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.Optional;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
     private static CheckinRewardService rewardService;
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
+    private static TitleConfig titleConfig = TitleConfig.empty();
 
     @Override
     public void onInitialize() {
@@ -33,9 +39,11 @@ public final class ModMindEntry implements ModInitializer {
         CheckinRecordsScreenHandler.register();
         OnlineTimeRewardScreenHandler.register();
         ShopScreenHandler.register();
+        TitleScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.load();
             onlineTimeRewardService = new OnlineTimeRewardService();
+            titleConfig = TitleConfig.load();
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
@@ -43,6 +51,8 @@ public final class ModMindEntry implements ModInitializer {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             onlineTimeRewardService().onJoin(player);
+            titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
+            TitleDisplayService.refreshPlayer(player);
             LocalDate date = CheckinData.today();
             if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
                 sendCheckinReminder(player);
@@ -50,6 +60,7 @@ public final class ModMindEntry implements ModInitializer {
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
                 onlineTimeRewardService().onDisconnect(handler.getPlayer()));
+        ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var command = Commands.literal("qiandao")
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
@@ -57,6 +68,7 @@ public final class ModMindEntry implements ModInitializer {
                             .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())))
                     .then(onlineTimeCommand())
                     .then(shopCommand())
+                    .then(titleCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -76,12 +88,14 @@ public final class ModMindEntry implements ModInitializer {
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(onlineTimeCommand())
                     .then(shopCommand())
+                    .then(titleCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
                             .executes(context -> queryOwnBalance(context.getSource()))
                             .then(targetBalanceArgument())));
             dispatcher.register(walletCommand("money"));
+            dispatcher.register(titleCommand());
             dispatcher.register(Commands.literal("balance")
                     .executes(context -> queryOwnBalance(context.getSource()))
                     .then(Commands.argument("player", GameProfileArgument.gameProfile())
@@ -109,6 +123,10 @@ public final class ModMindEntry implements ModInitializer {
         return shopConfig;
     }
 
+    static TitleConfig titleConfig() {
+        return titleConfig;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
@@ -121,6 +139,25 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> titleCommand() {
+        return Commands.literal("title")
+                .executes(context -> openTitleMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open")
+                        .executes(context -> openTitleMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("give")
+                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .then(titleChangeArgument(true)))
+                .then(Commands.literal("add")
+                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .then(titleChangeArgument(true)))
+                .then(Commands.literal("remove")
+                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .then(titleChangeArgument(false)))
+                .then(Commands.literal("take")
+                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .then(titleChangeArgument(false)));
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
@@ -175,6 +212,13 @@ public final class ModMindEntry implements ModInitializer {
                         .executes(context -> changeCurrency(context, add)));
     }
 
+    private static com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, ?>
+    titleChangeArgument(boolean give) {
+        return Commands.argument("player", GameProfileArgument.gameProfile())
+                .then(Commands.argument("title", StringArgumentType.word())
+                        .executes(context -> changeTitle(context, give)));
+    }
+
     private static int queryOwnBalance(CommandSourceStack source)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
@@ -219,12 +263,61 @@ public final class ModMindEntry implements ModInitializer {
         return profiles.size();
     }
 
+    private static int changeTitle(CommandContext<CommandSourceStack> context, boolean give)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        String titleId = StringArgumentType.getString(context, "title");
+        Optional<TitleConfig.TitleDefinition> title = titleConfig().definition(titleId);
+        if (title.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("command.qiandao.title.unknown", titleId));
+            return 0;
+        }
+
+        Collection<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player");
+        for (NameAndId profile : profiles) {
+            if (give) {
+                TitleConfig.GrantResult result = titleConfig().grant(profile.id(), profile.name(), titleId);
+                context.getSource().sendSuccess(() -> Component.translatable(
+                        result == TitleConfig.GrantResult.GRANTED
+                                ? "command.qiandao.title.give" : "command.qiandao.title.already_owned",
+                        title.get().displayComponent(), profile.name()), true);
+            } else {
+                TitleConfig.RevokeResult result = titleConfig().revoke(profile.id(), profile.name(), titleId);
+                context.getSource().sendSuccess(() -> Component.translatable(
+                        result == TitleConfig.RevokeResult.REVOKED
+                                ? "command.qiandao.title.remove" : "command.qiandao.title.not_owned",
+                        title.get().displayComponent(), profile.name()), true);
+            }
+
+            ServerPlayer onlinePlayer = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
+            if (onlinePlayer != null) {
+                TitleDisplayService.refreshPlayer(onlinePlayer);
+            }
+        }
+        return profiles.size();
+    }
+
     private static int reloadRewards(CommandSourceStack source) {
         rewardService().reload();
         shopConfig = ShopConfig.load(source.getServer().registryAccess());
+        titleConfig = TitleConfig.load();
+        TitleDisplayService.refreshAll(source.getServer());
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
-                CheckinRewardConfig.path().toString(), ShopConfig.path().toString()), true);
+                CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString()), true);
         return 1;
+    }
+
+    private static boolean broadcastTitledChatMessage(PlayerChatMessage message, ServerPlayer sender, ChatType.Bound parameters) {
+        Optional<TitleConfig.TitleDefinition> title = titleConfig().selectedTitle(sender.getUUID());
+        if (title.isEmpty()) {
+            return true;
+        }
+
+        Component chatMessage = TitleDisplayService.chatName(sender, title.get())
+                .copy()
+                .append(Component.literal(": "))
+                .append(message.decoratedContent());
+        sender.level().getServer().getPlayerList().broadcastSystemMessage(chatMessage, false);
+        return false;
     }
 
     private static void sendCheckinReminder(ServerPlayer player) {
@@ -255,6 +348,13 @@ public final class ModMindEntry implements ModInitializer {
                 (syncId, inventory, ignored) -> ShopScreenHandler.createServer(syncId, inventory, player,
                         shopConfig(), 0),
                 Component.translatable("gui.qiandao.shop.title")));
+        return 1;
+    }
+
+    static int openTitleMenu(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> TitleScreenHandler.createServer(syncId, inventory, player, titleConfig()),
+                Component.translatable("gui.qiandao.title.menu_title")));
         return 1;
     }
 }

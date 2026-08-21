@@ -1,15 +1,17 @@
 # qiandao
 
-`qiandao` 是一个面向 Minecraft Java Edition 的 Fabric 每日签到模组。玩家可以在游戏内打开签到日历，完成当天签到，查看个人统计和全服签到顺序；签到记录、连续天数、虚拟货币余额和月度里程碑奖励均由服务器保存和校验。
+`qiandao` 是一个面向 Minecraft Java Edition 的 Fabric 每日签到模组。玩家可以在游戏内打开签到日历，完成当天签到，查看个人统计和全服签到顺序；签到记录、连续天数、虚拟货币余额、月度里程碑奖励和可配置的称号均由服务器保存和校验。
 
 ## 快速开始
 
 1. 在服务器与每位玩家的客户端安装相同版本的 `qiandao`、Fabric Loader 与 Fabric API。
-2. 启动服务器一次，让模组生成 `config/qiandao-rewards.json` 和 `config/qiandao-shop.json`。
-3. 按需编辑这两个配置文件，并使用 `/qiandao reload` 重新加载，无须重启服务器。
+2. 启动服务器一次，让模组生成 `config/qiandao-rewards.json`、`config/qiandao-shop.json` 和 `config/qiandao-titles.json`。
+3. 按需编辑这三个配置文件，并使用 `/qiandao reload` 重新加载，无须重启服务器。
 4. 玩家使用 `/qiandao` 打开签到日历，使用 `/qiandao online` 领取在线时长奖励，使用 `/qiandao shop` 消费货币。
 
 ## 功能
+
+- 称号系统：管理员可授予或回收称号；玩家可在称号界面选择佩戴。普通、稀有、传说称号分别在聊天、玩家列表和头顶显示，显示范围逐级增加。
 
 - 5×9 签到界面：按月份显示日期，最多显示 31 个日期槽位。
 - 只有服务器当前日期可以签到；过去、未来日期和空白槽位不会修改数据。
@@ -38,8 +40,7 @@
 3. 将 JAR 同时放入服务器和客户端的 `mods/` 目录。
 4. 启动服务器和客户端，并确认日志中出现 `qiandao initialized` 且没有依赖错误。
 
-首次正常启动服务器后，模组会在服务器的 `config/qiandao-rewards.json` 创建默认奖励配置，并在
-`config/qiandao-shop.json` 创建默认商店配置。
+首次正常启动服务器后，模组会在服务器的 `config/qiandao-rewards.json` 创建默认奖励配置，在 `config/qiandao-shop.json` 创建默认商店配置，并在 `config/qiandao-titles.json` 创建默称号配置。
 
 ## 玩家使用
 
@@ -177,6 +178,74 @@ config/qiandao-rewards.json
 
 购买时由服务器再次校验余额与商品配置。扣款成功后，商品优先放入玩家背包；背包无法容纳的剩余部分会掉落在玩家位置。
 
+## 称号
+
+称号独立于签到货币和奖励发放。管理员负责授予与回收，玩家只能在自己已解锁的称号中选择佩戴。所有选择和所有权由服务器保存，重新登录后仍会保留。
+
+### 使用称号
+
+玩家可使用以下任一命令打开“我的称号”界面：
+
+```text
+/qiandao title
+/qiandao title open
+/checkin title
+/checkin title open
+/title
+/title open
+```
+
+界面每页显示最多 45 个已解锁称号。点击称号即可佩戴；再次点击当前已佩戴的称号，或点击底栏的屏障图标，即可卸下。未解锁的称号不会显示在玩家界面中。
+
+| 稀有度 | 聊天 | 玩家列表（Tab） | 头顶名称 |
+| --- | --- | --- | --- |
+| `common`（普通） | 显示 | 不显示 | 不显示 |
+| `rare`（稀有） | 显示 | 显示 | 不显示 |
+| `legendary`（传说） | 显示 | 显示 | 显示 |
+
+佩戴后，聊天消息会带上称号前缀；稀有和传说称号会同步到在线玩家的玩家列表，传说称号还会显示在角色头顶。
+
+### 称号配置
+
+称号配置位于服务端：
+
+```text
+config/qiandao-titles.json
+```
+
+首次启动会生成以下默认定义；`players` 节由模组自动维护，用于保存玩家名、已解锁称号和当前佩戴项。管理员编辑称号定义时应保留该节，避免丢失所有权记录。
+
+```json
+{
+  "titles": [
+    { "id": "geologist", "display": "§7[§r地质学家§7] §r", "rarity": "common" },
+    { "id": "architect", "display": "§b[§r建筑师§b] §r", "rarity": "rare" },
+    { "id": "legend", "display": "§6[§r传说§6] §r", "rarity": "legendary" }
+  ],
+  "players": {}
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 唯一称号 ID。会转为小写，推荐使用 `[a-z0-9_.-]`，长度为 1 至 64 个字符。 |
+| `display` | 游戏中显示的称号文本；必须有可见文字，最长 128 个字符。支持 Minecraft 传统 `§` 格式代码，也支持 `§x§R§R§G§G§B§B` 十六进制颜色。 |
+| `rarity` | 显示范围，使用 `common`、`rare` 或 `legendary`。 |
+| `players` | 模组维护的玩家数据；不应手动覆盖或删除。 |
+
+修改奖励、商店或称号配置后，执行 `/qiandao reload` 即可重新加载三类配置；称号显示会立刻刷新。称号配置格式无效时，当前会话不会提供称号，修正后重新加载即可恢复。
+
+### 称号命令
+
+以下管理命令需要 Minecraft 权限等级 `2`，控制台也可以执行。`<玩家>` 使用 Minecraft 的玩家参数，`<称号ID>` 必须是配置中存在的 ID。
+
+| 用途 | 命令 |
+| --- | --- |
+| 授予称号 | `/qiandao title give <玩家> <称号ID>` 或 `/qiandao title add <玩家> <称号ID>` |
+| 回收称号 | `/qiandao title remove <玩家> <称号ID>` 或 `/qiandao title take <玩家> <称号ID>` |
+
+`/checkin title ...` 与 `/title ...` 也支持同样的 `give`、`add`、`remove`、`take` 子命令。回收当前佩戴的称号时，模组会自动卸下它，并刷新在线玩家的显示。
+
 ## 命令
 
 ### 玩家命令
@@ -186,6 +255,7 @@ config/qiandao-rewards.json
 | 打开签到界面 | `/qiandao`、`/qiandao open`、`/checkin` |
 | 打开在线时长奖励界面 | `/qiandao online`、`/qiandao online rewards`、`/checkin online` |
 | 打开商店 | `/qiandao shop`、`/qiandao shop open`、`/checkin shop`、`/checkin shop open` |
+| 打开称号界面 | `/qiandao title`、`/qiandao title open`、`/checkin title`、`/checkin title open`、`/title`、`/title open` |
 | 查询自己的余额 | `/qiandao balance`、`/checkin balance`、`/qiandao currency`、`/qiandao currency balance`、`/qiandao currency get`、`/checkin currency`、`/checkin currency balance`、`/checkin currency get`、`/money`、`/money balance`、`/money get`、`/balance` |
 
 ### 管理员命令
@@ -198,13 +268,15 @@ config/qiandao-rewards.json
 | 增加余额 | `/qiandao add <玩家> <数量>` | `/qiandao currency add <玩家> <数量>`、`/checkin currency add <玩家> <数量>`、`/money add <玩家> <数量>` |
 | 扣除余额 | `/qiandao remove <玩家> <数量>` | `/qiandao currency <操作> <玩家> <数量>`、`/checkin currency <操作> <玩家> <数量>`、`/money <操作> <玩家> <数量>` |
 | 清除今日签到 | `/qiandao clear` 或 `/qiandao clear today` | `/checkin clear`、`/checkin clear today` |
-| 重新加载奖励和商店配置 | `/qiandao reload` | 无 |
+| 重新加载奖励、商店和称号配置 | `/qiandao reload` | 无 |
 
 `<玩家>` 使用 Minecraft 的玩家选择器参数，可以一次指定多个已知玩家。数量必须是大于 0 的整数；扣除数量不会超过目标玩家当前余额。清除操作只影响服务器当前日期的签到状态、名次和时间，并重新计算连续签到，不会回滚已经发放的货币或月度奖励。
 
 上表中的 `<查询操作>` 可替换为 `balance` 或 `get`；扣除命令中的 `<操作>` 可替换为 `remove`、`deduct` 或 `take`。这些子命令的参数顺序均为玩家选择器后跟正整数数量。
 
 ## 数据与备份
+
+称号定义、玩家已解锁称号与已佩戴项保存在 `config/qiandao-titles.json`。备份或迁移时，请将该文件与世界数据、奖励配置和商店配置一并保留。
 
 签到数据保存在主世界的 Minecraft `SavedData` 中，数据 ID 为 `qiandao_data`，通常对应：
 
@@ -260,6 +332,19 @@ config/qiandao-rewards.json
 提交改动前建议至少运行一次 `build`，确认 Java 21、资源 JSON 和 Fabric 元数据均能正常打包。构建不需要单独安装 Gradle；Wrapper 会使用项目声明的 Minecraft、Fabric Loader 和 Fabric API 版本。
 
 ## 项目结构
+
+### 模块说明
+
+| 模块 | 主要文件 | 职责 |
+| --- | --- | --- |
+| 初始化与命令 | `ModMindEntry` | 注册菜单、生命周期事件、签到提醒、全部指令，以及称号聊天前缀。 |
+| 客户端菜单 | `ModMindClient`、各 `*Screen` | 注册并渲染签到、记录、在线奖励、商店和称号 GUI。 |
+| 签到与记录 | `CheckinData`、`CheckinScreenHandler`、`CheckinRecordsScreenHandler` | 保存签到数据，提供日历、连续天数、名次和今日记录。 |
+| 货币与奖励 | `CheckinRewardConfig`、`CheckinRewardService`、`OnlineTimeRewardService` | 加载每日、月度和在线时长奖励，并以服务端货币余额结算。 |
+| 商店 | `ShopConfig`、`ShopScreenHandler`、`ShopScreen` | 解析商品配置、处理分页和服务端购买校验。 |
+| 称号数据 | `TitleConfig`、`TitleRarity`、`LegacyTitleText` | 读取称号定义，保存玩家所有权与选择，并解析颜色格式文本。 |
+| 称号显示 | `TitleDisplayService`、`ServerPlayerTabListMixin`、`PlayerNameTagMixin` | 将已佩戴称号同步到聊天、Tab 列表和传说称号的头顶名称。 |
+| 称号界面 | `TitleScreenHandler`、`TitleScreen` | 展示已解锁称号、分页、佩戴与卸下操作。 |
 
 ```text
 src/main/java/dev/modmind/qiandao/

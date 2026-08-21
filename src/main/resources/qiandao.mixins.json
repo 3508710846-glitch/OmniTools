@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.modmind.qiandao.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerPlayerTabListMixin"
+  ],
+  "client": [
+    "client.PlayerNameTagMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
