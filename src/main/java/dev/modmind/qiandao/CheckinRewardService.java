@@ -18,11 +18,15 @@ public final class CheckinRewardService {
     }
 
     public static CheckinRewardService load() {
-        return new CheckinRewardService(CheckinRewardConfig.load());
+        return new CheckinRewardService(ModMindEntry.configSnapshot().rewards());
+    }
+
+    public static CheckinRewardService from(CheckinRewardConfig config) {
+        return new CheckinRewardService(config);
     }
 
     public void reload() {
-        config = CheckinRewardConfig.load();
+        config = ModMindEntry.configSnapshot().rewards();
     }
 
     public List<CheckinRewardConfig.OnlineTimeReward> onlineTimeRewards() {

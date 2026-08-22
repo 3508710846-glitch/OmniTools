@@ -56,7 +56,11 @@ public final class CheckinData extends SavedData {
     }
 
     public static LocalDate today() {
-        return LocalDate.now(ZoneId.systemDefault());
+        return LocalDate.now(ModMindEntry.configuredZone());
+    }
+
+    public static LocalDate today(MinecraftServer server) {
+        return LocalDate.now(ModMindEntry.configuredZone(server));
     }
 
     public synchronized SignInResult signIn(UUID playerId, long day) {
@@ -164,6 +168,29 @@ public final class CheckinData extends SavedData {
         return record != null && record.claimedOnlineTimeRewards.contains(onlineTimeRewardKey(day, rewardSlot));
     }
 
+    /** Stable-ID lookup with compatibility for legacy day:slot records. */
+    public synchronized boolean hasClaimedOnlineTimeReward(UUID playerId, long day, String rewardId) {
+        return hasClaimedOnlineTimeReward(playerId, day, rewardId, -1);
+    }
+
+    public synchronized boolean hasClaimedOnlineTimeReward(UUID playerId, long day, String rewardId,
+                                                            int legacySlot) {
+        String normalizedId = normalizeRewardId(rewardId);
+        PlayerRecord record = players.get(playerId);
+        if (record == null) {
+            return false;
+        }
+        if (record.claimedOnlineTimeRewards.contains(onlineTimeRewardKey(day, normalizedId))) {
+            return true;
+        }
+        if (legacySlot >= 0 && record.claimedOnlineTimeRewards.contains(onlineTimeRewardKey(day, legacySlot))) {
+            record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, normalizedId));
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
     public synchronized boolean claimOnlineTimeReward(UUID playerId, long day, int rewardSlot, String playerName) {
         validateOnlineTimeRewardSlot(rewardSlot);
         PlayerRecord record = getOrCreateRecord(playerId, playerName);
@@ -171,6 +198,27 @@ public final class CheckinData extends SavedData {
             return false;
         }
         boolean claimed = record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, rewardSlot));
+        if (claimed) {
+            setDirty();
+        }
+        return claimed;
+    }
+
+    public synchronized boolean claimOnlineTimeReward(UUID playerId, long day, String rewardId, String playerName) {
+        return claimOnlineTimeReward(playerId, day, rewardId, -1, playerName);
+    }
+
+    public synchronized boolean claimOnlineTimeReward(UUID playerId, long day, String rewardId, int legacySlot,
+                                                       String playerName) {
+        String normalizedId = normalizeRewardId(rewardId);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.onlineTimeDay != day) {
+            return false;
+        }
+        if (hasClaimedOnlineTimeReward(playerId, day, normalizedId, legacySlot)) {
+            return false;
+        }
+        boolean claimed = record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, normalizedId));
         if (claimed) {
             setDirty();
         }
@@ -218,6 +266,17 @@ public final class CheckinData extends SavedData {
 
     private static String onlineTimeRewardKey(long day, int rewardSlot) {
         return day + ":" + rewardSlot;
+    }
+
+    private static String onlineTimeRewardKey(long day, String rewardId) {
+        return day + ":" + normalizeRewardId(rewardId);
+    }
+
+    private static String normalizeRewardId(String rewardId) {
+        if (rewardId == null || rewardId.isBlank()) {
+            throw new IllegalArgumentException("Online time reward id must not be blank");
+        }
+        return rewardId.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     public synchronized boolean hasSigned(UUID playerId, long day) {

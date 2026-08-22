@@ -200,6 +200,6 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
     }
 
     private static String formatTime(long signedAt) {
-        return TIME_FORMAT.format(Instant.ofEpochMilli(signedAt).atZone(ZoneId.systemDefault()));
+        return TIME_FORMAT.format(Instant.ofEpochMilli(signedAt).atZone(ModMindEntry.configuredZone()));
     }
 }

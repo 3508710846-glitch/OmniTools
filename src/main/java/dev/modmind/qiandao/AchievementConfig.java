@@ -7,6 +7,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
+import dev.modmind.qiandao.config.ModuleId;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.stats.Stats;
@@ -37,7 +39,7 @@ public final class AchievementConfig {
     private static final int MAX_DISPLAY_LENGTH = 128;
     private static final int MAX_DESCRIPTION_LENGTH = 512;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.ACHIEVEMENTS);
 
     private final List<AchievementDefinition> achievements;
     private final Map<String, AchievementDefinition> byId;
@@ -66,8 +68,8 @@ public final class AchievementConfig {
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". No achievements will be available until the configuration is fixed and reloaded.");
-            return empty();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid achievement configuration", exception);
         }
     }
 
@@ -208,6 +210,7 @@ public final class AchievementConfig {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             JsonArray achievements = new JsonArray();
             for (AchievementDefinition definition : config.achievements) {
                 JsonObject achievement = new JsonObject();

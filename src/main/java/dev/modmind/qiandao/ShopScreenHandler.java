@@ -73,6 +73,12 @@ public final class ShopScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.SHOP)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
         if (slotId < 0 || slotId >= CONTAINER_SIZE) {
             super.clicked(slotId, button, clickType, player);
             return;
@@ -117,6 +123,10 @@ public final class ShopScreenHandler extends ChestMenu {
     }
 
     private void purchase(ServerPlayer player, ShopConfig.ShopItem product) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.SHOP)) {
+            player.closeContainer();
+            return;
+        }
         CheckinData data = CheckinData.get(player);
         long balance = data.getBalance(player.getUUID());
         if (balance < product.price()) {

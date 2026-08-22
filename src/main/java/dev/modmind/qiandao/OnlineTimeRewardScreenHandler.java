@@ -61,6 +61,12 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.ONLINE_REWARD)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
         // Keep the player's inventory usable, but never let UI items be moved out of the menu.
         if (slotId < 0 || slotId >= CONTAINER_SIZE) {
             super.clicked(slotId, button, clickType, player);
@@ -126,12 +132,12 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
             rewardContainer.setItem(slot, filler);
         }
 
-        long day = CheckinData.today().toEpochDay();
+        long day = CheckinData.today(owner.level().getServer()).toEpochDay();
         CheckinData data = CheckinData.get(owner);
         List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
         for (int index = 0; index < REWARD_SLOTS.size() && index < rewards.size(); index++) {
             CheckinRewardConfig.OnlineTimeReward reward = rewards.get(index);
-            boolean claimed = data.hasClaimedOnlineTimeReward(owner.getUUID(), day, index);
+            boolean claimed = data.hasClaimedOnlineTimeReward(owner.getUUID(), day, reward.id(), index);
             boolean canClaim = !claimed && onlineMinutes >= reward.minutes();
             ChatFormatting stateColor = claimed ? ChatFormatting.GOLD
                     : canClaim ? ChatFormatting.GREEN : ChatFormatting.RED;

@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -22,9 +23,10 @@ import java.util.Map;
 public final class CheckinRewardConfig {
     public static final String FILE_NAME = "qiandao-rewards.json";
     public static final List<Integer> MONTHLY_MILESTONES = List.of(5, 10, 15, 25);
+    /** Legacy slot bound retained for reading old day:slot claim keys. */
     public static final int ONLINE_TIME_REWARD_COUNT = 3;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(dev.modmind.qiandao.config.ModuleId.DAILY_CHECKIN);
 
     private final long dailyCoins;
     private final Map<Integer, Long> monthlyRewards;
@@ -52,14 +54,14 @@ public final class CheckinRewardConfig {
             JsonObject object = root.getAsJsonObject();
             CheckinRewardConfig config = parse(object);
             // Replace the pre-currency item/command schema on first load after upgrading.
-            if (!object.has("dailyCoins") || !object.has("monthlyRewards") || !object.has("onlineTimeRewards")) {
+            if (!object.has("dailyCoins") || !object.has("monthlyRewards")) {
                 write(config);
             }
             return config;
         } catch (IOException | JsonParseException | IllegalStateException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". Using built-in currency rewards for this server session.");
-            return defaults();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid daily check-in configuration", exception);
         }
     }
 
@@ -73,6 +75,17 @@ public final class CheckinRewardConfig {
 
     public List<OnlineTimeReward> onlineTimeRewards() {
         return onlineTimeRewards;
+    }
+
+    public static CheckinRewardConfig empty() {
+        return new CheckinRewardConfig(0L, Map.of(), List.of());
+    }
+
+    public static CheckinRewardConfig withOnlineRewards(CheckinRewardConfig daily, OnlineRewardConfig online) {
+        List<OnlineTimeReward> rewards = online.rewards().stream()
+                .map(reward -> new OnlineTimeReward(reward.id(), reward.minutes(), reward.coins()))
+                .toList();
+        return new CheckinRewardConfig(daily.dailyCoins, daily.monthlyRewards, rewards);
     }
 
     public static Path path() {
@@ -97,17 +110,12 @@ public final class CheckinRewardConfig {
     private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root) {
         JsonElement element = root.get("onlineTimeRewards");
         if (element == null) {
-            return defaults().onlineTimeRewards;
+            return List.of();
         }
         if (!element.isJsonArray()) {
             throw new JsonParseException("onlineTimeRewards must be an array");
         }
         JsonArray array = element.getAsJsonArray();
-        if (array.size() != ONLINE_TIME_REWARD_COUNT) {
-            throw new JsonParseException("onlineTimeRewards must contain exactly "
-                    + ONLINE_TIME_REWARD_COUNT + " rewards");
-        }
-
         List<OnlineTimeReward> rewards = new java.util.ArrayList<>();
         int previousMinutes = 0;
         for (int index = 0; index < array.size(); index++) {
@@ -117,11 +125,12 @@ public final class CheckinRewardConfig {
             }
             JsonObject reward = rewardElement.getAsJsonObject();
             int minutes = positiveInt(reward, "minutes");
-            long coins = nonNegativeLong(reward, "coins", defaults().onlineTimeRewards.get(index).coins());
+            long coins = nonNegativeLong(reward, "coins", 0L);
             if (minutes <= previousMinutes) {
                 throw new JsonParseException("onlineTimeRewards must be ordered by distinct minutes");
             }
-            rewards.add(new OnlineTimeReward(minutes, coins));
+            String id = reward.has("id") ? reward.get("id").getAsString() : "online_" + minutes + "m";
+            rewards.add(new OnlineTimeReward(id.trim().toLowerCase(java.util.Locale.ROOT), minutes, coins));
             previousMinutes = minutes;
         }
         return rewards;
@@ -183,27 +192,20 @@ public final class CheckinRewardConfig {
         monthly.put(15, 2_000L);
         monthly.put(25, 5_000L);
         return new CheckinRewardConfig(100L, monthly, List.of(
-                new OnlineTimeReward(30, 50L),
-                new OnlineTimeReward(60, 100L),
-                new OnlineTimeReward(120, 250L)));
+                new OnlineTimeReward("online_30m", 30, 50L),
+                new OnlineTimeReward("online_60m", 60, 100L),
+                new OnlineTimeReward("online_120m", 120, 250L)));
     }
 
     private static void write(CheckinRewardConfig config) {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             root.addProperty("dailyCoins", config.dailyCoins);
             JsonObject monthly = new JsonObject();
             config.monthlyRewards.forEach((days, coins) -> monthly.addProperty(Integer.toString(days), coins));
             root.add("monthlyRewards", monthly);
-            JsonArray onlineTimeRewards = new JsonArray();
-            for (OnlineTimeReward reward : config.onlineTimeRewards) {
-                JsonObject rewardObject = new JsonObject();
-                rewardObject.addProperty("minutes", reward.minutes());
-                rewardObject.addProperty("coins", reward.coins());
-                onlineTimeRewards.add(rewardObject);
-            }
-            root.add("onlineTimeRewards", onlineTimeRewards);
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
@@ -214,6 +216,9 @@ public final class CheckinRewardConfig {
         }
     }
 
-    public record OnlineTimeReward(int minutes, long coins) {
+    public record OnlineTimeReward(String id, int minutes, long coins) {
+        public OnlineTimeReward(int minutes, long coins) {
+            this("online_" + minutes + "m", minutes, coins);
+        }
     }
 }

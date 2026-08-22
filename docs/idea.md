@@ -730,3 +730,1600 @@ GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/qiandao/src/main/ja
 7. 最后验证配置重载、重连、服务器重启、重复点击和无效目标。
 
 做完之后梳理整个项目，将README.md补充完整
+
+---
+
+## Development request 2026/8/22 15:25:29
+
+下面是一份可直接交给工作台的实施规格。目标环境是 Fabric 1.21.11、Java 21、Mojang mappings。
+
+## 一、最终架构
+
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+
+建议改为：
+
+```text
+config/qiandao/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+└── legacy/
+```
+
+`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。
+
+配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。
+
+## 二、主配置文件
+
+建议使用整数格式版本，避免字符串版本比较困难：
+
+```json
+{
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+
+`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
+
+## 三、模块配置格式
+
+| 文件 | 内容 |
+|---|---|
+| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |
+| `online_reward/config.json` | 在线时长奖励数组 |
+| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |
+| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |
+| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |
+| `achievements/config.json` | 成就、原版统计目标和奖励 |
+| `cloud_storage/config.json` | 扩展价格和最大页数 |
+
+建议所有模块文件都带有：
+
+```json
+{
+  "format_version": 1
+}
+```
+
+商店新格式建议从根数组改为：
+
+```json
+{
+  "format_version": 1,
+  "products": []
+}
+```
+
+但解析器必须继续兼容当前的根数组格式。
+
+在线奖励建议改为稳定 ID：
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "coins": 50
+    }
+  ]
+}
+```
+
+## 四、Java 类设计
+
+新增配置基础包：
+
+```text
+dev.modmind.qiandao.config/
+├── QiandaoConfigManager.java
+├── QiandaoConfigSnapshot.java
+├── QiandaoRootConfig.java
+├── ModuleId.java
+├── ModuleStatus.java
+├── ConfigPaths.java
+├── ConfigMigration.java
+└── ConfigValidator.java
+```
+
+职责如下：
+
+- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `QiandaoRootConfig`：解析主配置。
+- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
+- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `ConfigMigration`：迁移旧版配置。
+- `ConfigValidator`：执行模块配置和跨模块引用校验。
+
+现有类建议调整：
+
+```text
+CheckinRewardConfig  -> DailyCheckinConfig
+新增 OnlineRewardConfig
+TitleConfig          -> 只保存称号定义
+新增 TitleData       -> 保存玩家称号状态
+ShopConfig           -> 新路径和新格式
+AchievementConfig   -> 新路径
+TitleEffectConfig   -> 新路径
+CloudStorageConfig  -> 新路径
+```
+
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+
+## 五、运行时数据策略
+
+当前已有三个合适的 `SavedData`：
+
+- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+
+称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+
+```text
+UUID
+玩家名称
+unlocked titles
+selected title
+effects_enabled
+```
+
+这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。
+
+用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。
+
+## 六、模块依赖
+
+| 模块 | 依赖 | 禁用行为 |
+|---|---|---|
+| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |
+| `online_reward` | 核心货币 | 停止计时，禁用领取 |
+| `shop` | 核心货币 | 禁止打开和购买 |
+| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |
+| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |
+| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |
+| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |
+| `permissions` | 权限后端 | 当前版本不启用 |
+
+核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。
+
+## 七、启动和重载流程
+
+当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+
+建议流程：
+
+1. 创建 `config/qiandao`。
+2. 执行旧配置迁移。
+3. 读取主配置。
+4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
+5. 加载所有模块配置。
+6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。
+7. 构造完整快照。
+8. 校验成功后一次性替换运行时配置。
+
+`/qiandao reload` 也必须使用同一套流程。
+
+不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
+
+- 缺失文件：生成默认文件。
+- 格式错误：保留上一次有效配置。
+- 首次启动格式错误：模块进入 `INVALID` 状态。
+- 禁用模块配置错误：允许其他模块继续运行，但记录警告。
+- 启用模块配置错误：拒绝提交整个新快照。
+
+重载后需要：
+
+- 刷新称号显示。
+- 移除或重新应用称号效果。
+- 重新检查在线玩家成就。
+- 关闭已被禁用模块的 GUI。
+- 在线奖励被禁用时先保存并清理计时会话。
+
+## 八、旧配置迁移
+
+迁移关系如下：
+
+| 旧文件 | 新文件 |
+|---|---|
+| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+
+迁移规则：
+
+1. 只在目标文件不存在时迁移。
+2. 先解析旧文件，再写入新文件。
+3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
+5. 不删除旧文件。
+6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
+
+当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+
+## 九、在线奖励数据兼容
+
+当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。
+
+建议：
+
+- 新奖励使用稳定 `id`。
+- 新领取键改为 `day:reward_id`。
+- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。
+- ID 一旦发布，不允许复用。
+- 删除奖励不会删除历史领取记录。
+
+如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。
+
+## 十、命令、GUI 和事件接入
+
+命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。
+
+必须增加检查的位置：
+
+- `/qiandao open`
+- `/qiandao shop`
+- `/qiandao online`
+- `/qiandao title`
+- `/qiandao achievements`
+- `/qiandao storage`
+- 所有 GUI 点击处理器
+- `ServerTickEvents.END_SERVER_TICK`
+- 玩家加入、重生、断开事件
+- 聊天、Tab 列表和 NameTag 称号显示
+
+GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。
+
+## 十一、权限安全
+
+当前权限主要来自：
+
+```java
+Permission.Atom.create("qiandao:cloud_storage")
+```
+
+以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
+
+- 模块是否启用。
+- 管理员等级绕过。
+- 原生权限节点。
+- 称号效果授予的权限。
+- 权限节点白名单。
+
+禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。
+
+## 十二、实施顺序
+
+1. 新增路径工具和主配置模型。
+2. 新增配置快照和模块状态管理器。
+3. 添加旧文件兼容读取与迁移。
+4. 拆分每日签到和在线奖励配置。
+5. 将称号定义与玩家数据分离。
+6. 改造商店、成就和云存储路径。
+7. 接入命令、GUI、Tick 和显示层模块开关。
+8. 实现事务式 `/qiandao reload`。
+9. 增加稳定奖励 ID 和旧领取记录迁移。
+10. 最后实现独立权限模块。
+11. 更新 README、备份说明和配置示例。
+
+## 十三、验收标准
+
+工作台完成后应验证：
+
+- 首次启动生成完整目录和默认文件。
+- 旧六个配置文件可以无损迁移。
+- 旧称号拥有、佩戴和效果开关保持不变。
+- 余额、签到历史、成就状态和云存储物品不丢失。
+- 任意模块可以单独禁用和重新启用。
+- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
+- 修改无关模块不会影响其他模块。
+- 单个配置文件损坏不会清空其他模块。
+- `/qiandao reload` 失败时旧快照仍然有效。
+- 商店和成就能在注册表可用后正确加载。
+- 在线奖励重排不会重复发放或错误发放。
+- 重启服务器后所有 `SavedData` 状态保持不变。
+- 配置文件使用 UTF-8，并保留旧文件备份。
+
+---
+
+## Development request 2026/8/22 16:02:05
+
+## 一、最终架构
+
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+
+建议改为：
+
+```text
+config/qiandao/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+└── legacy/
+```
+
+`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。
+
+配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。
+
+## 二、主配置文件
+
+建议使用整数格式版本，避免字符串版本比较困难：
+
+```json
+{
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+
+`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
+
+## 三、模块配置格式
+
+| 文件 | 内容 |
+|---|---|
+| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |
+| `online_reward/config.json` | 在线时长奖励数组 |
+| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |
+| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |
+| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |
+| `achievements/config.json` | 成就、原版统计目标和奖励 |
+| `cloud_storage/config.json` | 扩展价格和最大页数 |
+
+建议所有模块文件都带有：
+
+```json
+{
+  "format_version": 1
+}
+```
+
+商店新格式建议从根数组改为：
+
+```json
+{
+  "format_version": 1,
+  "products": []
+}
+```
+
+但解析器必须继续兼容当前的根数组格式。
+
+在线奖励建议改为稳定 ID：
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "coins": 50
+    }
+  ]
+}
+```
+
+## 四、Java 类设计
+
+新增配置基础包：
+
+```text
+dev.modmind.qiandao.config/
+├── QiandaoConfigManager.java
+├── QiandaoConfigSnapshot.java
+├── QiandaoRootConfig.java
+├── ModuleId.java
+├── ModuleStatus.java
+├── ConfigPaths.java
+├── ConfigMigration.java
+└── ConfigValidator.java
+```
+
+职责如下：
+
+- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `QiandaoRootConfig`：解析主配置。
+- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
+- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `ConfigMigration`：迁移旧版配置。
+- `ConfigValidator`：执行模块配置和跨模块引用校验。
+
+现有类建议调整：
+
+```text
+CheckinRewardConfig  -> DailyCheckinConfig
+新增 OnlineRewardConfig
+TitleConfig          -> 只保存称号定义
+新增 TitleData       -> 保存玩家称号状态
+ShopConfig           -> 新路径和新格式
+AchievementConfig   -> 新路径
+TitleEffectConfig   -> 新路径
+CloudStorageConfig  -> 新路径
+```
+
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+
+## 五、运行时数据策略
+
+当前已有三个合适的 `SavedData`：
+
+- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+
+称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+
+```text
+UUID
+玩家名称
+unlocked titles
+selected title
+effects_enabled
+```
+
+这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。
+
+用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。
+
+## 六、模块依赖
+
+| 模块 | 依赖 | 禁用行为 |
+|---|---|---|
+| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |
+| `online_reward` | 核心货币 | 停止计时，禁用领取 |
+| `shop` | 核心货币 | 禁止打开和购买 |
+| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |
+| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |
+| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |
+| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |
+| `permissions` | 权限后端 | 当前版本不启用 |
+
+核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。
+
+## 七、启动和重载流程
+
+当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+
+建议流程：
+
+1. 创建 `config/qiandao`。
+2. 执行旧配置迁移。
+3. 读取主配置。
+4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
+5. 加载所有模块配置。
+6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。
+7. 构造完整快照。
+8. 校验成功后一次性替换运行时配置。
+
+`/qiandao reload` 也必须使用同一套流程。
+
+不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
+
+- 缺失文件：生成默认文件。
+- 格式错误：保留上一次有效配置。
+- 首次启动格式错误：模块进入 `INVALID` 状态。
+- 禁用模块配置错误：允许其他模块继续运行，但记录警告。
+- 启用模块配置错误：拒绝提交整个新快照。
+
+重载后需要：
+
+- 刷新称号显示。
+- 移除或重新应用称号效果。
+- 重新检查在线玩家成就。
+- 关闭已被禁用模块的 GUI。
+- 在线奖励被禁用时先保存并清理计时会话。
+
+## 八、旧配置迁移
+
+迁移关系如下：
+
+| 旧文件 | 新文件 |
+|---|---|
+| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+
+迁移规则：
+
+1. 只在目标文件不存在时迁移。
+2. 先解析旧文件，再写入新文件。
+3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
+5. 不删除旧文件。
+6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
+
+当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+
+## 九、在线奖励数据兼容
+
+当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。
+
+建议：
+
+- 新奖励使用稳定 `id`。
+- 新领取键改为 `day:reward_id`。
+- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。
+- ID 一旦发布，不允许复用。
+- 删除奖励不会删除历史领取记录。
+
+如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。
+
+## 十、命令、GUI 和事件接入
+
+命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。
+
+必须增加检查的位置：
+
+- `/qiandao open`
+- `/qiandao shop`
+- `/qiandao online`
+- `/qiandao title`
+- `/qiandao achievements`
+- `/qiandao storage`
+- 所有 GUI 点击处理器
+- `ServerTickEvents.END_SERVER_TICK`
+- 玩家加入、重生、断开事件
+- 聊天、Tab 列表和 NameTag 称号显示
+
+GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。
+
+## 十一、权限安全
+
+当前权限主要来自：
+
+```java
+Permission.Atom.create("qiandao:cloud_storage")
+```
+
+以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
+
+- 模块是否启用。
+- 管理员等级绕过。
+- 原生权限节点。
+- 称号效果授予的权限。
+- 权限节点白名单。
+
+禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。
+
+## 十二、实施顺序
+
+1. 新增路径工具和主配置模型。
+2. 新增配置快照和模块状态管理器。
+3. 添加旧文件兼容读取与迁移。
+4. 拆分每日签到和在线奖励配置。
+5. 将称号定义与玩家数据分离。
+6. 改造商店、成就和云存储路径。
+7. 接入命令、GUI、Tick 和显示层模块开关。
+8. 实现事务式 `/qiandao reload`。
+9. 增加稳定奖励 ID 和旧领取记录迁移。
+10. 最后实现独立权限模块。
+11. 更新 README、备份说明和配置示例。
+
+## 十三、验收标准
+
+工作台完成后应验证：
+
+- 首次启动生成完整目录和默认文件。
+- 旧六个配置文件可以无损迁移。
+- 旧称号拥有、佩戴和效果开关保持不变。
+- 余额、签到历史、成就状态和云存储物品不丢失。
+- 任意模块可以单独禁用和重新启用。
+- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
+- 修改无关模块不会影响其他模块。
+- 单个配置文件损坏不会清空其他模块。
+- `/qiandao reload` 失败时旧快照仍然有效。
+- 商店和成就能在注册表可用后正确加载。
+- 在线奖励重排不会重复发放或错误发放。
+- 重启服务器后所有 `SavedData` 状态保持不变。
+- 配置文件使用 UTF-8，并保留旧文件备份。
+
+---
+
+## Development request 2026/8/22 16:47:01
+
+## 一、最终架构
+
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+
+建议改为：
+
+```text
+config/qiandao/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+└── legacy/
+```
+
+`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。
+
+配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。
+
+## 二、主配置文件
+
+建议使用整数格式版本，避免字符串版本比较困难：
+
+```json
+{
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+
+`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
+
+## 三、模块配置格式
+
+| 文件 | 内容 |
+|---|---|
+| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |
+| `online_reward/config.json` | 在线时长奖励数组 |
+| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |
+| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |
+| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |
+| `achievements/config.json` | 成就、原版统计目标和奖励 |
+| `cloud_storage/config.json` | 扩展价格和最大页数 |
+
+建议所有模块文件都带有：
+
+```json
+{
+  "format_version": 1
+}
+```
+
+商店新格式建议从根数组改为：
+
+```json
+{
+  "format_version": 1,
+  "products": []
+}
+```
+
+但解析器必须继续兼容当前的根数组格式。
+
+在线奖励建议改为稳定 ID：
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "coins": 50
+    }
+  ]
+}
+```
+
+## 四、Java 类设计
+
+新增配置基础包：
+
+```text
+dev.modmind.qiandao.config/
+├── QiandaoConfigManager.java
+├── QiandaoConfigSnapshot.java
+├── QiandaoRootConfig.java
+├── ModuleId.java
+├── ModuleStatus.java
+├── ConfigPaths.java
+├── ConfigMigration.java
+└── ConfigValidator.java
+```
+
+职责如下：
+
+- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `QiandaoRootConfig`：解析主配置。
+- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
+- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `ConfigMigration`：迁移旧版配置。
+- `ConfigValidator`：执行模块配置和跨模块引用校验。
+
+现有类建议调整：
+
+```text
+CheckinRewardConfig  -> DailyCheckinConfig
+新增 OnlineRewardConfig
+TitleConfig          -> 只保存称号定义
+新增 TitleData       -> 保存玩家称号状态
+ShopConfig           -> 新路径和新格式
+AchievementConfig   -> 新路径
+TitleEffectConfig   -> 新路径
+CloudStorageConfig  -> 新路径
+```
+
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+
+## 五、运行时数据策略
+
+当前已有三个合适的 `SavedData`：
+
+- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+
+称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+
+```text
+UUID
+玩家名称
+unlocked titles
+selected title
+effects_enabled
+```
+
+这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。
+
+用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。
+
+## 六、模块依赖
+
+| 模块 | 依赖 | 禁用行为 |
+|---|---|---|
+| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |
+| `online_reward` | 核心货币 | 停止计时，禁用领取 |
+| `shop` | 核心货币 | 禁止打开和购买 |
+| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |
+| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |
+| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |
+| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |
+| `permissions` | 权限后端 | 当前版本不启用 |
+
+核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。
+
+## 七、启动和重载流程
+
+当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+
+建议流程：
+
+1. 创建 `config/qiandao`。
+2. 执行旧配置迁移。
+3. 读取主配置。
+4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
+5. 加载所有模块配置。
+6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。
+7. 构造完整快照。
+8. 校验成功后一次性替换运行时配置。
+
+`/qiandao reload` 也必须使用同一套流程。
+
+不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
+
+- 缺失文件：生成默认文件。
+- 格式错误：保留上一次有效配置。
+- 首次启动格式错误：模块进入 `INVALID` 状态。
+- 禁用模块配置错误：允许其他模块继续运行，但记录警告。
+- 启用模块配置错误：拒绝提交整个新快照。
+
+重载后需要：
+
+- 刷新称号显示。
+- 移除或重新应用称号效果。
+- 重新检查在线玩家成就。
+- 关闭已被禁用模块的 GUI。
+- 在线奖励被禁用时先保存并清理计时会话。
+
+## 八、旧配置迁移
+
+迁移关系如下：
+
+| 旧文件 | 新文件 |
+|---|---|
+| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+
+迁移规则：
+
+1. 只在目标文件不存在时迁移。
+2. 先解析旧文件，再写入新文件。
+3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
+5. 不删除旧文件。
+6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
+
+当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+
+## 九、在线奖励数据兼容
+
+当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。
+
+建议：
+
+- 新奖励使用稳定 `id`。
+- 新领取键改为 `day:reward_id`。
+- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。
+- ID 一旦发布，不允许复用。
+- 删除奖励不会删除历史领取记录。
+
+如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。
+
+## 十、命令、GUI 和事件接入
+
+命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。
+
+必须增加检查的位置：
+
+- `/qiandao open`
+- `/qiandao shop`
+- `/qiandao online`
+- `/qiandao title`
+- `/qiandao achievements`
+- `/qiandao storage`
+- 所有 GUI 点击处理器
+- `ServerTickEvents.END_SERVER_TICK`
+- 玩家加入、重生、断开事件
+- 聊天、Tab 列表和 NameTag 称号显示
+
+GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。
+
+## 十一、权限安全
+
+当前权限主要来自：
+
+```java
+Permission.Atom.create("qiandao:cloud_storage")
+```
+
+以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
+
+- 模块是否启用。
+- 管理员等级绕过。
+- 原生权限节点。
+- 称号效果授予的权限。
+- 权限节点白名单。
+
+禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。
+
+## 十二、实施顺序
+
+1. 新增路径工具和主配置模型。
+2. 新增配置快照和模块状态管理器。
+3. 添加旧文件兼容读取与迁移。
+4. 拆分每日签到和在线奖励配置。
+5. 将称号定义与玩家数据分离。
+6. 改造商店、成就和云存储路径。
+7. 接入命令、GUI、Tick 和显示层模块开关。
+8. 实现事务式 `/qiandao reload`。
+9. 增加稳定奖励 ID 和旧领取记录迁移。
+10. 最后实现独立权限模块。
+11. 更新 README、备份说明和配置示例。
+
+## 十三、验收标准
+
+工作台完成后应验证：
+
+- 首次启动生成完整目录和默认文件。
+- 旧六个配置文件可以无损迁移。
+- 旧称号拥有、佩戴和效果开关保持不变。
+- 余额、签到历史、成就状态和云存储物品不丢失。
+- 任意模块可以单独禁用和重新启用。
+- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
+- 修改无关模块不会影响其他模块。
+- 单个配置文件损坏不会清空其他模块。
+- `/qiandao reload` 失败时旧快照仍然有效。
+- 商店和成就能在注册表可用后正确加载。
+- 在线奖励重排不会重复发放或错误发放。
+- 重启服务器后所有 `SavedData` 状态保持不变。
+- 配置文件使用 UTF-8，并保留旧文件备份。
+
+---
+
+## Development request 2026/8/22 16:47:23
+
+## 一、最终架构
+
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+
+建议改为：
+
+```text
+config/qiandao/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+└── legacy/
+```
+
+`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。
+
+配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。
+
+## 二、主配置文件
+
+建议使用整数格式版本，避免字符串版本比较困难：
+
+```json
+{
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+
+`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
+
+## 三、模块配置格式
+
+| 文件 | 内容 |
+|---|---|
+| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |
+| `online_reward/config.json` | 在线时长奖励数组 |
+| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |
+| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |
+| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |
+| `achievements/config.json` | 成就、原版统计目标和奖励 |
+| `cloud_storage/config.json` | 扩展价格和最大页数 |
+
+建议所有模块文件都带有：
+
+```json
+{
+  "format_version": 1
+}
+```
+
+商店新格式建议从根数组改为：
+
+```json
+{
+  "format_version": 1,
+  "products": []
+}
+```
+
+但解析器必须继续兼容当前的根数组格式。
+
+在线奖励建议改为稳定 ID：
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "coins": 50
+    }
+  ]
+}
+```
+
+## 四、Java 类设计
+
+新增配置基础包：
+
+```text
+dev.modmind.qiandao.config/
+├── QiandaoConfigManager.java
+├── QiandaoConfigSnapshot.java
+├── QiandaoRootConfig.java
+├── ModuleId.java
+├── ModuleStatus.java
+├── ConfigPaths.java
+├── ConfigMigration.java
+└── ConfigValidator.java
+```
+
+职责如下：
+
+- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `QiandaoRootConfig`：解析主配置。
+- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
+- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `ConfigMigration`：迁移旧版配置。
+- `ConfigValidator`：执行模块配置和跨模块引用校验。
+
+现有类建议调整：
+
+```text
+CheckinRewardConfig  -> DailyCheckinConfig
+新增 OnlineRewardConfig
+TitleConfig          -> 只保存称号定义
+新增 TitleData       -> 保存玩家称号状态
+ShopConfig           -> 新路径和新格式
+AchievementConfig   -> 新路径
+TitleEffectConfig   -> 新路径
+CloudStorageConfig  -> 新路径
+```
+
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+
+## 五、运行时数据策略
+
+当前已有三个合适的 `SavedData`：
+
+- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+
+称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+
+```text
+UUID
+玩家名称
+unlocked titles
+selected title
+effects_enabled
+```
+
+这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。
+
+用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。
+
+## 六、模块依赖
+
+| 模块 | 依赖 | 禁用行为 |
+|---|---|---|
+| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |
+| `online_reward` | 核心货币 | 停止计时，禁用领取 |
+| `shop` | 核心货币 | 禁止打开和购买 |
+| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |
+| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |
+| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |
+| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |
+| `permissions` | 权限后端 | 当前版本不启用 |
+
+核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。
+
+## 七、启动和重载流程
+
+当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+
+建议流程：
+
+1. 创建 `config/qiandao`。
+2. 执行旧配置迁移。
+3. 读取主配置。
+4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
+5. 加载所有模块配置。
+6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。
+7. 构造完整快照。
+8. 校验成功后一次性替换运行时配置。
+
+`/qiandao reload` 也必须使用同一套流程。
+
+不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
+
+- 缺失文件：生成默认文件。
+- 格式错误：保留上一次有效配置。
+- 首次启动格式错误：模块进入 `INVALID` 状态。
+- 禁用模块配置错误：允许其他模块继续运行，但记录警告。
+- 启用模块配置错误：拒绝提交整个新快照。
+
+重载后需要：
+
+- 刷新称号显示。
+- 移除或重新应用称号效果。
+- 重新检查在线玩家成就。
+- 关闭已被禁用模块的 GUI。
+- 在线奖励被禁用时先保存并清理计时会话。
+
+## 八、旧配置迁移
+
+迁移关系如下：
+
+| 旧文件 | 新文件 |
+|---|---|
+| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+
+迁移规则：
+
+1. 只在目标文件不存在时迁移。
+2. 先解析旧文件，再写入新文件。
+3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
+5. 不删除旧文件。
+6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
+
+当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+
+## 九、在线奖励数据兼容
+
+当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。
+
+建议：
+
+- 新奖励使用稳定 `id`。
+- 新领取键改为 `day:reward_id`。
+- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。
+- ID 一旦发布，不允许复用。
+- 删除奖励不会删除历史领取记录。
+
+如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。
+
+## 十、命令、GUI 和事件接入
+
+命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。
+
+必须增加检查的位置：
+
+- `/qiandao open`
+- `/qiandao shop`
+- `/qiandao online`
+- `/qiandao title`
+- `/qiandao achievements`
+- `/qiandao storage`
+- 所有 GUI 点击处理器
+- `ServerTickEvents.END_SERVER_TICK`
+- 玩家加入、重生、断开事件
+- 聊天、Tab 列表和 NameTag 称号显示
+
+GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。
+
+## 十一、权限安全
+
+当前权限主要来自：
+
+```java
+Permission.Atom.create("qiandao:cloud_storage")
+```
+
+以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
+
+- 模块是否启用。
+- 管理员等级绕过。
+- 原生权限节点。
+- 称号效果授予的权限。
+- 权限节点白名单。
+
+禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。
+
+## 十二、实施顺序
+
+1. 新增路径工具和主配置模型。
+2. 新增配置快照和模块状态管理器。
+3. 添加旧文件兼容读取与迁移。
+4. 拆分每日签到和在线奖励配置。
+5. 将称号定义与玩家数据分离。
+6. 改造商店、成就和云存储路径。
+7. 接入命令、GUI、Tick 和显示层模块开关。
+8. 实现事务式 `/qiandao reload`。
+9. 增加稳定奖励 ID 和旧领取记录迁移。
+10. 最后实现独立权限模块。
+11. 更新 README、备份说明和配置示例。
+
+## 十三、验收标准
+
+工作台完成后应验证：
+
+- 首次启动生成完整目录和默认文件。
+- 旧六个配置文件可以无损迁移。
+- 旧称号拥有、佩戴和效果开关保持不变。
+- 余额、签到历史、成就状态和云存储物品不丢失。
+- 任意模块可以单独禁用和重新启用。
+- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
+- 修改无关模块不会影响其他模块。
+- 单个配置文件损坏不会清空其他模块。
+- `/qiandao reload` 失败时旧快照仍然有效。
+- 商店和成就能在注册表可用后正确加载。
+- 在线奖励重排不会重复发放或错误发放。
+- 重启服务器后所有 `SavedData` 状态保持不变。
+- 配置文件使用 UTF-8，并保留旧文件备份。
+
+---
+
+## Development request 2026/8/22 16:49:43
+
+## 一、最终架构
+
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+
+建议改为：
+
+```text
+config/qiandao/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+└── legacy/
+```
+
+`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。
+
+配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。
+
+## 二、主配置文件
+
+建议使用整数格式版本，避免字符串版本比较困难：
+
+```json
+{
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+
+`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
+
+## 三、模块配置格式
+
+| 文件 | 内容 |
+|---|---|
+| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |
+| `online_reward/config.json` | 在线时长奖励数组 |
+| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |
+| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |
+| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |
+| `achievements/config.json` | 成就、原版统计目标和奖励 |
+| `cloud_storage/config.json` | 扩展价格和最大页数 |
+
+建议所有模块文件都带有：
+
+```json
+{
+  "format_version": 1
+}
+```
+
+商店新格式建议从根数组改为：
+
+```json
+{
+  "format_version": 1,
+  "products": []
+}
+```
+
+但解析器必须继续兼容当前的根数组格式。
+
+在线奖励建议改为稳定 ID：
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "coins": 50
+    }
+  ]
+}
+```
+
+## 四、Java 类设计
+
+新增配置基础包：
+
+```text
+dev.modmind.qiandao.config/
+├── QiandaoConfigManager.java
+├── QiandaoConfigSnapshot.java
+├── QiandaoRootConfig.java
+├── ModuleId.java
+├── ModuleStatus.java
+├── ConfigPaths.java
+├── ConfigMigration.java
+└── ConfigValidator.java
+```
+
+职责如下：
+
+- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `QiandaoRootConfig`：解析主配置。
+- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
+- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `ConfigMigration`：迁移旧版配置。
+- `ConfigValidator`：执行模块配置和跨模块引用校验。
+
+现有类建议调整：
+
+```text
+CheckinRewardConfig  -> DailyCheckinConfig
+新增 OnlineRewardConfig
+TitleConfig          -> 只保存称号定义
+新增 TitleData       -> 保存玩家称号状态
+ShopConfig           -> 新路径和新格式
+AchievementConfig   -> 新路径
+TitleEffectConfig   -> 新路径
+CloudStorageConfig  -> 新路径
+```
+
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+
+## 五、运行时数据策略
+
+当前已有三个合适的 `SavedData`：
+
+- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+
+称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+
+```text
+UUID
+玩家名称
+unlocked titles
+selected title
+effects_enabled
+```
+
+这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。
+
+用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。
+
+## 六、模块依赖
+
+| 模块 | 依赖 | 禁用行为 |
+|---|---|---|
+| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |
+| `online_reward` | 核心货币 | 停止计时，禁用领取 |
+| `shop` | 核心货币 | 禁止打开和购买 |
+| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |
+| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |
+| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |
+| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |
+| `permissions` | 权限后端 | 当前版本不启用 |
+
+核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。
+
+## 七、启动和重载流程
+
+当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+
+建议流程：
+
+1. 创建 `config/qiandao`。
+2. 执行旧配置迁移。
+3. 读取主配置。
+4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
+5. 加载所有模块配置。
+6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。
+7. 构造完整快照。
+8. 校验成功后一次性替换运行时配置。
+
+`/qiandao reload` 也必须使用同一套流程。
+
+不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
+
+- 缺失文件：生成默认文件。
+- 格式错误：保留上一次有效配置。
+- 首次启动格式错误：模块进入 `INVALID` 状态。
+- 禁用模块配置错误：允许其他模块继续运行，但记录警告。
+- 启用模块配置错误：拒绝提交整个新快照。
+
+重载后需要：
+
+- 刷新称号显示。
+- 移除或重新应用称号效果。
+- 重新检查在线玩家成就。
+- 关闭已被禁用模块的 GUI。
+- 在线奖励被禁用时先保存并清理计时会话。
+
+## 八、旧配置迁移
+
+迁移关系如下：
+
+| 旧文件 | 新文件 |
+|---|---|
+| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+
+迁移规则：
+
+1. 只在目标文件不存在时迁移。
+2. 先解析旧文件，再写入新文件。
+3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
+5. 不删除旧文件。
+6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
+
+当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+
+## 九、在线奖励数据兼容
+
+当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。
+
+建议：
+
+- 新奖励使用稳定 `id`。
+- 新领取键改为 `day:reward_id`。
+- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。
+- ID 一旦发布，不允许复用。
+- 删除奖励不会删除历史领取记录。
+
+如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。
+
+## 十、命令、GUI 和事件接入
+
+命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。
+
+必须增加检查的位置：
+
+- `/qiandao open`
+- `/qiandao shop`
+- `/qiandao online`
+- `/qiandao title`
+- `/qiandao achievements`
+- `/qiandao storage`
+- 所有 GUI 点击处理器
+- `ServerTickEvents.END_SERVER_TICK`
+- 玩家加入、重生、断开事件
+- 聊天、Tab 列表和 NameTag 称号显示
+
+GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。
+
+## 十一、权限安全
+
+当前权限主要来自：
+
+```java
+Permission.Atom.create("qiandao:cloud_storage")
+```
+
+以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
+
+- 模块是否启用。
+- 管理员等级绕过。
+- 原生权限节点。
+- 称号效果授予的权限。
+- 权限节点白名单。
+
+禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。
+
+## 十二、实施顺序
+
+1. 新增路径工具和主配置模型。
+2. 新增配置快照和模块状态管理器。
+3. 添加旧文件兼容读取与迁移。
+4. 拆分每日签到和在线奖励配置。
+5. 将称号定义与玩家数据分离。
+6. 改造商店、成就和云存储路径。
+7. 接入命令、GUI、Tick 和显示层模块开关。
+8. 实现事务式 `/qiandao reload`。
+9. 增加稳定奖励 ID 和旧领取记录迁移。
+10. 最后实现独立权限模块。
+11. 更新 README、备份说明和配置示例。
+
+## 十三、验收标准
+
+工作台完成后应验证：
+
+- 首次启动生成完整目录和默认文件。
+- 旧六个配置文件可以无损迁移。
+- 旧称号拥有、佩戴和效果开关保持不变。
+- 余额、签到历史、成就状态和云存储物品不丢失。
+- 任意模块可以单独禁用和重新启用。
+- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
+- 修改无关模块不会影响其他模块。
+- 单个配置文件损坏不会清空其他模块。
+- `/qiandao reload` 失败时旧快照仍然有效。
+- 商店和成就能在注册表可用后正确加载。
+- 在线奖励重排不会重复发放或错误发放。
+- 重启服务器后所有 `SavedData` 状态保持不变。
+- 配置文件使用 UTF-8，并保留旧文件备份。

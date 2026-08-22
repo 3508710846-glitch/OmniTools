@@ -10,6 +10,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.scores.PlayerTeam;
 
 import java.util.Optional;
+import dev.modmind.qiandao.config.ModuleId;
 
 /** Keeps the three title visibility tiers synchronized with online players. */
 public final class TitleDisplayService {
@@ -19,6 +20,9 @@ public final class TitleDisplayService {
     }
 
     public static Component tabListDisplayName(ServerPlayer player) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
+            return null;
+        }
         Optional<TitleConfig.TitleDefinition> selected = ModMindEntry.titleConfig().selectedTitle(player.getUUID());
         if (selected.isEmpty() || !selected.get().rarity().appearsInTabList()) {
             return null;
@@ -36,6 +40,12 @@ public final class TitleDisplayService {
     }
 
     public static void refreshPlayer(ServerPlayer player) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
+            updateNameTag(player, null);
+            player.level().getServer().getPlayerList().broadcastAll(new ClientboundPlayerInfoUpdatePacket(
+                    ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME, player));
+            return;
+        }
         Optional<TitleConfig.TitleDefinition> selected = ModMindEntry.titleConfig().selectedTitle(player.getUUID());
         updateNameTag(player, selected.orElse(null));
         player.level().getServer().getPlayerList().broadcastAll(new ClientboundPlayerInfoUpdatePacket(

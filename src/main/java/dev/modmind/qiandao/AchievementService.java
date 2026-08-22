@@ -5,6 +5,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Optional;
+import dev.modmind.qiandao.config.ModuleId;
 
 /** Server-side achievement progression, unlock checks, and one-time reward claims. */
 public final class AchievementService {
@@ -18,11 +19,20 @@ public final class AchievementService {
     }
 
     public static AchievementService load() {
-        return new AchievementService(AchievementConfig.load());
+        return new AchievementService(ModMindEntry.configSnapshot().achievements());
     }
 
     public static AchievementService empty() {
         return new AchievementService(AchievementConfig.empty());
+    }
+
+    public static AchievementService from(AchievementConfig config) {
+        return new AchievementService(config);
+    }
+
+    public synchronized void replace(AchievementConfig config) {
+        this.config = config;
+        revision++;
     }
 
     public synchronized AchievementConfig config() {
@@ -35,7 +45,7 @@ public final class AchievementService {
 
     public void reload(MinecraftServer server) {
         synchronized (this) {
-            config = AchievementConfig.load();
+            config = ModMindEntry.configSnapshot().achievements();
             revision++;
         }
         checkAll(server);
@@ -83,8 +93,9 @@ public final class AchievementService {
             return new ClaimResult(ClaimStatus.ALREADY_CLAIMED,
                     CheckinData.get(player).getBalance(player.getUUID()), 0);
         }
-        // A click can arrive before the next periodic check, so the server validates the live statistics again.
-        if (!achievement.complete(player)) {
+        // A click can arrive before the next periodic check, so validate live statistics unless
+        // the achievement was already unlocked and therefore remains permanently complete.
+        if (!data.isUnlocked(player.getUUID(), achievement.id()) && !achievement.complete(player)) {
             return new ClaimResult(ClaimStatus.NOT_COMPLETED,
                     CheckinData.get(player).getBalance(player.getUUID()), 0);
         }
@@ -96,11 +107,13 @@ public final class AchievementService {
                 player.getGameProfile().name())
                 : CheckinData.get(player).getBalance(player.getUUID());
         int grantedTitles = 0;
-        for (String titleId : reward.titles()) {
-            TitleConfig.GrantResult result = ModMindEntry.titleConfig().grant(
-                    player.getUUID(), player.getGameProfile().name(), titleId);
-            if (result == TitleConfig.GrantResult.GRANTED) {
-                grantedTitles++;
+        if (ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
+            for (String titleId : reward.titles()) {
+                TitleConfig.GrantResult result = ModMindEntry.titleConfig().grant(
+                        player.getUUID(), player.getGameProfile().name(), titleId);
+                if (result == TitleConfig.GrantResult.GRANTED) {
+                    grantedTitles++;
+                }
             }
         }
         data.markClaimed(player.getUUID(), achievement.id());

@@ -26,8 +26,12 @@ import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Optional;
+import dev.modmind.qiandao.config.ModuleId;
+import dev.modmind.qiandao.config.QiandaoConfigManager;
+import dev.modmind.qiandao.config.QiandaoConfigSnapshot;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "qiandao";
@@ -40,6 +44,8 @@ public final class ModMindEntry implements ModInitializer {
     private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
     private static AchievementService achievementService = AchievementService.empty();
+    private static final QiandaoConfigManager CONFIG_MANAGER = new QiandaoConfigManager();
+    private static volatile QiandaoConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
 
     @Override
     public void onInitialize() {
@@ -51,42 +57,69 @@ public final class ModMindEntry implements ModInitializer {
         CloudStorageScreenHandler.register();
         AchievementScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
-            rewardService = CheckinRewardService.load();
+            rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
             onlineTimeRewardService = new OnlineTimeRewardService();
-            titleConfig = TitleConfig.load();
-            titleEffectConfig = TitleEffectConfig.load();
-            cloudStorageConfig = CloudStorageConfig.load();
-            achievementService = AchievementService.load();
+            achievementService = AchievementService.empty();
         });
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> shopConfig = ShopConfig.load(server.registryAccess()));
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> onlineTimeRewardService().flushAll(server));
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            TitleData.bind(server);
+            TitleData.importLegacy(server);
+            applySnapshot(CONFIG_MANAGER.load(server));
+        });
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            onlineTimeRewardService().flushAll(server);
+            TitleEffectService.removeAll(server);
+            TitleData.unbind(server);
+        });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
-            onlineTimeRewardService().tick(server);
-            TitleEffectService.tick(server);
-            if (server.getTickCount() % AchievementService.CHECK_INTERVAL_TICKS == 0) {
+            if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+                onlineTimeRewardService().tick(server);
+            }
+            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+                TitleEffectService.tick(server);
+            }
+            if (isModuleEnabled(ModuleId.ACHIEVEMENTS)
+                    && server.getTickCount() % AchievementService.CHECK_INTERVAL_TICKS == 0) {
                 achievementService().checkAll(server);
             }
         });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
-            onlineTimeRewardService().onJoin(player);
-            titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
-            TitleDisplayService.refreshPlayer(player);
-            TitleEffectService.refresh(player);
-            achievementService().check(player);
-            LocalDate date = CheckinData.today();
-            if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
+            if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+                onlineTimeRewardService().onJoin(player);
+            }
+            if (isModuleEnabled(ModuleId.TITLES)) {
+                titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
+                TitleDisplayService.refreshPlayer(player);
+            }
+            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+                TitleEffectService.refresh(player);
+            }
+            if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+                achievementService().check(player);
+            }
+            LocalDate date = CheckinData.today(server);
+            if (isModuleEnabled(ModuleId.DAILY_CHECKIN)
+                    && !CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
                 sendCheckinReminder(player);
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            TitleEffectService.remove(handler.getPlayer());
-            onlineTimeRewardService().onDisconnect(handler.getPlayer());
+            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+                TitleEffectService.remove(handler.getPlayer());
+            }
+            if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+                onlineTimeRewardService().onDisconnect(handler.getPlayer());
+            }
         });
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
-            TitleEffectService.forget(oldPlayer);
-            TitleDisplayService.refreshPlayer(newPlayer);
-            TitleEffectService.refresh(newPlayer);
+            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+                TitleEffectService.forget(oldPlayer);
+                TitleEffectService.refresh(newPlayer);
+            }
+            if (isModuleEnabled(ModuleId.TITLES)) {
+                TitleDisplayService.refreshPlayer(newPlayer);
+            }
         });
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -173,8 +206,35 @@ public final class ModMindEntry implements ModInitializer {
         return achievementService;
     }
 
+    static QiandaoConfigSnapshot configSnapshot() {
+        return configSnapshot;
+    }
+
+    static boolean isModuleEnabled(ModuleId module) {
+        return configSnapshot.enabled(module);
+    }
+
+    static ZoneId configuredZone() {
+        return configSnapshot.zoneId();
+    }
+
+    static ZoneId configuredZone(net.minecraft.server.MinecraftServer server) {
+        return configSnapshot.zoneId();
+    }
+
+    private static void applySnapshot(QiandaoConfigSnapshot snapshot) {
+        configSnapshot = snapshot;
+        rewardService = CheckinRewardService.from(snapshot.rewards());
+        shopConfig = snapshot.shop();
+        titleConfig = snapshot.titles();
+        titleEffectConfig = snapshot.titleEffects();
+        cloudStorageConfig = snapshot.cloudStorage();
+        achievementService = AchievementService.from(snapshot.achievements());
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
+                .requires(source -> isModuleEnabled(ModuleId.ONLINE_REWARD))
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("rewards")
                         .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException())));
@@ -182,6 +242,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> shopCommand() {
         return Commands.literal("shop")
+                .requires(source -> isModuleEnabled(ModuleId.SHOP))
                 .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
@@ -189,7 +250,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> cloudStorageCommand(String literal) {
         return Commands.literal(literal)
-                .requires(ModMindEntry::hasCloudStoragePermission)
+                .requires(source -> isModuleEnabled(ModuleId.CLOUD_STORAGE) && hasCloudStoragePermission(source))
                 .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
@@ -197,6 +258,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> achievementCommand() {
         return Commands.literal("achievements")
+                .requires(source -> isModuleEnabled(ModuleId.ACHIEVEMENTS))
                 .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
@@ -207,8 +269,13 @@ public final class ModMindEntry implements ModInitializer {
                 || Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(source);
     }
 
+    static boolean hasCloudStoragePermissionForPlayer(ServerPlayer player) {
+        return hasCloudStoragePermission(player.createCommandSourceStack());
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> titleCommand() {
         return Commands.literal("title")
+                .requires(source -> isModuleEnabled(ModuleId.TITLES))
                 .executes(context -> openTitleMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openTitleMenu(context.getSource().getPlayerOrException())))
@@ -364,22 +431,55 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     private static int reloadRewards(CommandSourceStack source) {
-        rewardService().reload();
-        shopConfig = ShopConfig.load(source.getServer().registryAccess());
-        titleConfig = TitleConfig.load();
-        titleEffectConfig = TitleEffectConfig.load();
-        cloudStorageConfig = CloudStorageConfig.load();
-        achievementService().reload(source.getServer());
+        long previousRevision = configSnapshot.revision();
+        QiandaoConfigSnapshot candidate = CONFIG_MANAGER.load(source.getServer());
+        if (candidate.revision() == previousRevision) {
+            source.sendFailure(Component.translatable("command.qiandao.reload.failed"));
+            return 0;
+        }
+        if (isModuleEnabled(ModuleId.ONLINE_REWARD) && !candidate.enabled(ModuleId.ONLINE_REWARD)) {
+            onlineTimeRewardService().flushAll(source.getServer());
+        }
+        applySnapshot(candidate);
+        closeDisabledMenus(source.getServer(), candidate);
         TitleDisplayService.refreshAll(source.getServer());
-        TitleEffectService.refreshAll(source.getServer());
+        if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+            TitleEffectService.refreshAll(source.getServer());
+        } else {
+            TitleEffectService.removeAll(source.getServer());
+        }
+        if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+            achievementService().checkAll(source.getServer());
+        }
         source.sendSuccess(() -> Component.translatable("command.qiandao.reload.success",
-                CheckinRewardConfig.path().toString(), ShopConfig.path().toString(), TitleConfig.path().toString(),
-                TitleEffectConfig.path().toString(), CloudStorageConfig.path().toString(),
-                AchievementConfig.path().toString()), true);
+                configSnapshot.revision()), true);
         return 1;
     }
 
+    private static void closeDisabledMenus(net.minecraft.server.MinecraftServer server,
+                                            QiandaoConfigSnapshot snapshot) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            boolean close = (!snapshot.enabled(ModuleId.DAILY_CHECKIN)
+                    && (player.containerMenu instanceof CheckinScreenHandler
+                    || player.containerMenu instanceof CheckinRecordsScreenHandler))
+                    || (!snapshot.enabled(ModuleId.ONLINE_REWARD)
+                    && player.containerMenu instanceof OnlineTimeRewardScreenHandler)
+                    || (!snapshot.enabled(ModuleId.SHOP) && player.containerMenu instanceof ShopScreenHandler)
+                    || (!snapshot.enabled(ModuleId.TITLES) && player.containerMenu instanceof TitleScreenHandler)
+                    || (!snapshot.enabled(ModuleId.ACHIEVEMENTS)
+                    && player.containerMenu instanceof AchievementScreenHandler)
+                    || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
+                    && player.containerMenu instanceof CloudStorageScreenHandler);
+            if (close) {
+                player.closeContainer();
+            }
+        }
+    }
+
     private static boolean broadcastTitledChatMessage(PlayerChatMessage message, ServerPlayer sender, ChatType.Bound parameters) {
+        if (!isModuleEnabled(ModuleId.TITLES)) {
+            return true;
+        }
         Optional<TitleConfig.TitleDefinition> title = titleConfig().selectedTitle(sender.getUUID());
         if (title.isEmpty()) {
             return true;
@@ -403,6 +503,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openCheckinMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.title")));
@@ -410,6 +514,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openOnlineTimeRewardMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> OnlineTimeRewardScreenHandler.createServer(syncId, inventory, player),
                 Component.translatable("gui.qiandao.online_reward.menu_title")));
@@ -417,6 +525,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openShopMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.SHOP)) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> ShopScreenHandler.createServer(syncId, inventory, player,
                         shopConfig(), 0),
@@ -425,6 +537,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openTitleMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.TITLES)) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> TitleScreenHandler.createServer(syncId, inventory, player, titleConfig()),
                 Component.translatable("gui.qiandao.title.menu_title")));
@@ -432,6 +548,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openCloudStorageMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.CLOUD_STORAGE) || !hasCloudStoragePermission(player.createCommandSourceStack())) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
                         cloudStorageConfig(), 0),
@@ -440,6 +560,10 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openAchievementMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+            player.displayClientMessage(Component.translatable("message.qiandao.module_disabled"), true);
+            return 0;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         achievementService(), 0),

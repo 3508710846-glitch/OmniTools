@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import dev.modmind.qiandao.config.ModuleId;
 
 /** Applies and removes the effects belonging to a player's selected title. */
 public final class TitleEffectService {
@@ -34,6 +35,11 @@ public final class TitleEffectService {
 
     public static void refresh(ServerPlayer player) {
         remove(player);
+        if (!ModMindEntry.isModuleEnabled(ModuleId.TITLE_EFFECTS)
+                || !ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
+            player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
+            return;
+        }
         if (!ModMindEntry.titleConfig().effectsEnabled(player.getUUID())) {
             player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
             return;
@@ -70,6 +76,12 @@ public final class TitleEffectService {
     public static void refreshAll(MinecraftServer server) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             refresh(player);
+        }
+    }
+
+    public static void removeAll(MinecraftServer server) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            remove(player);
         }
     }
 

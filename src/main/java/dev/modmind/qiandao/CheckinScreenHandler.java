@@ -98,6 +98,12 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.DAILY_CHECKIN)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
         // Keep the player's inventory usable, but never let UI items be moved out of the menu.
         if (slotId < 0 || slotId >= CONTAINER_SIZE) {
             super.clicked(slotId, button, clickType, player);
@@ -280,7 +286,7 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     private void updateCheckinDeadline(LocalDate date) {
         openedDayData.set(Math.toIntExact(date.toEpochDay()));
-        nextCheckinDeadlineMillis = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        nextCheckinDeadlineMillis = date.plusDays(1).atStartOfDay(ModMindEntry.configuredZone()).toInstant().toEpochMilli();
         updateCountdown();
     }
 
