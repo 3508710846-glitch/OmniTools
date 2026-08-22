@@ -46,7 +46,7 @@ public final class OnlineTimeRewardService {
     }
 
     public long getTodayOnlineTime(ServerPlayer player) {
-        long today = CheckinData.today().toEpochDay();
+        long today = CheckinData.today(player.level().getServer()).toEpochDay();
         long persisted = CheckinData.get(player).getOnlineTime(player.getUUID(), today);
         Session session = sessions.get(player.getUUID());
         if (session == null) {
@@ -55,16 +55,21 @@ public final class OnlineTimeRewardService {
         return saturatingAdd(persisted, elapsedWithinDay(session.lastFlushedMillis, System.currentTimeMillis(), today));
     }
 
-    public ClaimResult claim(ServerPlayer player, int rewardSlot, CheckinRewardConfig.OnlineTimeReward reward) {
+    public ClaimResult claim(ServerPlayer player, CheckinRewardConfig.OnlineTimeReward reward) {
+        return claim(player, -1, reward);
+    }
+
+    public ClaimResult claim(ServerPlayer player, int legacySlot, CheckinRewardConfig.OnlineTimeReward reward) {
         long now = System.currentTimeMillis();
         flush(player, now);
-        long day = CheckinData.today().toEpochDay();
+        long day = CheckinData.today(player.level().getServer()).toEpochDay();
         CheckinData data = CheckinData.get(player);
         long onlineMillis = data.getOnlineTime(player.getUUID(), day);
         if (onlineMillis < reward.minutes() * 60_000L) {
             return new ClaimResult(ClaimStatus.NOT_READY, onlineMillis, data.getBalance(player.getUUID()));
         }
-        if (!data.claimOnlineTimeReward(player.getUUID(), day, rewardSlot, player.getGameProfile().name())) {
+        if (!data.claimOnlineTimeReward(player.getUUID(), day, reward.id(), legacySlot,
+                player.getGameProfile().name())) {
             return new ClaimResult(ClaimStatus.ALREADY_CLAIMED, onlineMillis, data.getBalance(player.getUUID()));
         }
         long balance = data.addCurrency(player.getUUID(), reward.coins(), player.getGameProfile().name());
@@ -83,7 +88,7 @@ public final class OnlineTimeRewardService {
 
         long cursor = session.lastFlushedMillis;
         CheckinData data = CheckinData.get(player);
-        ZoneId zone = ZoneId.systemDefault();
+        ZoneId zone = ModMindEntry.configuredZone(player.level().getServer());
         while (cursor < now) {
             LocalDate date = Instant.ofEpochMilli(cursor).atZone(zone).toLocalDate();
             long nextDay = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
@@ -99,7 +104,7 @@ public final class OnlineTimeRewardService {
         if (endMillis <= startMillis) {
             return 0L;
         }
-        ZoneId zone = ZoneId.systemDefault();
+        ZoneId zone = ModMindEntry.configuredZone();
         LocalDate date = LocalDate.ofEpochDay(day);
         long dayStart = date.atStartOfDay(zone).toInstant().toEpochMilli();
         long nextDay = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();

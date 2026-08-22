@@ -9,6 +9,8 @@ import com.google.gson.JsonParseException;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
+import dev.modmind.qiandao.config.ModuleId;
 import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.commands.arguments.item.ItemParser;
 import net.minecraft.core.HolderLookup;
@@ -33,7 +35,7 @@ public final class ShopConfig {
     public static final String FILE_NAME = "qiandao-shop.json";
     public static final int PRODUCTS_PER_PAGE = 45;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.SHOP);
 
     private final Map<Integer, ShopItem> products;
     private final int pageCount;
@@ -53,14 +55,19 @@ public final class ShopConfig {
 
         try (Reader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
             JsonElement root = GSON.fromJson(reader, JsonElement.class);
-            if (root == null || !root.isJsonArray()) {
-                throw new JsonParseException("Root value must be an array of shop products");
+            if (root == null || (!root.isJsonArray() && !root.isJsonObject())) {
+                throw new JsonParseException("Root value must be an array or object of shop products");
             }
-            return parse(root.getAsJsonArray(), registries);
+            JsonArray products = root.isJsonArray() ? root.getAsJsonArray()
+                    : root.getAsJsonObject().getAsJsonArray("products");
+            if (products == null) {
+                throw new JsonParseException("products must be an array");
+            }
+            return parse(products, registries);
         } catch (IOException | JsonParseException | CommandSyntaxException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". The shop is disabled until the configuration is fixed and reloaded.");
-            return empty();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid shop configuration", exception);
         }
     }
 
@@ -183,6 +190,8 @@ public final class ShopConfig {
 
     private static ShopConfig defaults(HolderLookup.Provider registries) {
         try {
+            JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             JsonArray defaults = new JsonArray();
             JsonObject diamond = new JsonObject();
             diamond.addProperty("index", 0);
@@ -199,6 +208,8 @@ public final class ShopConfig {
     private static void writeDefault() {
         try {
             Files.createDirectories(FILE.getParent());
+            JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             JsonArray defaults = new JsonArray();
             JsonObject diamond = new JsonObject();
             diamond.addProperty("index", 0);
@@ -206,8 +217,9 @@ public final class ShopConfig {
             diamond.addProperty("count", 1);
             diamond.addProperty("price", 20);
             defaults.add(diamond);
+            root.add("products", defaults);
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
-                GSON.toJson(defaults, writer);
+                GSON.toJson(root, writer);
             }
             System.out.println("[qiandao] Created default shop config at " + FILE);
         } catch (IOException exception) {

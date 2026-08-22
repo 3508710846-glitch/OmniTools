@@ -79,6 +79,14 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.CLOUD_STORAGE)
+                || !(player instanceof ServerPlayer serverPlayerForPermission)
+                || !ModMindEntry.hasCloudStoragePermissionForPlayer(serverPlayerForPermission)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
                 || !ownerId.equals(serverPlayer.getUUID())) {
             return;
@@ -105,6 +113,9 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     @Override
     public ItemStack quickMoveStack(Player player, int slotIndex) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.CLOUD_STORAGE)) {
+            return ItemStack.EMPTY;
+        }
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
                 || !ownerId.equals(serverPlayer.getUUID()) || slotIndex < 0 || slotIndex >= slots.size()) {
             return ItemStack.EMPTY;

@@ -74,6 +74,12 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.qiandao.config.ModuleId.ACHIEVEMENTS)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.closeContainer();
+            }
+            return;
+        }
         if (slotId < 0 || slotId >= CONTAINER_SIZE) {
             super.clicked(slotId, button, clickType, player);
             return;

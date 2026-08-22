@@ -7,6 +7,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
+import dev.modmind.qiandao.config.ModuleId;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
@@ -27,27 +29,25 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** Administrator-editable title definitions and player title ownership. */
+/** Administrator-editable title definitions. Player state lives in {@link TitleData}. */
 public final class TitleConfig {
     public static final String FILE_NAME = "qiandao-titles.json";
     private static final int MAX_TITLE_DISPLAY_LENGTH = 128;
     private static final int MAX_TOOLTIP_LINE_LENGTH = 256;
     private static final Pattern TITLE_ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.TITLES);
 
     private final Map<String, TitleDefinition> titles;
-    private final Map<UUID, PlayerTitles> players;
 
-    private TitleConfig(Map<String, TitleDefinition> titles, Map<UUID, PlayerTitles> players) {
+    private TitleConfig(Map<String, TitleDefinition> titles) {
         this.titles = new LinkedHashMap<>(titles);
-        this.players = new LinkedHashMap<>(players);
     }
 
     public static TitleConfig load() {
         if (!Files.exists(FILE)) {
             TitleConfig defaults = defaults();
-            defaults.save();
+            writeDefinitions(defaults);
             return defaults;
         }
 
@@ -59,13 +59,13 @@ public final class TitleConfig {
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". No titles will be available until the configuration is fixed and reloaded.");
-            return empty();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid title configuration", exception);
         }
     }
 
     public static TitleConfig empty() {
-        return new TitleConfig(Map.of(), Map.of());
+        return new TitleConfig(Map.of());
     }
 
     public static Path path() {
@@ -81,13 +81,13 @@ public final class TitleConfig {
     }
 
     public synchronized List<TitleDefinition> unlockedTitles(UUID playerId) {
-        PlayerTitles titlesForPlayer = players.get(playerId);
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, "");
         if (titlesForPlayer == null) {
             return List.of();
         }
 
         List<TitleDefinition> result = new ArrayList<>();
-        for (String titleId : titlesForPlayer.unlocked) {
+        for (String titleId : titlesForPlayer.unlocked()) {
             TitleDefinition title = titles.get(titleId);
             if (title != null) {
                 result.add(title);
@@ -97,37 +97,32 @@ public final class TitleConfig {
     }
 
     public synchronized Optional<TitleDefinition> selectedTitle(UUID playerId) {
-        PlayerTitles titlesForPlayer = players.get(playerId);
-        if (titlesForPlayer == null || titlesForPlayer.selected.isEmpty()
-                || !titlesForPlayer.unlocked.contains(titlesForPlayer.selected)) {
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, "");
+        if (titlesForPlayer == null || titlesForPlayer.selected().isEmpty()
+                || !titlesForPlayer.unlocked().contains(titlesForPlayer.selected())) {
             return Optional.empty();
         }
-        return Optional.ofNullable(titles.get(titlesForPlayer.selected));
+        return Optional.ofNullable(titles.get(titlesForPlayer.selected()));
     }
 
     public synchronized String selectedTitleId(UUID playerId) {
-        PlayerTitles titlesForPlayer = players.get(playerId);
-        return titlesForPlayer == null ? "" : titlesForPlayer.selected;
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, "");
+        return titlesForPlayer == null ? "" : titlesForPlayer.selected();
     }
 
     public synchronized boolean effectsEnabled(UUID playerId) {
-        PlayerTitles titlesForPlayer = players.get(playerId);
-        return titlesForPlayer == null || titlesForPlayer.effectsEnabled;
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, "");
+        return titlesForPlayer == null || titlesForPlayer.effectsEnabled();
     }
 
     public synchronized boolean toggleEffects(UUID playerId, String playerName) {
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        titlesForPlayer.effectsEnabled = !titlesForPlayer.effectsEnabled;
-        updateName(titlesForPlayer, playerName);
-        save();
-        return titlesForPlayer.effectsEnabled;
+        TitleData data = data();
+        return data == null || data.toggleEffects(playerId, playerName);
     }
 
     public synchronized void rememberPlayer(UUID playerId, String playerName) {
-        boolean knownPlayer = players.containsKey(playerId);
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        if (!knownPlayer || updateName(titlesForPlayer, playerName)) {
-            save();
+        if (data() != null) {
+            data().remember(playerId, playerName);
         }
     }
 
@@ -137,12 +132,7 @@ public final class TitleConfig {
             return GrantResult.UNKNOWN_TITLE;
         }
 
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        boolean added = titlesForPlayer.unlocked.add(normalizedId);
-        boolean nameChanged = updateName(titlesForPlayer, playerName);
-        if (added || nameChanged) {
-            save();
-        }
+        boolean added = data() != null && data().grant(playerId, playerName, normalizedId);
         return added ? GrantResult.GRANTED : GrantResult.ALREADY_OWNED;
     }
 
@@ -152,43 +142,26 @@ public final class TitleConfig {
             return RevokeResult.UNKNOWN_TITLE;
         }
 
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        boolean removed = titlesForPlayer.unlocked.remove(normalizedId);
-        boolean selectionCleared = removed && normalizedId.equals(titlesForPlayer.selected);
-        if (selectionCleared) {
-            titlesForPlayer.selected = "";
-        }
-        boolean nameChanged = updateName(titlesForPlayer, playerName);
-        if (removed || nameChanged) {
-            save();
-        }
+        boolean removed = data() != null && data().revoke(playerId, playerName, normalizedId);
         return removed ? RevokeResult.REVOKED : RevokeResult.NOT_OWNED;
     }
 
     public synchronized SelectionResult select(UUID playerId, String playerName, String titleId) {
         String normalizedId = normalizeId(titleId);
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        if (!titlesForPlayer.unlocked.contains(normalizedId) || !titles.containsKey(normalizedId)) {
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, playerName);
+        if (titlesForPlayer == null || !titlesForPlayer.unlocked().contains(normalizedId)
+                || !titles.containsKey(normalizedId)) {
             return SelectionResult.NOT_OWNED;
         }
-        boolean changed = !normalizedId.equals(titlesForPlayer.selected);
-        titlesForPlayer.selected = normalizedId;
-        boolean nameChanged = updateName(titlesForPlayer, playerName);
-        if (changed || nameChanged) {
-            save();
+        boolean changed = !normalizedId.equals(titlesForPlayer.selected());
+        if (data() != null) {
+            data().select(playerId, playerName, normalizedId);
         }
         return changed ? SelectionResult.SELECTED : SelectionResult.ALREADY_SELECTED;
     }
 
     public synchronized boolean clearSelection(UUID playerId, String playerName) {
-        PlayerTitles titlesForPlayer = player(playerId, playerName);
-        boolean changed = !titlesForPlayer.selected.isEmpty();
-        titlesForPlayer.selected = "";
-        boolean nameChanged = updateName(titlesForPlayer, playerName);
-        if (changed || nameChanged) {
-            save();
-        }
-        return changed;
+        return data() != null && data().clearSelection(playerId, playerName);
     }
 
     private static TitleConfig parse(JsonObject root) {
@@ -218,40 +191,7 @@ public final class TitleConfig {
             titleDefinitions.put(id, new TitleDefinition(id, display, rarity, effects, tooltip));
         }
 
-        Map<UUID, PlayerTitles> playerTitles = new LinkedHashMap<>();
-        JsonObject playerObject = optionalObject(root, "players");
-        if (playerObject != null) {
-            for (Map.Entry<String, JsonElement> entry : playerObject.entrySet()) {
-                UUID playerId;
-                try {
-                    playerId = UUID.fromString(entry.getKey());
-                } catch (IllegalArgumentException exception) {
-                    throw new JsonParseException("Player key " + entry.getKey() + " is not a UUID");
-                }
-                if (!entry.getValue().isJsonObject()) {
-                    throw new JsonParseException("Player entry " + entry.getKey() + " must be an object");
-                }
-                JsonObject player = entry.getValue().getAsJsonObject();
-                String name = optionalString(player, "name");
-                JsonArray unlocked = optionalArray(player, "unlocked");
-                Set<String> titleIds = new LinkedHashSet<>();
-                if (unlocked != null) {
-                    for (int titleIndex = 0; titleIndex < unlocked.size(); titleIndex++) {
-                        JsonElement titleElement = unlocked.get(titleIndex);
-                        if (!titleElement.isJsonPrimitive() || !titleElement.getAsJsonPrimitive().isString()) {
-                            throw new JsonParseException("Unlocked title " + titleIndex + " for " + entry.getKey()
-                                    + " must be a string");
-                        }
-                        titleIds.add(normalizeId(titleElement.getAsString()));
-                    }
-                }
-                String selected = normalizeId(optionalString(player, "selected"));
-                boolean effectsEnabled = optionalBoolean(player, "effects_enabled", true);
-                playerTitles.put(playerId, new PlayerTitles(name == null ? "" : name, titleIds, selected,
-                        effectsEnabled));
-            }
-        }
-        return new TitleConfig(titleDefinitions, playerTitles);
+        return new TitleConfig(titleDefinitions);
     }
 
     private static TitleConfig defaults() {
@@ -262,63 +202,38 @@ public final class TitleConfig {
                 List.of("speed_1"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u79fb\u52a8\u901f\u5ea6\u63d0\u5347")));
         definitions.put("legend", new TitleDefinition("legend", "\u00a76[\u00a7r\u4f20\u8bf4\u00a76] \u00a7r", TitleRarity.LEGENDARY,
                 List.of("resistance_1", "night_vision"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u6297\u6027\u63d0\u5347 I", "\u00a7a\u2714 \u6c38\u4e45\u591c\u89c6")));
-        return new TitleConfig(definitions, Map.of());
+        return new TitleConfig(definitions);
     }
 
-    private PlayerTitles player(UUID playerId, String playerName) {
-        return players.computeIfAbsent(playerId,
-                ignored -> new PlayerTitles(cleanName(playerName), new LinkedHashSet<>(), "", true));
+    private static TitleData data() {
+        return TitleData.current();
     }
 
-    private static boolean updateName(PlayerTitles titlesForPlayer, String playerName) {
-        String name = cleanName(playerName);
-        if (name.isEmpty() || name.equals(titlesForPlayer.name)) {
-            return false;
-        }
-        titlesForPlayer.name = name;
-        return true;
+    private static TitleData.PlayerRecord state(UUID playerId, String playerName) {
+        TitleData data = data();
+        return data == null ? null : data.record(playerId, playerName);
     }
 
-    private synchronized void save() {
+    private static void writeDefinitions(TitleConfig config) {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             JsonArray definitions = new JsonArray();
-            for (TitleDefinition title : titles.values()) {
+            for (TitleDefinition title : config.titles.values()) {
                 JsonObject titleObject = new JsonObject();
                 titleObject.addProperty("id", title.id());
                 titleObject.addProperty("display", title.display());
                 titleObject.addProperty("rarity", title.rarity().serializedName());
                 JsonArray effects = new JsonArray();
-                for (String effectId : title.effects()) {
-                    effects.add(effectId);
-                }
+                title.effects().forEach(effects::add);
                 titleObject.add("effects", effects);
                 JsonArray tooltip = new JsonArray();
-                for (String line : title.tooltip()) {
-                    tooltip.add(line);
-                }
+                title.tooltip().forEach(tooltip::add);
                 titleObject.add("tooltip", tooltip);
                 definitions.add(titleObject);
             }
             root.add("titles", definitions);
-
-            JsonObject playerObject = new JsonObject();
-            for (Map.Entry<UUID, PlayerTitles> entry : players.entrySet()) {
-                PlayerTitles titlesForPlayer = entry.getValue();
-                JsonObject player = new JsonObject();
-                player.addProperty("name", titlesForPlayer.name);
-                JsonArray unlocked = new JsonArray();
-                for (String titleId : titlesForPlayer.unlocked) {
-                    unlocked.add(titleId);
-                }
-                player.add("unlocked", unlocked);
-                player.addProperty("selected", titlesForPlayer.selected);
-                player.addProperty("effects_enabled", titlesForPlayer.effectsEnabled);
-                playerObject.add(entry.getKey().toString(), player);
-            }
-            root.add("players", playerObject);
-
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
@@ -383,17 +298,6 @@ public final class TitleConfig {
         return List.copyOf(ids);
     }
 
-    private static boolean optionalBoolean(JsonObject object, String key, boolean fallback) {
-        JsonElement element = object.get(key);
-        if (element == null) {
-            return fallback;
-        }
-        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
-            throw new JsonParseException(key + " must be a boolean");
-        }
-        return element.getAsBoolean();
-    }
-
     private static String requiredString(JsonObject object, String key) {
         String value = optionalString(object, key);
         if (value == null || value.isBlank()) {
@@ -415,10 +319,6 @@ public final class TitleConfig {
 
     private static String normalizeId(String id) {
         return id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String cleanName(String name) {
-        return name == null ? "" : name.trim();
     }
 
     public record TitleDefinition(String id, String display, TitleRarity rarity, List<String> effects,
@@ -455,17 +355,4 @@ public final class TitleConfig {
         NOT_OWNED
     }
 
-    private static final class PlayerTitles {
-        private String name;
-        private final Set<String> unlocked;
-        private String selected;
-        private boolean effectsEnabled;
-
-        private PlayerTitles(String name, Set<String> unlocked, String selected, boolean effectsEnabled) {
-            this.name = cleanName(name);
-            this.unlocked = new LinkedHashSet<>(unlocked);
-            this.selected = selected == null ? "" : selected;
-            this.effectsEnabled = effectsEnabled;
-        }
-    }
 }

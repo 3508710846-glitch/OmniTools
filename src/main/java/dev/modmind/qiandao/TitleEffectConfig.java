@@ -6,6 +6,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
+import dev.modmind.qiandao.config.ModuleId;
 import net.minecraft.resources.Identifier;
 
 import java.io.IOException;
@@ -26,7 +28,7 @@ public final class TitleEffectConfig {
     public static final String FILE_NAME = "qiandao-title-effects.json";
     private static final Pattern EFFECT_ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.TITLE_EFFECTS);
 
     private final Map<String, EffectDefinition> effects;
 
@@ -49,8 +51,8 @@ public final class TitleEffectConfig {
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". No title effects will be available until the configuration is fixed and reloaded.");
-            return empty();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid title effect configuration", exception);
         }
     }
 
@@ -79,6 +81,9 @@ public final class TitleEffectConfig {
 
         Map<String, EffectDefinition> result = new LinkedHashMap<>();
         for (Map.Entry<String, JsonElement> entry : definitions.entrySet()) {
+            if ("format_version".equals(entry.getKey())) {
+                continue;
+            }
             String id = normalizeId(entry.getKey());
             if (!EFFECT_ID.matcher(id).matches() || "effects".equals(id)) {
                 throw new JsonParseException("Effect id " + entry.getKey() + " must match " + EFFECT_ID.pattern());
@@ -185,6 +190,7 @@ public final class TitleEffectConfig {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             for (EffectDefinition definition : effects.values()) {
                 JsonObject object = new JsonObject();
                 object.addProperty("name", definition.name());

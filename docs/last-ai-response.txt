@@ -1,12 +1,19 @@
-已实现云端存储系统。
+已完成配置架构重构与 README 补全。
 
-- 使用 `/qiandao storage`、`/checkin storage`、`/cloudstorage` 或 `/cstorage` 打开。
-- 权限节点为 `qiandao:cloud_storage`；管理员权限等级 2 默认可用。
-- 每页 6x9，前 45 格持久化存储，最后一行提供翻页、余额、状态与扩展按钮。
-- 默认免费第 1 页，支付货币解锁第 2 页。配置已生成在 `run/config/qiandao-cloud-storage.json`：
-  ```json
-  { "expansionCost": 100, "maxPages": 2 }
-  ```
-- 存储数据按玩家 UUID 保存到世界 `SavedData`，重启后保留。
+主要完成：
 
-验证已完成：内容校验、托管构建、隔离服务端启动测试均通过。客户端托管启动工具曾返回 `spawn UNKNOWN`，未产生代码崩溃日志。
+- 新增 `config/qiandao/` 主配置、模块配置、迁移和快照管理。
+- 接入事务式配置重载、模块开关、依赖校验和旧配置迁移。
+- 在线奖励改为稳定 `id`，兼容并迁移旧 `day:slot` 领取记录。
+- 新增独立 `TitleData`，导入旧称号玩家状态。
+- 接入时区配置、GUI/命令权限和模块禁用行为。
+- 补充称号、成就、商店、云存储和在线奖励的默认配置版本字段。
+- 将 [README.md](/D:/mod/qiandao/README.md) 重写为完整 UTF-8 中文文档。
+
+验证结果：
+
+- `./gradlew build`：成功
+- ModMind 内容校验：成功，无错误或警告
+- ModMind 托管构建：成功，产物已生成
+- 服务端运行测试：通过，稳定运行 15 秒
+- 服务端日志：[runServer-1787393814324.log](D:/mod/qiandao/.modmind/builds/runServer-1787393814324.log)

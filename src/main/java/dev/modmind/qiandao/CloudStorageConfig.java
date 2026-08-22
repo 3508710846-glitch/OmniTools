@@ -6,6 +6,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.qiandao.config.ConfigPaths;
+import dev.modmind.qiandao.config.ModuleId;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -20,7 +22,7 @@ public final class CloudStorageConfig {
     public static final int MIN_PAGES = 1;
     public static final int MAX_PAGES = 2;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.CLOUD_STORAGE);
 
     private final long expansionCost;
     private final int maxPages;
@@ -45,12 +47,12 @@ public final class CloudStorageConfig {
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException exception) {
             System.err.println("[qiandao] Could not load " + FILE + ": " + exception.getMessage()
-                    + ". Using the built-in cloud storage settings.");
-            return defaultConfig();
+                    + ". The configuration snapshot will not be replaced.");
+            throw new IllegalStateException("Invalid cloud storage configuration", exception);
         }
     }
 
-    static CloudStorageConfig defaultConfig() {
+    public static CloudStorageConfig defaultConfig() {
         return new CloudStorageConfig(100L, MAX_PAGES);
     }
 
@@ -95,6 +97,7 @@ public final class CloudStorageConfig {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
+            root.addProperty("format_version", 1);
             root.addProperty("expansionCost", defaults.expansionCost());
             root.addProperty("maxPages", defaults.maxPages());
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {

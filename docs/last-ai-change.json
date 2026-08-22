@@ -1,49 +1,24 @@
 {
-  "prompt": "生成一个云端存储系统，有权限的玩家可以通过指令打开储存GUI，这个GUI一共有两页，每一页都是6*9的大小，每一页的前五行是储存空间，最后一行是功能行，放置功能性按钮。\n玩家可以消费货币拓展一页，消耗的货币数量以及拓展上限可以在配置文件中自定义。\n管理员默认拥有此系统权限，也可以给非管理员权限节点。",
+  "prompt": "## 一、最终架构\n\n当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。\n\n建议改为：\n\n```text\nconfig/qiandao/\n├── config.json\n├── daily_checkin/config.json\n├── online_reward/config.json\n├── shop/config.json\n├── titles/config.json\n├── title_effects/config.json\n├── achievements/config.json\n├── cloud_storage/config.json\n└── legacy/\n```\n\n`permissions` 暂时只保留为预留模块。当前代码只有云存储权限节点和称号效果权限注入，并没有完整的权限数据服务。\n\n配置目录只保存管理员可编辑的定义。签到记录、余额、成就领取状态和云存储物品继续保存在世界 `SavedData` 中。\n\n## 二、主配置文件\n\n建议使用整数格式版本，避免字符串版本比较困难：\n\n```json\n{\n  \"format_version\": 1,\n  \"global\": {\n    \"debug\": false,\n    \"timezone\": \"Asia/Shanghai\"\n  },\n  \"modules\": {\n    \"daily_checkin\": { \"enabled\": true },\n    \"online_reward\": { \"enabled\": true },\n    \"shop\": { \"enabled\": true },\n    \"titles\": { \"enabled\": true },\n    \"title_effects\": { \"enabled\": true },\n    \"achievements\": { \"enabled\": true },\n    \"cloud_storage\": { \"enabled\": true },\n    \"permissions\": { \"enabled\": false }\n  }\n}\n```\n\n`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。\n\n`language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。\n\n## 三、模块配置格式\n\n| 文件 | 内容 |\n|---|---|\n| `daily_checkin/config.json` | `dailyCoins`、`monthlyRewards` |\n| `online_reward/config.json` | 在线时长奖励数组 |\n| `shop/config.json` | 商品数组、价格、物品组件和 SNBT |\n| `titles/config.json` | 称号定义、稀有度、效果引用、提示文本 |\n| `title_effects/config.json` | 药水、属性、粒子和权限效果定义 |\n| `achievements/config.json` | 成就、原版统计目标和奖励 |\n| `cloud_storage/config.json` | 扩展价格和最大页数 |\n\n建议所有模块文件都带有：\n\n```json\n{\n  \"format_version\": 1\n}\n```\n\n商店新格式建议从根数组改为：\n\n```json\n{\n  \"format_version\": 1,\n  \"products\": []\n}\n```\n\n但解析器必须继续兼容当前的根数组格式。\n\n在线奖励建议改为稳定 ID：\n\n```json\n{\n  \"format_version\": 1,\n  \"rewards\": [\n    {\n      \"id\": \"online_30m\",\n      \"minutes\": 30,\n      \"coins\": 50\n    }\n  ]\n}\n```\n\n## 四、Java 类设计\n\n新增配置基础包：\n\n```text\ndev.modmind.qiandao.config/\n├── QiandaoConfigManager.java\n├── QiandaoConfigSnapshot.java\n├── QiandaoRootConfig.java\n├── ModuleId.java\n├── ModuleStatus.java\n├── ConfigPaths.java\n├── ConfigMigration.java\n└── ConfigValidator.java\n```\n\n职责如下：\n\n- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。\n- `QiandaoRootConfig`：解析主配置。\n- `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。\n- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。\n- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。\n- `ConfigMigration`：迁移旧版配置。\n- `ConfigValidator`：执行模块配置和跨模块引用校验。\n\n现有类建议调整：\n\n```text\nCheckinRewardConfig  -> DailyCheckinConfig\n新增 OnlineRewardConfig\nTitleConfig          -> 只保存称号定义\n新增 TitleData       -> 保存玩家称号状态\nShopConfig           -> 新路径和新格式\nAchievementConfig   -> 新路径\nTitleEffectConfig   -> 新路径\nCloudStorageConfig  -> 新路径\n```\n\n`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。\n\n## 五、运行时数据策略\n\n当前已有三个合适的 `SavedData`：\n\n- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。\n- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。\n- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。\n\n称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：\n\n```text\nUUID\n玩家名称\nunlocked titles\nselected title\neffects_enabled\n```\n\n这样配置重载不会覆盖玩家状态，也不会把玩家数据和管理员定义混在一起。\n\n用户示例中的 `titles/data/players.json` 和 `achievements/data/progress.json` 可以作为导出格式，但不建议作为主存储。若必须使用 JSON，必须实现临时文件、原子替换、版本字段和服务端线程单写入。\n\n## 六、模块依赖\n\n| 模块 | 依赖 | 禁用行为 |\n|---|---|---|\n| `daily_checkin` | 核心货币 | 禁止签到和签到提醒，保留余额 |\n| `online_reward` | 核心货币 | 停止计时，禁用领取 |\n| `shop` | 核心货币 | 禁止打开和购买 |\n| `titles` | 无 | 隐藏称号显示和称号 GUI，保留数据 |\n| `title_effects` | `titles` | 移除所有称号效果，但保留称号显示 |\n| `achievements` | 核心货币，称号奖励为可选依赖 | 停止检查和领取 |\n| `cloud_storage` | 核心货币、权限 | 禁止打开云存储 |\n| `permissions` | 权限后端 | 当前版本不启用 |\n\n核心货币不能跟随 `daily_checkin` 一起关闭，因为商店、成就、在线奖励和云存储都依赖余额。余额仍由 `CheckinData` 保存。\n\n## 七、启动和重载流程\n\n当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。\n\n建议流程：\n\n1. 创建 `config/qiandao`。\n2. 执行旧配置迁移。\n3. 读取主配置。\n4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。\n5. 加载所有模块配置。\n6. 校验模块依赖、物品 ID、方块 ID、生物 ID、称号 ID 和效果 ID。\n7. 构造完整快照。\n8. 校验成功后一次性替换运行时配置。\n\n`/qiandao reload` 也必须使用同一套流程。\n\n不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：\n\n- 缺失文件：生成默认文件。\n- 格式错误：保留上一次有效配置。\n- 首次启动格式错误：模块进入 `INVALID` 状态。\n- 禁用模块配置错误：允许其他模块继续运行，但记录警告。\n- 启用模块配置错误：拒绝提交整个新快照。\n\n重载后需要：\n\n- 刷新称号显示。\n- 移除或重新应用称号效果。\n- 重新检查在线玩家成就。\n- 关闭已被禁用模块的 GUI。\n- 在线奖励被禁用时先保存并清理计时会话。\n\n## 八、旧配置迁移\n\n迁移关系如下：\n\n| 旧文件 | 新文件 |\n|---|---|\n| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |\n| `qiandao-shop.json` | `shop/config.json` |\n| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |\n| `qiandao-title-effects.json` | `title_effects/config.json` |\n| `qiandao-achievements.json` | `achievements/config.json` |\n| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |\n\n迁移规则：\n\n1. 只在目标文件不存在时迁移。\n2. 先解析旧文件，再写入新文件。\n3. 成功后将旧文件复制到 `config/qiandao/legacy/`。\n4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。\n5. 不删除旧文件。\n6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。\n\n当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。\n\n## 九、在线奖励数据兼容\n\n当前在线奖励使用固定 3 个槽位，领取状态使用 `day:slot` 保存。若管理员调整数组顺序，旧领取记录可能对应错误奖励。\n\n建议：\n\n- 新奖励使用稳定 `id`。\n- 新领取键改为 `day:reward_id`。\n- 旧 `day:slot` 根据迁移时的旧奖励顺序转换为 ID。\n- ID 一旦发布，不允许复用。\n- 删除奖励不会删除历史领取记录。\n\n如果本次暂时不改 `CheckinData`，至少必须明确规定在线奖励数组顺序不可变。\n\n## 十、命令、GUI 和事件接入\n\n命令树可以继续在模组初始化阶段注册，但执行时必须检查模块状态。\n\n必须增加检查的位置：\n\n- `/qiandao open`\n- `/qiandao shop`\n- `/qiandao online`\n- `/qiandao title`\n- `/qiandao achievements`\n- `/qiandao storage`\n- 所有 GUI 点击处理器\n- `ServerTickEvents.END_SERVER_TICK`\n- 玩家加入、重生、断开事件\n- 聊天、Tab 列表和 NameTag 称号显示\n\nGUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐藏按钮。\n\n## 十一、权限安全\n\n当前权限主要来自：\n\n```java\nPermission.Atom.create(\"qiandao:cloud_storage\")\n```\n\n以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：\n\n- 模块是否启用。\n- 管理员等级绕过。\n- 原生权限节点。\n- 称号效果授予的权限。\n- 权限节点白名单。\n\n禁止配置文件直接授予任意管理员级别权限。`PERMISSION` 效果应限制为明确允许的节点，并在配置校验时拒绝危险节点。\n\n## 十二、实施顺序\n\n1. 新增路径工具和主配置模型。\n2. 新增配置快照和模块状态管理器。\n3. 添加旧文件兼容读取与迁移。\n4. 拆分每日签到和在线奖励配置。\n5. 将称号定义与玩家数据分离。\n6. 改造商店、成就和云存储路径。\n7. 接入命令、GUI、Tick 和显示层模块开关。\n8. 实现事务式 `/qiandao reload`。\n9. 增加稳定奖励 ID 和旧领取记录迁移。\n10. 最后实现独立权限模块。\n11. 更新 README、备份说明和配置示例。\n\n## 十三、验收标准\n\n工作台完成后应验证：\n\n- 首次启动生成完整目录和默认文件。\n- 旧六个配置文件可以无损迁移。\n- 旧称号拥有、佩戴和效果开关保持不变。\n- 余额、签到历史、成就状态和云存储物品不丢失。\n- 任意模块可以单独禁用和重新启用。\n- 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。\n- 修改无关模块不会影响其他模块。\n- 单个配置文件损坏不会清空其他模块。\n- `/qiandao reload` 失败时旧快照仍然有效。\n- 商店和成就能在注册表可用后正确加载。\n- 在线奖励重排不会重复发放或错误发放。\n- 重启服务器后所有 `SavedData` 状态保持不变。\n- 配置文件使用 UTF-8，并保留旧文件备份。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-21T13:21:41.909Z",
-  "summary": "已实现云端存储系统。\n\n- 使用 `/qiandao storage`、`/checkin storage`、`/cloudstorage` 或 `/cstorage` 打开。\n- 权限节点为 `qiandao:cloud_storage`；管理员权限等级 2 默认可用。\n- 每页 6x9，前 45 格持久化存储，最后一行提供翻页、余额、状态与扩展按钮。\n- 默认免费第 1 页，支付货币解锁第 2 页。配置已生成在 `run/config/qiandao-cloud-storage.json`：\n  ```json\n  { \"expansionCost\": 100, \"maxPages\": 2 }\n  ```\n- 存储数据按玩家 UUID 保存到世界 `SavedData`，重启后保留。\n\n验证已完成：内容校验、托管构建、隔离服务端启动测试均通过。客户端托管启动工具曾返回 `spawn UNKNOWN`，未产生代码崩溃日志。",
-  "finalResponse": "已实现云端存储系统。\n\n- 使用 `/qiandao storage`、`/checkin storage`、`/cloudstorage` 或 `/cstorage` 打开。\n- 权限节点为 `qiandao:cloud_storage`；管理员权限等级 2 默认可用。\n- 每页 6x9，前 45 格持久化存储，最后一行提供翻页、余额、状态与扩展按钮。\n- 默认免费第 1 页，支付货币解锁第 2 页。配置已生成在 `run/config/qiandao-cloud-storage.json`：\n  ```json\n  { \"expansionCost\": 100, \"maxPages\": 2 }\n  ```\n- 存储数据按玩家 UUID 保存到世界 `SavedData`，重启后保留。\n\n验证已完成：内容校验、托管构建、隔离服务端启动测试均通过。客户端托管启动工具曾返回 `spawn UNKNOWN`，未产生代码崩溃日志。",
+  "createdAt": "2026-08-22T10:21:23.884Z",
+  "summary": "已完成配置架构重构与 README 补全。\n\n主要完成：\n\n- 新增 `config/qiandao/` 主配置、模块配置、迁移和快照管理。\n- 接入事务式配置重载、模块开关、依赖校验和旧配置迁移。\n- 在线奖励改为稳定 `id`，兼容并迁移旧 `day:slot` 领取记录。\n- 新增独立 `TitleData`，导入旧称号玩家状态。\n- 接入时区配置、GUI/命令权限和模块禁用行为。\n- 补充称号、成就、商店、云存储和在线奖励的默认配置版本字段。\n- 将 [README.md](/D:/mod/qiandao/README.md) 重写为完整 UTF-8 中文文档。\n\n验证结果：\n\n- `./gradlew build`：成功\n- ModMind 内容校验：成功，无错误或警告\n- ModMind 托管构建：成功，产物已生成\n- 服务端运行测试：通过，稳定运行 15 秒\n- 服务端日志：[runServer-1787393814324.log](D:/mod/qiandao/.modmind/builds/runServer-1787393814324.log)",
+  "finalResponse": "已完成配置架构重构与 README 补全。\n\n主要完成：\n\n- 新增 `config/qiandao/` 主配置、模块配置、迁移和快照管理。\n- 接入事务式配置重载、模块开关、依赖校验和旧配置迁移。\n- 在线奖励改为稳定 `id`，兼容并迁移旧 `day:slot` 领取记录。\n- 新增独立 `TitleData`，导入旧称号玩家状态。\n- 接入时区配置、GUI/命令权限和模块禁用行为。\n- 补充称号、成就、商店、云存储和在线奖励的默认配置版本字段。\n- 将 [README.md](/D:/mod/qiandao/README.md) 重写为完整 UTF-8 中文文档。\n\n验证结果：\n\n- `./gradlew build`：成功\n- ModMind 内容校验：成功，无错误或警告\n- ModMind 托管构建：成功，产物已生成\n- 服务端运行测试：通过，稳定运行 15 秒\n- 服务端日志：[runServer-1787393814324.log](D:/mod/qiandao/.modmind/builds/runServer-1787393814324.log)",
   "intent": "engineering",
   "tasks": [
-    "检查项目版本、加载器和现有GUI/权限/经济实现",
-    "实现云端存储数据、命令、双页GUI和配置",
-    "补齐语言与必要资源并校验内容",
-    "运行托管构建并修复编译问题",
-    "运行隔离客户端/服务端测试并检查日志"
+    "完成统一配置目录、快照、迁移、模块开关与运行时数据接入",
+    "校验 JSON、语言资源和项目内容",
+    "执行本地与 ModMind 托管构建",
+    "执行隔离服务端烟雾测试"
   ],
   "files": [
     {
+      "path": "README.md",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "docs/idea.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-1.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-2.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-3.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-4.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-5.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-21-7.log.gz",
       "purpose": "外部代理修改"
     },
     {
@@ -87,11 +62,83 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/qiandao/ModMindClient.java",
+      "path": "src/main/java/dev/modmind/qiandao/AchievementConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/AchievementScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/AchievementService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinRecordsScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinRewardService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CloudStorageConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/CloudStorageScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
       "path": "src/main/java/dev/modmind/qiandao/ModMindEntry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/OnlineTimeRewardScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/OnlineTimeRewardService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/ShopConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/ShopScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleDisplayService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleEffectConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleEffectService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
@@ -103,23 +150,119 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/config/qiandao-cloud-storage.json",
+      "path": "run/config/qiandao/achievements/config.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/qiandao/CloudStorageConfig.java",
+      "path": "run/config/qiandao/cloud_storage/config.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/qiandao/CloudStorageData.java",
+      "path": "run/config/qiandao/config.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/qiandao/CloudStorageScreen.java",
+      "path": "run/config/qiandao/daily_checkin/config.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/qiandao/CloudStorageScreenHandler.java",
+      "path": "run/config/qiandao/legacy/manifest.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-achievements.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-cloud-storage.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-rewards.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-shop.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-title-effects.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/legacy/qiandao-titles.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/online_reward/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/shop/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/title_effects/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/qiandao/titles/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-22-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-22-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-22-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-22-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/OnlineRewardConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/TitleData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/ConfigMigration.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/ConfigPaths.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/ConfigValidator.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/ModuleId.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/ModuleStatus.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/QiandaoConfigManager.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/QiandaoConfigSnapshot.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/qiandao/config/QiandaoRootConfig.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -128,7 +271,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-21T12-11-35-853Z",
+  "snapshotId": "2026-08-22T08-02-07-001Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
