@@ -248,7 +248,7 @@ config/omnitools/
 
 ### 如何使用
 
-编辑 `config/omnitools/shop/config.json`，每个商品通过 `index` 指定全局槽位；`index` 为 `0` 到 `44` 时显示在第一页，`45` 到 `89` 时显示在第二页，以此类推。配置可以是推荐的对象格式，也兼容旧版根数组格式。普通商品使用 `item`、`count` 和可选 `components`，需要完整物品堆时使用 `nbt`，两种物品定义方式不能同时使用。
+编辑 `config/omnitools/shop/config.json`，每个商品通过 `index` 指定全局槽位；`index` 为 `0` 到 `44` 时显示在第一页，`45` 到 `89` 时显示在第二页，以此类推。配置可以是推荐的对象格式，也兼容旧版根数组格式。普通商品使用 `item`、`count` 和可选 `components`，需要完整物品堆时使用 `nbt`；提供 `nbt` 时服务端优先按完整物品堆解析，建议不要同时填写普通格式字段。
 
 ### 玩家命令
 
@@ -322,7 +322,7 @@ config/omnitools/
 - `count`：普通格式的堆叠数量，必须为正整数。
 - `price`：购买价格，必须为非负整数。
 - `components`：Minecraft 1.21.11 物品组件命令语法字符串，必须能被服务端 `ItemParser` 解析。
-- `nbt`：完整物品堆 SNBT，包含 `id`、`count` 和可选组件；使用该字段时不要再写 `item`/`count`。
+- `nbt`：完整物品堆 SNBT，包含 `id`、`count` 和可选组件；提供该字段时会优先使用它，建议不要再写 `item`/`count`，避免配置含义混淆。
 - `format_version`：当前为 `1`。复杂组件或 SNBT 语法错误会拒绝整份新配置快照。
 
 ## 称号模块（`titles`）
