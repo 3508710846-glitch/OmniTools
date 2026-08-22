@@ -8,7 +8,7 @@
 
 - Loader: fabric
 - Minecraft: 1.21.11
-- Namespace: qiandao
+- Namespace: omnitools
 
 ---
 
@@ -616,7 +616,7 @@ player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
 
 **配置文件**
 
-新增 `config/qiandao-achievements.json`：
+新增 `config/omnitools-achievements.json`：
 
 ```json
 {
@@ -663,7 +663,7 @@ player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
 
 - 服务端启动时加载配置；
 - 玩家加入时检查一次；
-- `/qiandao reload` 时重新检查在线玩家；
+- `/omnitools reload` 时重新检查在线玩家；
 - 在现有 `ServerTickEvents.END_SERVER_TICK` 中定期检查，例如每 10 tick 一次；
 - 达到目标后写入解锁状态；
 - 货币奖励调用 `CheckinData.addCurrency(...)`；
@@ -711,13 +711,13 @@ player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
 
 修改：
 
-- [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java)：注册服务、命令、生命周期和 GUI 打开入口；
-- [ModMindClient.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindClient.java)：注册菜单屏幕；
-- [CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java)：增加成就入口按钮；
-- `assets/qiandao/lang/zh_cn.json`
-- `assets/qiandao/lang/en_us.json`
+- [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java)：注册服务、命令、生命周期和 GUI 打开入口；
+- [ModMindClient.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindClient.java)：注册菜单屏幕；
+- [CheckinScreenHandler.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java)：增加成就入口按钮；
+- `assets/omnitools/lang/zh_cn.json`
+- `assets/omnitools/lang/en_us.json`
 
-GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/OnlineTimeRewardScreen.java) 的通用箱子背景和标题样式，服务端逻辑参考 [OnlineTimeRewardScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/OnlineTimeRewardScreenHandler.java)。
+GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreen.java) 的通用箱子背景和标题样式，服务端逻辑参考 [OnlineTimeRewardScreenHandler.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreenHandler.java)。
 
 **建议实施顺序**
 
@@ -726,7 +726,7 @@ GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/qiandao/src/main/ja
 3. `AchievementService` 和统计判断。
 4. 自动解锁、奖励领取和防重复发奖。
 5. `AchievementScreenHandler` 分页 GUI。
-6. 客户端屏幕注册、语言文本和 `/qiandao achievements` 命令。
+6. 客户端屏幕注册、语言文本和 `/omnitools achievements` 命令。
 7. 最后验证配置重载、重连、服务器重启、重复点击和无效目标。
 
 做完之后梳理整个项目，将README.md补充完整
@@ -739,12 +739,12 @@ GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/qiandao/src/main/ja
 
 ## 一、最终架构
 
-当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/TitleConfig.java:32)。
 
 建议改为：
 
 ```text
-config/qiandao/
+config/omnitools/
 ├── config.json
 ├── daily_checkin/config.json
 ├── online_reward/config.json
@@ -784,7 +784,7 @@ config/qiandao/
 }
 ```
 
-`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
 
 `language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
 
@@ -839,7 +839,7 @@ config/qiandao/
 新增配置基础包：
 
 ```text
-dev.modmind.qiandao.config/
+dev.modmind.omnitools.config/
 ├── QiandaoConfigManager.java
 ├── QiandaoConfigSnapshot.java
 ├── QiandaoRootConfig.java
@@ -852,7 +852,7 @@ dev.modmind.qiandao.config/
 
 职责如下：
 
-- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
 - `QiandaoRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
 - `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
@@ -879,11 +879,11 @@ CloudStorageConfig  -> 新路径
 
 当前已有三个合适的 `SavedData`：
 
-- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
-- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
-- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+- [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CloudStorageData.java:22)：云存储物品和页数。
 
-称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+称号目前把 `players` 写入 `omnitools-titles.json`。建议新增 `TitleData extends SavedData`，保存：
 
 ```text
 UUID
@@ -914,11 +914,11 @@ effects_enabled
 
 ## 七、启动和重载流程
 
-当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+当前 [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
 
 建议流程：
 
-1. 创建 `config/qiandao`。
+1. 创建 `config/omnitools`。
 2. 执行旧配置迁移。
 3. 读取主配置。
 4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
@@ -927,7 +927,7 @@ effects_enabled
 7. 构造完整快照。
 8. 校验成功后一次性替换运行时配置。
 
-`/qiandao reload` 也必须使用同一套流程。
+`/omnitools reload` 也必须使用同一套流程。
 
 不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
 
@@ -951,23 +951,23 @@ effects_enabled
 
 | 旧文件 | 新文件 |
 |---|---|
-| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
-| `qiandao-shop.json` | `shop/config.json` |
-| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
-| `qiandao-title-effects.json` | `title_effects/config.json` |
-| `qiandao-achievements.json` | `achievements/config.json` |
-| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+| `omnitools-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `omnitools-shop.json` | `shop/config.json` |
+| `omnitools-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `omnitools-title-effects.json` | `title_effects/config.json` |
+| `omnitools-achievements.json` | `achievements/config.json` |
+| `omnitools-cloud-storage.json` | `cloud_storage/config.json` |
 
 迁移规则：
 
 1. 只在目标文件不存在时迁移。
 2. 先解析旧文件，再写入新文件。
-3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+3. 成功后将旧文件复制到 `config/omnitools/legacy/`。
 4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
 5. 不删除旧文件。
 6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
 
-当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+当前 `omnitools-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
 
 ## 九、在线奖励数据兼容
 
@@ -989,12 +989,12 @@ effects_enabled
 
 必须增加检查的位置：
 
-- `/qiandao open`
-- `/qiandao shop`
-- `/qiandao online`
-- `/qiandao title`
-- `/qiandao achievements`
-- `/qiandao storage`
+- `/omnitools open`
+- `/omnitools shop`
+- `/omnitools online`
+- `/omnitools title`
+- `/omnitools achievements`
+- `/omnitools storage`
 - 所有 GUI 点击处理器
 - `ServerTickEvents.END_SERVER_TICK`
 - 玩家加入、重生、断开事件
@@ -1007,7 +1007,7 @@ GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐�
 当前权限主要来自：
 
 ```java
-Permission.Atom.create("qiandao:cloud_storage")
+Permission.Atom.create("omnitools:cloud_storage")
 ```
 
 以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
@@ -1029,7 +1029,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 5. 将称号定义与玩家数据分离。
 6. 改造商店、成就和云存储路径。
 7. 接入命令、GUI、Tick 和显示层模块开关。
-8. 实现事务式 `/qiandao reload`。
+8. 实现事务式 `/omnitools reload`。
 9. 增加稳定奖励 ID 和旧领取记录迁移。
 10. 最后实现独立权限模块。
 11. 更新 README、备份说明和配置示例。
@@ -1046,7 +1046,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 - 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
 - 修改无关模块不会影响其他模块。
 - 单个配置文件损坏不会清空其他模块。
-- `/qiandao reload` 失败时旧快照仍然有效。
+- `/omnitools reload` 失败时旧快照仍然有效。
 - 商店和成就能在注册表可用后正确加载。
 - 在线奖励重排不会重复发放或错误发放。
 - 重启服务器后所有 `SavedData` 状态保持不变。
@@ -1058,12 +1058,12 @@ Permission.Atom.create("qiandao:cloud_storage")
 
 ## 一、最终架构
 
-当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/TitleConfig.java:32)。
 
 建议改为：
 
 ```text
-config/qiandao/
+config/omnitools/
 ├── config.json
 ├── daily_checkin/config.json
 ├── online_reward/config.json
@@ -1103,7 +1103,7 @@ config/qiandao/
 }
 ```
 
-`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
 
 `language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
 
@@ -1158,7 +1158,7 @@ config/qiandao/
 新增配置基础包：
 
 ```text
-dev.modmind.qiandao.config/
+dev.modmind.omnitools.config/
 ├── QiandaoConfigManager.java
 ├── QiandaoConfigSnapshot.java
 ├── QiandaoRootConfig.java
@@ -1171,7 +1171,7 @@ dev.modmind.qiandao.config/
 
 职责如下：
 
-- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
 - `QiandaoRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
 - `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
@@ -1198,11 +1198,11 @@ CloudStorageConfig  -> 新路径
 
 当前已有三个合适的 `SavedData`：
 
-- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
-- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
-- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+- [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CloudStorageData.java:22)：云存储物品和页数。
 
-称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+称号目前把 `players` 写入 `omnitools-titles.json`。建议新增 `TitleData extends SavedData`，保存：
 
 ```text
 UUID
@@ -1233,11 +1233,11 @@ effects_enabled
 
 ## 七、启动和重载流程
 
-当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+当前 [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
 
 建议流程：
 
-1. 创建 `config/qiandao`。
+1. 创建 `config/omnitools`。
 2. 执行旧配置迁移。
 3. 读取主配置。
 4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
@@ -1246,7 +1246,7 @@ effects_enabled
 7. 构造完整快照。
 8. 校验成功后一次性替换运行时配置。
 
-`/qiandao reload` 也必须使用同一套流程。
+`/omnitools reload` 也必须使用同一套流程。
 
 不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
 
@@ -1270,23 +1270,23 @@ effects_enabled
 
 | 旧文件 | 新文件 |
 |---|---|
-| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
-| `qiandao-shop.json` | `shop/config.json` |
-| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
-| `qiandao-title-effects.json` | `title_effects/config.json` |
-| `qiandao-achievements.json` | `achievements/config.json` |
-| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+| `omnitools-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `omnitools-shop.json` | `shop/config.json` |
+| `omnitools-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `omnitools-title-effects.json` | `title_effects/config.json` |
+| `omnitools-achievements.json` | `achievements/config.json` |
+| `omnitools-cloud-storage.json` | `cloud_storage/config.json` |
 
 迁移规则：
 
 1. 只在目标文件不存在时迁移。
 2. 先解析旧文件，再写入新文件。
-3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+3. 成功后将旧文件复制到 `config/omnitools/legacy/`。
 4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
 5. 不删除旧文件。
 6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
 
-当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+当前 `omnitools-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
 
 ## 九、在线奖励数据兼容
 
@@ -1308,12 +1308,12 @@ effects_enabled
 
 必须增加检查的位置：
 
-- `/qiandao open`
-- `/qiandao shop`
-- `/qiandao online`
-- `/qiandao title`
-- `/qiandao achievements`
-- `/qiandao storage`
+- `/omnitools open`
+- `/omnitools shop`
+- `/omnitools online`
+- `/omnitools title`
+- `/omnitools achievements`
+- `/omnitools storage`
 - 所有 GUI 点击处理器
 - `ServerTickEvents.END_SERVER_TICK`
 - 玩家加入、重生、断开事件
@@ -1326,7 +1326,7 @@ GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐�
 当前权限主要来自：
 
 ```java
-Permission.Atom.create("qiandao:cloud_storage")
+Permission.Atom.create("omnitools:cloud_storage")
 ```
 
 以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
@@ -1348,7 +1348,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 5. 将称号定义与玩家数据分离。
 6. 改造商店、成就和云存储路径。
 7. 接入命令、GUI、Tick 和显示层模块开关。
-8. 实现事务式 `/qiandao reload`。
+8. 实现事务式 `/omnitools reload`。
 9. 增加稳定奖励 ID 和旧领取记录迁移。
 10. 最后实现独立权限模块。
 11. 更新 README、备份说明和配置示例。
@@ -1365,7 +1365,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 - 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
 - 修改无关模块不会影响其他模块。
 - 单个配置文件损坏不会清空其他模块。
-- `/qiandao reload` 失败时旧快照仍然有效。
+- `/omnitools reload` 失败时旧快照仍然有效。
 - 商店和成就能在注册表可用后正确加载。
 - 在线奖励重排不会重复发放或错误发放。
 - 重启服务器后所有 `SavedData` 状态保持不变。
@@ -1377,12 +1377,12 @@ Permission.Atom.create("qiandao:cloud_storage")
 
 ## 一、最终架构
 
-当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/TitleConfig.java:32)。
 
 建议改为：
 
 ```text
-config/qiandao/
+config/omnitools/
 ├── config.json
 ├── daily_checkin/config.json
 ├── online_reward/config.json
@@ -1422,7 +1422,7 @@ config/qiandao/
 }
 ```
 
-`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
 
 `language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
 
@@ -1477,7 +1477,7 @@ config/qiandao/
 新增配置基础包：
 
 ```text
-dev.modmind.qiandao.config/
+dev.modmind.omnitools.config/
 ├── QiandaoConfigManager.java
 ├── QiandaoConfigSnapshot.java
 ├── QiandaoRootConfig.java
@@ -1490,7 +1490,7 @@ dev.modmind.qiandao.config/
 
 职责如下：
 
-- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
 - `QiandaoRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
 - `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
@@ -1517,11 +1517,11 @@ CloudStorageConfig  -> 新路径
 
 当前已有三个合适的 `SavedData`：
 
-- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
-- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
-- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+- [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CloudStorageData.java:22)：云存储物品和页数。
 
-称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+称号目前把 `players` 写入 `omnitools-titles.json`。建议新增 `TitleData extends SavedData`，保存：
 
 ```text
 UUID
@@ -1552,11 +1552,11 @@ effects_enabled
 
 ## 七、启动和重载流程
 
-当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+当前 [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
 
 建议流程：
 
-1. 创建 `config/qiandao`。
+1. 创建 `config/omnitools`。
 2. 执行旧配置迁移。
 3. 读取主配置。
 4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
@@ -1565,7 +1565,7 @@ effects_enabled
 7. 构造完整快照。
 8. 校验成功后一次性替换运行时配置。
 
-`/qiandao reload` 也必须使用同一套流程。
+`/omnitools reload` 也必须使用同一套流程。
 
 不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
 
@@ -1589,23 +1589,23 @@ effects_enabled
 
 | 旧文件 | 新文件 |
 |---|---|
-| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
-| `qiandao-shop.json` | `shop/config.json` |
-| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
-| `qiandao-title-effects.json` | `title_effects/config.json` |
-| `qiandao-achievements.json` | `achievements/config.json` |
-| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+| `omnitools-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `omnitools-shop.json` | `shop/config.json` |
+| `omnitools-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `omnitools-title-effects.json` | `title_effects/config.json` |
+| `omnitools-achievements.json` | `achievements/config.json` |
+| `omnitools-cloud-storage.json` | `cloud_storage/config.json` |
 
 迁移规则：
 
 1. 只在目标文件不存在时迁移。
 2. 先解析旧文件，再写入新文件。
-3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+3. 成功后将旧文件复制到 `config/omnitools/legacy/`。
 4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
 5. 不删除旧文件。
 6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
 
-当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+当前 `omnitools-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
 
 ## 九、在线奖励数据兼容
 
@@ -1627,12 +1627,12 @@ effects_enabled
 
 必须增加检查的位置：
 
-- `/qiandao open`
-- `/qiandao shop`
-- `/qiandao online`
-- `/qiandao title`
-- `/qiandao achievements`
-- `/qiandao storage`
+- `/omnitools open`
+- `/omnitools shop`
+- `/omnitools online`
+- `/omnitools title`
+- `/omnitools achievements`
+- `/omnitools storage`
 - 所有 GUI 点击处理器
 - `ServerTickEvents.END_SERVER_TICK`
 - 玩家加入、重生、断开事件
@@ -1645,7 +1645,7 @@ GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐�
 当前权限主要来自：
 
 ```java
-Permission.Atom.create("qiandao:cloud_storage")
+Permission.Atom.create("omnitools:cloud_storage")
 ```
 
 以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
@@ -1667,7 +1667,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 5. 将称号定义与玩家数据分离。
 6. 改造商店、成就和云存储路径。
 7. 接入命令、GUI、Tick 和显示层模块开关。
-8. 实现事务式 `/qiandao reload`。
+8. 实现事务式 `/omnitools reload`。
 9. 增加稳定奖励 ID 和旧领取记录迁移。
 10. 最后实现独立权限模块。
 11. 更新 README、备份说明和配置示例。
@@ -1684,7 +1684,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 - 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
 - 修改无关模块不会影响其他模块。
 - 单个配置文件损坏不会清空其他模块。
-- `/qiandao reload` 失败时旧快照仍然有效。
+- `/omnitools reload` 失败时旧快照仍然有效。
 - 商店和成就能在注册表可用后正确加载。
 - 在线奖励重排不会重复发放或错误发放。
 - 重启服务器后所有 `SavedData` 状态保持不变。
@@ -1696,12 +1696,12 @@ Permission.Atom.create("qiandao:cloud_storage")
 
 ## 一、最终架构
 
-当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/TitleConfig.java:32)。
 
 建议改为：
 
 ```text
-config/qiandao/
+config/omnitools/
 ├── config.json
 ├── daily_checkin/config.json
 ├── online_reward/config.json
@@ -1741,7 +1741,7 @@ config/qiandao/
 }
 ```
 
-`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
 
 `language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
 
@@ -1796,7 +1796,7 @@ config/qiandao/
 新增配置基础包：
 
 ```text
-dev.modmind.qiandao.config/
+dev.modmind.omnitools.config/
 ├── QiandaoConfigManager.java
 ├── QiandaoConfigSnapshot.java
 ├── QiandaoRootConfig.java
@@ -1809,7 +1809,7 @@ dev.modmind.qiandao.config/
 
 职责如下：
 
-- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
 - `QiandaoRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
 - `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
@@ -1836,11 +1836,11 @@ CloudStorageConfig  -> 新路径
 
 当前已有三个合适的 `SavedData`：
 
-- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
-- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
-- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+- [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CloudStorageData.java:22)：云存储物品和页数。
 
-称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+称号目前把 `players` 写入 `omnitools-titles.json`。建议新增 `TitleData extends SavedData`，保存：
 
 ```text
 UUID
@@ -1871,11 +1871,11 @@ effects_enabled
 
 ## 七、启动和重载流程
 
-当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+当前 [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
 
 建议流程：
 
-1. 创建 `config/qiandao`。
+1. 创建 `config/omnitools`。
 2. 执行旧配置迁移。
 3. 读取主配置。
 4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
@@ -1884,7 +1884,7 @@ effects_enabled
 7. 构造完整快照。
 8. 校验成功后一次性替换运行时配置。
 
-`/qiandao reload` 也必须使用同一套流程。
+`/omnitools reload` 也必须使用同一套流程。
 
 不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
 
@@ -1908,23 +1908,23 @@ effects_enabled
 
 | 旧文件 | 新文件 |
 |---|---|
-| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
-| `qiandao-shop.json` | `shop/config.json` |
-| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
-| `qiandao-title-effects.json` | `title_effects/config.json` |
-| `qiandao-achievements.json` | `achievements/config.json` |
-| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+| `omnitools-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `omnitools-shop.json` | `shop/config.json` |
+| `omnitools-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `omnitools-title-effects.json` | `title_effects/config.json` |
+| `omnitools-achievements.json` | `achievements/config.json` |
+| `omnitools-cloud-storage.json` | `cloud_storage/config.json` |
 
 迁移规则：
 
 1. 只在目标文件不存在时迁移。
 2. 先解析旧文件，再写入新文件。
-3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+3. 成功后将旧文件复制到 `config/omnitools/legacy/`。
 4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
 5. 不删除旧文件。
 6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
 
-当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+当前 `omnitools-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
 
 ## 九、在线奖励数据兼容
 
@@ -1946,12 +1946,12 @@ effects_enabled
 
 必须增加检查的位置：
 
-- `/qiandao open`
-- `/qiandao shop`
-- `/qiandao online`
-- `/qiandao title`
-- `/qiandao achievements`
-- `/qiandao storage`
+- `/omnitools open`
+- `/omnitools shop`
+- `/omnitools online`
+- `/omnitools title`
+- `/omnitools achievements`
+- `/omnitools storage`
 - 所有 GUI 点击处理器
 - `ServerTickEvents.END_SERVER_TICK`
 - 玩家加入、重生、断开事件
@@ -1964,7 +1964,7 @@ GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐�
 当前权限主要来自：
 
 ```java
-Permission.Atom.create("qiandao:cloud_storage")
+Permission.Atom.create("omnitools:cloud_storage")
 ```
 
 以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
@@ -1986,7 +1986,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 5. 将称号定义与玩家数据分离。
 6. 改造商店、成就和云存储路径。
 7. 接入命令、GUI、Tick 和显示层模块开关。
-8. 实现事务式 `/qiandao reload`。
+8. 实现事务式 `/omnitools reload`。
 9. 增加稳定奖励 ID 和旧领取记录迁移。
 10. 最后实现独立权限模块。
 11. 更新 README、备份说明和配置示例。
@@ -2003,7 +2003,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 - 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
 - 修改无关模块不会影响其他模块。
 - 单个配置文件损坏不会清空其他模块。
-- `/qiandao reload` 失败时旧快照仍然有效。
+- `/omnitools reload` 失败时旧快照仍然有效。
 - 商店和成就能在注册表可用后正确加载。
 - 在线奖励重排不会重复发放或错误发放。
 - 重启服务器后所有 `SavedData` 状态保持不变。
@@ -2015,12 +2015,12 @@ Permission.Atom.create("qiandao:cloud_storage")
 
 ## 一、最终架构
 
-当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/TitleConfig.java:32)。
+当前项目的配置类都直接写入 `config/` 根目录，例如 [CheckinRewardConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java:23)、[ShopConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ShopConfig.java:33) 和 [TitleConfig.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/TitleConfig.java:32)。
 
 建议改为：
 
 ```text
-config/qiandao/
+config/omnitools/
 ├── config.json
 ├── daily_checkin/config.json
 ├── online_reward/config.json
@@ -2060,7 +2060,7 @@ config/qiandao/
 }
 ```
 
-`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
+`timezone` 有实际用途，因为当前 [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25) 和 `OnlineTimeRewardService` 使用系统默认时区。
 
 `language` 不建议直接加入，除非额外实现服务端文本解析。当前大量消息使用 `Component.translatable`，最终语言通常由客户端决定。
 
@@ -2115,7 +2115,7 @@ config/qiandao/
 新增配置基础包：
 
 ```text
-dev.modmind.qiandao.config/
+dev.modmind.omnitools.config/
 ├── QiandaoConfigManager.java
 ├── QiandaoConfigSnapshot.java
 ├── QiandaoRootConfig.java
@@ -2128,7 +2128,7 @@ dev.modmind.qiandao.config/
 
 职责如下：
 
-- `ConfigPaths`：统一生成 `config/qiandao` 和模块文件路径。
+- `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
 - `QiandaoRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
 - `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
@@ -2155,11 +2155,11 @@ CloudStorageConfig  -> 新路径
 
 当前已有三个合适的 `SavedData`：
 
-- [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
-- [AchievementData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/AchievementData.java:21)：成就解锁和领取状态。
-- [CloudStorageData.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CloudStorageData.java:22)：云存储物品和页数。
+- [CheckinData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CheckinData.java:25)：签到、余额、月度领取记录、在线时长。
+- [AchievementData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/AchievementData.java:21)：成就解锁和领取状态。
+- [CloudStorageData.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/CloudStorageData.java:22)：云存储物品和页数。
 
-称号目前把 `players` 写入 `qiandao-titles.json`。建议新增 `TitleData extends SavedData`，保存：
+称号目前把 `players` 写入 `omnitools-titles.json`。建议新增 `TitleData extends SavedData`，保存：
 
 ```text
 UUID
@@ -2190,11 +2190,11 @@ effects_enabled
 
 ## 七、启动和重载流程
 
-当前 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
+当前 [ModMindEntry.java](/D:/mod/omnitools/src/main/java/dev/modmind/omnitools/ModMindEntry.java:53) 在 `SERVER_STARTING` 和 `SERVER_STARTED` 分开加载配置，商店还需要 `registryAccess()`。
 
 建议流程：
 
-1. 创建 `config/qiandao`。
+1. 创建 `config/omnitools`。
 2. 执行旧配置迁移。
 3. 读取主配置。
 4. 在 `SERVER_STARTED` 获取 `server.registryAccess()`。
@@ -2203,7 +2203,7 @@ effects_enabled
 7. 构造完整快照。
 8. 校验成功后一次性替换运行时配置。
 
-`/qiandao reload` 也必须使用同一套流程。
+`/omnitools reload` 也必须使用同一套流程。
 
 不要继续采用“每个配置独立失败、分别切换默认值或空配置”的行为。当前商店、称号和成就配置错误时可能出现部分模块被清空。建议改为：
 
@@ -2227,23 +2227,23 @@ effects_enabled
 
 | 旧文件 | 新文件 |
 |---|---|
-| `qiandao-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
-| `qiandao-shop.json` | `shop/config.json` |
-| `qiandao-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
-| `qiandao-title-effects.json` | `title_effects/config.json` |
-| `qiandao-achievements.json` | `achievements/config.json` |
-| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
+| `omnitools-rewards.json` | 拆分到 `daily_checkin/config.json` 和 `online_reward/config.json` |
+| `omnitools-shop.json` | `shop/config.json` |
+| `omnitools-titles.json` | 定义迁移到 `titles/config.json`，玩家状态迁移到 `TitleData` |
+| `omnitools-title-effects.json` | `title_effects/config.json` |
+| `omnitools-achievements.json` | `achievements/config.json` |
+| `omnitools-cloud-storage.json` | `cloud_storage/config.json` |
 
 迁移规则：
 
 1. 只在目标文件不存在时迁移。
 2. 先解析旧文件，再写入新文件。
-3. 成功后将旧文件复制到 `config/qiandao/legacy/`。
+3. 成功后将旧文件复制到 `config/omnitools/legacy/`。
 4. 写入 `legacy/manifest.json`，记录源文件、目标文件、格式版本和时间。
 5. 不删除旧文件。
 6. 迁移失败时保留旧文件并继续使用旧格式兼容读取。
 
-当前 `qiandao-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
+当前 `omnitools-rewards.json` 中的 `dailyCoins`、`monthlyRewards` 迁移到每日签到；`onlineTimeRewards` 单独迁移到在线奖励。
 
 ## 九、在线奖励数据兼容
 
@@ -2265,12 +2265,12 @@ effects_enabled
 
 必须增加检查的位置：
 
-- `/qiandao open`
-- `/qiandao shop`
-- `/qiandao online`
-- `/qiandao title`
-- `/qiandao achievements`
-- `/qiandao storage`
+- `/omnitools open`
+- `/omnitools shop`
+- `/omnitools online`
+- `/omnitools title`
+- `/omnitools achievements`
+- `/omnitools storage`
 - 所有 GUI 点击处理器
 - `ServerTickEvents.END_SERVER_TICK`
 - 玩家加入、重生、断开事件
@@ -2283,7 +2283,7 @@ GUI 的最终权限判断必须在服务端完成，不能只依赖客户端隐�
 当前权限主要来自：
 
 ```java
-Permission.Atom.create("qiandao:cloud_storage")
+Permission.Atom.create("omnitools:cloud_storage")
 ```
 
 以及称号效果对 `ServerPlayer.permissions()` 的注入。建议新增 `PermissionService` 统一处理：
@@ -2305,7 +2305,7 @@ Permission.Atom.create("qiandao:cloud_storage")
 5. 将称号定义与玩家数据分离。
 6. 改造商店、成就和云存储路径。
 7. 接入命令、GUI、Tick 和显示层模块开关。
-8. 实现事务式 `/qiandao reload`。
+8. 实现事务式 `/omnitools reload`。
 9. 增加稳定奖励 ID 和旧领取记录迁移。
 10. 最后实现独立权限模块。
 11. 更新 README、备份说明和配置示例。
@@ -2322,8 +2322,812 @@ Permission.Atom.create("qiandao:cloud_storage")
 - 禁用模块的命令、GUI、Tick 和显示逻辑全部停止。
 - 修改无关模块不会影响其他模块。
 - 单个配置文件损坏不会清空其他模块。
-- `/qiandao reload` 失败时旧快照仍然有效。
+- `/omnitools reload` 失败时旧快照仍然有效。
 - 商店和成就能在注册表可用后正确加载。
 - 在线奖励重排不会重复发放或错误发放。
 - 重启服务器后所有 `SavedData` 状态保持不变。
 - 配置文件使用 UTF-8，并保留旧文件备份。
+
+---
+
+## Development request 2026/8/22 18:38:12
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 18:53:44
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:00:21
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:02:28
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:21:34
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:21:43
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:24:05
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 19:56:30
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 20:08:27
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 20:27:18
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 20:31:37
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 20:44:48
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 20:46:52
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:08:04
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:09:53
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:10:52
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:17:29
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:19:11
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:19:16
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:19:38
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:20:43
+
+继续
+
+---
+
+## Development request 2026/8/22 21:24:08
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:25:27
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:25:29
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:25:31
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:25:32
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:26:00
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:41:20
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:41:45
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:44:53
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:45:08
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:45:42
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:45:47
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:46:13
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:47:50
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 21:54:07
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:03:41
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:06:53
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:18:16
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:28:27
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:32:59
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:39:02
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:39:10
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 22:45:17
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析v
+
+---
+
+## Development request 2026/8/22 22:55:45
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析v
+
+---
+
+## Development request 2026/8/22 22:59:10
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析v
+
+---
+
+## Development request 2026/8/22 23:02:52
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:19:34
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:25:31
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:31:48
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:35:50
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:47:51
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/22 23:57:22
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:08:45
+
+根据现有功能，将README.md补充完整，每个模块要有：
+如何使用
+玩家命令
+管理员命令
+默认配置
+
+---
+
+## Development request 2026/8/23 00:23:02
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:29:46
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:30:00
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:30:08
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:31:06
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:31:43
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 00:36:14
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+---
+
+## Development request 2026/8/23 01:14:05
+
+根据现有功能，详细地将README.md补充完整，每个模块要有：
+1.工作原理
+2.如何使用
+3.玩家命令
+4.管理员命令
+5.默认配置
+6.示例配置
+都要有详细地解析
+
+为了防止内容太多导致codex连接超时，你一个模块一个模块的修改
+
+---
+
+## Development request 2026/8/23 01:25:01
+
+继续

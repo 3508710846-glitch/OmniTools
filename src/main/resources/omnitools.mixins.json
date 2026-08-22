@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "dev.modmind.omnitools.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerPlayerPermissionMixin",
+    "ServerPlayerTabListMixin"
+  ],
+  "client": [
+    "client.PlayerNameTagMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

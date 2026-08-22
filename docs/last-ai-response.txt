@@ -1,19 +1,5 @@
-已完成配置架构重构与 README 补全。
+已完成审查要求的缺失阶段：
 
-主要完成：
-
-- 新增 `config/qiandao/` 主配置、模块配置、迁移和快照管理。
-- 接入事务式配置重载、模块开关、依赖校验和旧配置迁移。
-- 在线奖励改为稳定 `id`，兼容并迁移旧 `day:slot` 领取记录。
-- 新增独立 `TitleData`，导入旧称号玩家状态。
-- 接入时区配置、GUI/命令权限和模块禁用行为。
-- 补充称号、成就、商店、云存储和在线奖励的默认配置版本字段。
-- 将 [README.md](/D:/mod/qiandao/README.md) 重写为完整 UTF-8 中文文档。
-
-验证结果：
-
-- `./gradlew build`：成功
-- ModMind 内容校验：成功，无错误或警告
-- ModMind 托管构建：成功，产物已生成
-- 服务端运行测试：通过，稳定运行 15 秒
-- 服务端日志：[runServer-1787393814324.log](D:/mod/qiandao/.modmind/builds/runServer-1787393814324.log)
+- 托管构建成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)
+- 隔离无窗口服务端运行测试通过，稳定运行 15 秒
+- 测试日志：[runServer-1787419629079.log](D:/mod/qiandao/.modmind/builds/runServer-1787419629079.log)
