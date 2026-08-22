@@ -554,3 +554,179 @@ effects是一些效果，他的数据类型是数组。
 ## Development request 2026/8/21 17:14:19
 
 根据现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 18:02:10
+
+README中，关于佩戴称号的效果和效果相关的配置缺失
+
+---
+
+## Development request 2026/8/21 18:47:16
+
+bug：我为一个称号配置了佩戴效果，但是在GUI列表中显示“该称号没有配置效果”，在GUI下方的称号效果开关显示正常
+
+---
+
+## Development request 2026/8/21 20:11:35
+
+生成一个云端存储系统，有权限的玩家可以通过指令打开储存GUI，这个GUI一共有两页，每一页都是6*9的大小，每一页的前五行是储存空间，最后一行是功能行，放置功能性按钮。
+玩家可以消费货币拓展一页，消耗的货币数量以及拓展上限可以在配置文件中自定义。
+管理员默认拥有此系统权限，也可以给非管理员权限节点。
+
+---
+
+## Development request 2026/8/21 20:30:39
+
+生成一个云端存储系统，有权限的玩家可以通过指令打开储存GUI，这个GUI一共有两页，每一页都是6*9的大小，每一页的前五行是储存空间，最后一行是功能行，放置功能性按钮。
+玩家可以消费货币拓展一页，消耗的货币数量以及拓展上限可以在配置文件中自定义。
+管理员默认拥有此系统权限，也可以给非管理员权限节点。
+
+---
+
+## Development request 2026/8/21 20:44:41
+
+生成一个云端存储系统，有权限的玩家可以通过指令打开储存GUI，这个GUI一共有两页，每一页都是6*9的大小，每一页的前五行是储存空间，最后一行是功能行，放置功能性按钮。
+玩家可以消费货币拓展一页，消耗的货币数量以及拓展上限可以在配置文件中自定义。
+管理员默认拥有此系统权限，也可以给非管理员权限节点。
+
+---
+
+## Development request 2026/8/21 21:26:00
+
+梳理现有内容，将README.md补充完整
+
+---
+
+## Development request 2026/8/21 22:31:37
+
+做一个“原版统计驱动、配置可编辑、GUI 可领取奖励”的自定义成就系统。
+
+**核心规则**
+
+模组不重复记录挖掘和击杀次数，直接读取 Minecraft 原版统计：
+
+```java
+player.getStats().getValue(Stats.BLOCK_MINED.get(block));
+player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
+```
+
+当前项目是 Fabric 1.21.11、Java 21、官方 Mojang mappings，因此使用 `BLOCK_MINED` 和 `ENTITY_KILLED`。
+
+**配置文件**
+
+新增 `config/qiandao-achievements.json`：
+
+```json
+{
+  "achievements": [
+    {
+      "id": "stone_breaker",
+      "display": "石匠",
+      "description": "挖掘石头 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": [
+        {
+          "type": "block_mined",
+          "target": "minecraft:stone",
+          "count": 1000
+        }
+      ],
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+加载时校验 ID、数量、方块和生物是否存在。统计目标解析后缓存，避免 GUI 每次重复查注册表。
+
+**数据保存**
+
+新增独立的 `AchievementData extends SavedData`：
+
+- 保存玩家已解锁的成就 ID；
+- 保存已领取的成就 ID；
+- 可选保存待发放奖励状态；
+- 不保存当前统计值，当前值始终从原版统计读取；
+- 不要把成就进度写入配置文件；
+- 不建议把它混入现有 `CheckinData`，两者职责不同。
+
+成就默认永久解锁，即使原版统计后来被重置，也仍然显示为已完成。
+
+**服务端流程**
+
+新增 `AchievementService`：
+
+- 服务端启动时加载配置；
+- 玩家加入时检查一次；
+- `/qiandao reload` 时重新检查在线玩家；
+- 在现有 `ServerTickEvents.END_SERVER_TICK` 中定期检查，例如每 10 tick 一次；
+- 达到目标后写入解锁状态；
+- 货币奖励调用 `CheckinData.addCurrency(...)`；
+- 称号奖励调用 `TitleConfig.grant(...)`；
+- 奖励完成后保存领取状态，防止重复点击重复发奖。
+
+**GUI 状态**
+
+建议采用和在线时长奖励相同的“完成后手动领取”模式：
+
+| 状态 | 条件 | 格子表现 |
+|---|---|---|
+| 进行中 | 当前值小于目标 | 灰色或红色，显示 `当前值 / 目标值` |
+| 可领取 | 已达成但未领取 | 绿色，显示“点击领取” |
+| 已领取 | 已领取奖励 | 金色、附魔光效，显示“已领取” |
+
+`AchievementScreenHandler` 应保持服务端权威：
+
+- 服务端生成每个格子的 `ItemStack`；
+- 客户端不负责判断完成状态；
+- 点击时重新验证玩家、成就、完成状态和领取状态；
+- `quickMoveStack` 返回空，防止拿走界面物品；
+- 使用 `stateHash` 或进度哈希，仅在进度/状态变化时刷新格子。
+
+**界面布局**
+
+成就数量来自配置，建议参考商店和称号界面使用 6 行分页：
+
+- 0-44 格：成就；
+- 45 格：上一页；
+- 49 格：玩家头像、完成数量、当前页；
+- 53 格：下一页。
+
+方块成就可以使用目标方块图标；生物成就通过配置中的 `icon` 指定图标。
+
+**需要新增或修改的文件**
+
+新增：
+
+- `AchievementConfig.java`
+- `AchievementData.java`
+- `AchievementService.java`
+- `AchievementScreenHandler.java`
+- `AchievementScreen.java`
+
+修改：
+
+- [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindEntry.java)：注册服务、命令、生命周期和 GUI 打开入口；
+- [ModMindClient.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/ModMindClient.java)：注册菜单屏幕；
+- [CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/CheckinScreenHandler.java)：增加成就入口按钮；
+- `assets/qiandao/lang/zh_cn.json`
+- `assets/qiandao/lang/en_us.json`
+
+GUI 外观可以复用 [OnlineTimeRewardScreen.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/OnlineTimeRewardScreen.java) 的通用箱子背景和标题样式，服务端逻辑参考 [OnlineTimeRewardScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/qiandao/OnlineTimeRewardScreenHandler.java)。
+
+**建议实施顺序**
+
+1. 配置解析与目标校验。
+2. `AchievementData` 持久化。
+3. `AchievementService` 和统计判断。
+4. 自动解锁、奖励领取和防重复发奖。
+5. `AchievementScreenHandler` 分页 GUI。
+6. 客户端屏幕注册、语言文本和 `/qiandao achievements` 命令。
+7. 最后验证配置重载、重连、服务器重启、重复点击和无效目标。
+
+做完之后梳理整个项目，将README.md补充完整

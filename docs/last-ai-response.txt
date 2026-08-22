@@ -1,1 +1,12 @@
-运行时测试已通过：服务端就绪后稳定运行 15 秒。日志位于 [runServer-1787305773075.log](D:/mod/qiandao/.modmind/builds/runServer-1787305773075.log)。
+已实现云端存储系统。
+
+- 使用 `/qiandao storage`、`/checkin storage`、`/cloudstorage` 或 `/cstorage` 打开。
+- 权限节点为 `qiandao:cloud_storage`；管理员权限等级 2 默认可用。
+- 每页 6x9，前 45 格持久化存储，最后一行提供翻页、余额、状态与扩展按钮。
+- 默认免费第 1 页，支付货币解锁第 2 页。配置已生成在 `run/config/qiandao-cloud-storage.json`：
+  ```json
+  { "expansionCost": 100, "maxPages": 2 }
+  ```
+- 存储数据按玩家 UUID 保存到世界 `SavedData`，重启后保留。
+
+验证已完成：内容校验、托管构建、隔离服务端启动测试均通过。客户端托管启动工具曾返回 `spawn UNKNOWN`，未产生代码崩溃日志。
