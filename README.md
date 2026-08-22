@@ -1,279 +1,131 @@
 # qiandao
 
-`qiandao` 是一个面向 Minecraft Java Edition 的 Fabric 服务器功能模组，提供每日签到、在线时长奖励、内部货币、配置化商店、称号与称号效果、原版统计驱动的自定义成就，以及按玩家独立保存的云端储存。所有会影响奖励、余额、物品、成就和权限的操作都由服务器校验并持久化。
+`qiandao` 是面向 Minecraft Java Edition Fabric 服务器的综合玩家服务模组，提供每日签到、在线时长奖励、虚拟货币、配置化商店、称号与称号效果、原版统计驱动的自定义成就，以及玩家独立的云端存储。
 
-## 快速开始
+所有奖励、余额、物品、成就状态和权限判断均由服务端完成。客户端只负责显示服务端生成的 GUI，不参与奖励条件判定。
 
-1. 在服务器与每位玩家的客户端安装相同版本的 `qiandao`、Fabric Loader 与 Fabric API。
-2. 启动服务器一次，让模组生成 `config/qiandao-rewards.json`、`config/qiandao-shop.json`、`config/qiandao-titles.json`、`config/qiandao-title-effects.json`、`config/qiandao-cloud-storage.json` 和 `config/qiandao-achievements.json`。
-3. 按需编辑这些服务器端配置文件，并使用 `/qiandao reload` 重新加载，无须重启服务器。
-4. 玩家使用 `/qiandao` 打开签到日历，使用 `/qiandao online` 领取在线时长奖励，使用 `/qiandao shop` 消费货币，使用 `/qiandao achievements` 查看成就；拥有云端储存权限的玩家使用 `/qiandao storage` 管理自己的物品。
-
-## 功能
-
-- 称号系统：管理员可授予或回收称号；玩家可在称号界面选择佩戴。普通、稀有、传说称号分别在聊天、玩家列表和头顶显示，显示范围逐级增加。
-- 称号效果：称号可关联药水效果、属性修正、移动粒子和自定义权限；玩家可以在称号界面单独开关效果，关闭效果不会隐藏称号显示。
-- 自定义成就：从 `config/qiandao-achievements.json` 加载成就定义，直接读取 Minecraft 原版挖掘和击杀统计，达成后在 GUI 中手动领取货币和称号奖励。
-
-- 5×9 签到界面：按月份显示日期，最多显示 31 个日期槽位。
-- 只有服务器当前日期可以签到；过去、未来日期和空白槽位不会修改数据。
-- 已签到日期显示附魔书，未签到日期显示普通书，并区分过去、今天和未来状态。
-- 显示下一次签到倒计时、当天签到名次、累计签到天数、连续签到天数、本月签到天数和虚拟货币余额。
-- “今日签到记录”界面按签到时间排序，支持分页，每页最多 45 条记录，并显示玩家头像、名次和签到时间。
-- 玩家加入服务器后，如果当天尚未签到，会收到可点击的签到提醒。
-- 首次签到播放音效并向全服广播名次；每日签到和月度里程碑可发放虚拟货币。
-- 提供每日在线时长奖励与六行商店界面；商店前五行提供 45 个商品槽，商品、价格、物品组件及完整物品堆叠均由服务器配置并支持分页。
-- 云端储存：每名有权限的玩家默认拥有 1 页、每页 45 格的物品储存空间；可消费内部货币解锁第 2 页。每页均为 6×9 GUI，底部功能栏提供翻页、余额、容量与扩展操作。
-- 管理员可以清除当天签到、查询或调整余额，并重新加载奖励、商店、称号、称号效果、云端储存和成就配置。
-- 使用独立的世界 `SavedData` 持久化签到、货币、云端储存和成就解锁/领取状态；服务器重启或切换维度后数据仍然保留。
-
-## 运行环境
+## 环境要求
 
 - Minecraft Java Edition `1.21.11`
-- Fabric Loader `0.19.3` 或更高版本
-- Fabric API `0.141.6+1.21.11`（或与目标版本兼容的更新版本）
-- Java `21` 或更高版本
+- Fabric Loader 与 Fabric API（版本以 `gradle.properties` 和 `fabric.mod.json` 为准）
+- Java `21`
+- 服务端与客户端安装兼容版本的模组；只安装服务端不能显示客户端 GUI
 
-这是一个双端模组。服务器和所有连接的客户端都需要安装相同版本的 `qiandao` 与兼容的 Fabric API；服务端与客户端版本不匹配时，无法保证正常连接或打开界面。
+## 功能概览
 
-## 安装
+### 每日签到
 
-1. 为目标实例安装 Java 21、Fabric Loader 和 Fabric API。
-2. 从 `build/libs/` 获取 `qiandao-<版本>.jar`，或按照[构建](#构建)章节生成 JAR。
-3. 将 JAR 同时放入服务器和客户端的 `mods/` 目录。
-4. 启动服务器和客户端，并确认日志中出现 `qiandao initialized` 且没有依赖错误。
-
-首次正常启动服务器后，模组会在服务器的 `config/qiandao-rewards.json` 创建默认奖励配置，在 `config/qiandao-shop.json` 创建默认商店配置，在 `config/qiandao-titles.json` 创建默认称号配置，在 `config/qiandao-title-effects.json` 创建默认称号效果定义，在 `config/qiandao-cloud-storage.json` 创建云端储存设置，并在 `config/qiandao-achievements.json` 创建默认成就定义。
-
-## 配置总览
-
-以下配置均由服务端创建和读取。编辑完成后可执行一次 `/qiandao reload`，无需重启服务器；称号显示、在线玩家的称号效果和在线玩家的成就完成状态会立即刷新，云端储存的新价格和页数上限会在重新打开界面后生效。
-
-| 文件 | 用途 |
-| --- | --- |
-| `config/qiandao-rewards.json` | 每日签到、月度里程碑和在线时长奖励的货币数量。 |
-| `config/qiandao-shop.json` | 商店商品、物品数据、价格与页面槽位。 |
-| `config/qiandao-titles.json` | 称号定义，以及由模组维护的玩家称号所有权、佩戴状态和效果开关。 |
-| `config/qiandao-title-effects.json` | 称号可引用的药水、属性、粒子和权限效果。 |
-| `config/qiandao-cloud-storage.json` | 云端储存的扩展价格与每位玩家可访问的最大页数。 |
-| `config/qiandao-achievements.json` | 自定义成就、原版统计目标和领取奖励。 |
-
-## 玩家使用
-
-### 打开签到界面
-
-以下命令都可以打开签到界面，命令必须由玩家执行：
-
-```text
-/qiandao
-/qiandao open
-/checkin
-```
-
-控制台不能直接打开玩家 GUI，但可以执行管理命令。
+`/qiandao` 或 `/qiandao open` 打开签到日历。签到日期、名次、连续天数、月度进度和余额由世界 `SavedData` 保存。每日和月度奖励在签到成功后自动发放，重复点击不会重复领取。
 
 ### 在线时长奖励
 
-玩家可使用下列命令打开每日在线时长奖励界面：
+`/qiandao online` 打开在线奖励 GUI。在线时间按服务端配置的时区累计，奖励达到分钟数后手动领取。奖励使用稳定 `id`，领取键为 `day:reward_id`；旧版本的 `day:slot` 记录会按旧顺序兼容读取。
 
-```text
-/qiandao online
-/qiandao online rewards
-/checkin online
-```
+### 商店
 
-在线时长以服务器实际连接时间累计，并按服务器时区在每日零点重置。奖励格会显示今日已累计分钟数；未达到档位时显示红色未附魔时钟，达到后显示绿色可领取状态，领取后时钟会附魔并向全服广播。每个档位每天只能领取一次。
+`/qiandao shop` 打开六行分页商店。商品、价格、数量、组件和 SNBT 均来自配置，购买时服务端原子扣除余额并把完整物品放入玩家背包，背包已满时按 Minecraft 常规规则掉落。
 
-### 完成签到
+### 称号与效果
 
-打开界面后，在当前月份找到今天的日期槽位并点击。签到成功后，槽位会变为附魔书，界面显示当天名次，玩家收到奖励并触发广播。重复点击不会重复签到或重复领取奖励。
-
-日期和倒计时使用服务器 Java 进程的系统时区，客户端本地时区不会影响日期切换。跨过服务器午夜后，重新打开界面或点击旧日期即可刷新状态。
-
-### 查看今日记录
-
-点击签到界面底部的时钟图标打开记录界面。记录按签到时间从早到晚排列；在线玩家显示实时头像，离线玩家使用已保存的 UUID 头像。将鼠标悬停在头像上可查看玩家名称、签到名次和 `HH:mm:ss` 格式的签到时间。底部按钮可返回签到界面或切换分页。
-
-### 云端储存
-
-以下命令只能由拥有云端储存权限的玩家执行：
-
-```text
-/qiandao storage
-/qiandao storage open
-/checkin storage
-/checkin storage open
-/cloudstorage
-/cloudstorage open
-/cstorage
-/cstorage open
-```
-
-云端储存最多可解锁两页。打开任一页时，界面均为 54 格：前五行是 45 格真实储存槽，最后一行是不可移动的功能栏。首次使用时第 1 页免费；支付配置的价格后会解锁第 2 页。物品的存取、Shift 点击、拖拽和扩展扣款都由服务端处理，断线或重启后物品仍会保留。
-
-| 功能栏位置（从左到右） | 功能 |
-| --- | --- |
-| 第 1 格 | 上一页；仅在当前不是第 1 页时显示。 |
-| 第 3 格 | 显示当前内部货币余额。 |
-| 第 5 格 | 显示当前页、已解锁页数和总容量。 |
-| 第 7 格 | “拓展一页”按钮；达到配置上限后改为已满提示。 |
-| 第 9 格 | 下一页；仅在已解锁后续页面时显示。 |
-
-其余功能栏格位为装饰格，不能放入或取出物品。扩展时会先检查货币余额与页数上限，扣款和解锁成功后会自动打开新页面。
+`/qiandao title` 打开称号 GUI。称号定义和玩家状态分离保存：管理员定义在配置中，玩家拥有、佩戴和效果开关保存在 `TitleData`。称号可以显示在聊天、Tab 列表和头顶，并关联药水、属性、粒子或受限权限效果。
 
 ### 自定义成就
 
-玩家可以从签到界面的底部星标按钮，或使用以下命令打开成就界面：
+`/qiandao achievements` 打开成就 GUI。成就进度直接读取 Minecraft 原版统计：
 
-```text
-/qiandao achievements
-/qiandao achievements open
-/checkin achievements
-/checkin achievements open
+```java
+player.getStats().getValue(Stats.BLOCK_MINED.get(block));
+player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
 ```
 
-成就界面使用六行箱子菜单：第 1 至 45 格显示配置中的成就，第 46 格和第 54 格用于翻页，第 50 格显示玩家头像、完成数量、已领取数量和当前页码。成就数量由配置决定，未配置成就时会显示空状态。
+模组不会重复记录挖掘或击杀次数。达到要求后成就永久解锁，玩家在 GUI 中手动领取一次货币和称号奖励；原版统计重置不会撤销已解锁状态。
 
-每个成就的图标、显示名、描述、统计目标和奖励都由服务器生成。目标支持 `block_mined`（挖掘方块）和 `entity_killed`（击杀生物），进度直接读取玩家的 Minecraft 原版统计，不在模组数据中重复记录。成就检查在玩家加入、配置重载以及服务器每 10 tick 的周期检查中执行。
+### 云端存储
 
-成就有三种状态：进行中显示当前值/目标值，达成但未领取时显示绿色“点击领取”，已领取时显示金色附魔图标。点击领取时服务端会重新读取统计、验证成就和领取状态，然后一次性发放货币与称号奖励；重复点击、断线重连或服务器重启都不会重复发奖。成就解锁是永久状态，即使管理员后来重置原版统计，已解锁成就仍会保留。
+拥有 `qiandao:cloud_storage` 权限或 Minecraft 管理员权限的玩家可使用 `/qiandao storage`。每页为 `6 x 9` 箱子界面，前五行是 45 个存储槽，最后一行是上一页、状态、余额、扩展和下一页按钮。玩家可消费货币扩展页数，初始页数、扩展价格和最大页数可配置。
 
-## 奖励配置
+## 配置目录
 
-配置文件位于服务器目录：
+首次启动后会生成：
 
 ```text
-config/qiandao-rewards.json
+config/qiandao/
+├── config.json                    # 主配置和模块开关
+├── daily_checkin/config.json      # 每日签到和月度奖励
+├── online_reward/config.json      # 在线时长奖励
+├── shop/config.json               # 商店商品
+├── titles/config.json             # 称号定义
+├── title_effects/config.json      # 称号效果定义
+├── achievements/config.json       # 原版统计成就
+├── cloud_storage/config.json      # 云存储扩展设置
+└── legacy/                        # 迁移后的旧配置备份和 manifest.json
 ```
 
-默认内容如下：
+所有模块文件使用 UTF-8，并带有整数 `format_version`。配置目录只保存管理员可编辑的定义；玩家数据不写入这些文件。
+
+### 主配置示例
 
 ```json
 {
-  "dailyCoins": 100,
-  "monthlyRewards": {
-    "5": 500,
-    "10": 1000,
-    "15": 2000,
-    "25": 5000
+  "format_version": 1,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
   },
-  "onlineTimeRewards": [
-    { "minutes": 30, "coins": 50 },
-    { "minutes": 60, "coins": 100 },
-    { "minutes": 120, "coins": 250 }
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+`timezone` 用于签到日期、在线时长跨日切分和 GUI 时间显示，使用 Java `ZoneId`，例如 `Asia/Shanghai`、`UTC`。
+
+### 每日签到
+
+```json
+{
+  "format_version": 1,
+  "dailyCoins": 100,
+  "monthlyRewards": { "5": 500, "10": 1000, "15": 2000, "25": 5000 }
+}
+```
+
+### 在线奖励
+
+```json
+{
+  "format_version": 1,
+  "rewards": [
+    { "id": "online_30m", "minutes": 30, "coins": 50 },
+    { "id": "online_60m", "minutes": 60, "coins": 100 }
   ]
 }
 ```
 
-`dailyCoins` 是每次签到奖励；`monthlyRewards` 的键是本月累计签到天数，奖励在每个自然月中每个里程碑只领取一次。`onlineTimeRewards` 必须恰好包含三个按 `minutes` 升序排列的档位，`minutes` 为正整数，`coins` 为非负整数。所有奖励都是模组内部的数字货币，不会生成物品，也不会自动调用其他经济模组。
+奖励 ID 必须唯一且匹配 `[a-z0-9_.-]{1,64}`。发布后的 ID 不应复用；删除奖励不会删除历史领取键。
 
-修改后重启服务器，或由有权限的管理员执行：
+### 商店
 
-```text
-/qiandao reload
-```
+推荐格式为 `{ "format_version": 1, "products": [] }`。解析器仍兼容旧版根数组格式。每个商品的 `id`、价格、物品 ID、数量、组件和 SNBT 会在服务端加载时校验。
 
-配置解析失败时，本次运行会记录错误并使用内置默认值。读取旧版本配置时仍兼容 `dailyReward`、`daily` 和 `monthlyCoins` 字段，缺少标准字段的配置会被补写为标准格式。
+### 称号和称号效果
 
-## 商店配置
+`titles/config.json` 保存称号的 `id`、显示文本、稀有度、效果引用和提示文本。`title_effects/config.json` 保存药水、属性、粒子和权限效果定义。称号效果引用不存在时，整次配置快照不会提交。
 
-商店使用签到和在线时长奖励共享的货币余额。首次启动服务器时会创建
-`config/qiandao-shop.json`，默认只有一个钻石商品：
+权限效果只允许明确的 `qiandao:cloud_storage` 或 `qiandao:command.*` 节点，禁止通过配置直接授予任意管理员级别权限。
 
-```json
-[
-  {
-    "index": 0,
-    "item": "minecraft:diamond",
-    "count": 1,
-    "price": 20
-  }
-]
-```
-
-配置文件的根节点是商品数组。下方是包含第二页商品的完整示例：
-
-```json
-[
-  {
-    "index": 0,
-    "item": "minecraft:diamond",
-    "count": 1,
-    "price": 20
-  },
-  {
-    "index": 45,
-    "item": "minecraft:golden_apple",
-    "count": 3,
-    "price": 100
-  }
-]
-```
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `index` | 是 | 从 `0` 开始的全局商品槽位编号；`0` 至 `44` 为第一页，`45` 至 `89` 为第二页，以此类推。每个编号只能出现一次。 |
-| `item` | 使用普通写法时必填 | Minecraft 物品注册 ID，例如 `minecraft:diamond`。 |
-| `count` | 使用普通写法时必填 | 单次购买得到的物品数量，必须是正整数。 |
-| `price` | 是 | 购买所需货币，必须是非负整数；`0` 表示免费。 |
-| `components` | 否 | Minecraft 1.21.11 物品组件字符串，直接附在物品 ID 后解析。 |
-| `nbt` | 否 | 完整物品堆叠的 SNBT 字符串。设置后优先使用此字段，不再读取 `item`、`count` 或 `components`。 |
-
-未配置商品的槽位会以灰色玻璃板填充。`index` 大于 `44` 时会自动显示对应的后续页面；底栏左右两侧的箭头可在存在相邻页面时切换。
-
-普通写法的 `components` 应使用游戏接受的组件语法。对于较长或复杂的物品数据，可使用 `nbt`
-写入完整物品堆叠 SNBT（包含 `id`、`count`，可选 `components`），例如：
-
-```json
-[
-  {
-    "index": 0,
-    "price": 500,
-    "nbt": "{id:\"minecraft:diamond\",count:64}"
-  }
-]
-```
-
-编辑后执行 `/qiandao reload` 即可重新加载。若任意商品的 JSON、物品 ID、物品组件、SNBT、槽位或数值不合法，整个商店会暂时禁用；修正配置并重新加载后恢复。玩家使用 `/qiandao shop`、`/qiandao shop open`、`/checkin shop` 或 `/checkin shop open` 打开商店，底栏中央头颅的悬停提示会显示当前余额与当前页码。
-
-购买时由服务器再次校验余额与商品配置。扣款成功后，商品优先放入玩家背包；背包无法容纳的剩余部分会掉落在玩家位置。
-
-## 云端储存配置
-
-云端储存使用签到、在线时长奖励和商店共享的内部货币。服务器首次启动会创建：
-
-```text
-config/qiandao-cloud-storage.json
-```
-
-默认内容：
+### 成就
 
 ```json
 {
-  "expansionCost": 100,
-  "maxPages": 2
-}
-```
-
-| 字段 | 说明 |
-| --- | --- |
-| `expansionCost` | 解锁下一页所需的货币，必须是非负整数；`0` 表示免费扩展。 |
-| `maxPages` | 每位玩家可访问的页数上限，只能是 `1` 或 `2`。设为 `1` 时不会显示扩展入口；设为 `2` 时玩家可购买第 2 页。 |
-
-编辑后执行 `/qiandao reload`，再重新打开储存界面即可使用新价格和上限。将上限从 `2` 临时改为 `1` 不会删除已购买的第二页物品；恢复为 `2` 后该页会再次可访问。配置格式或数值无效时，服务器会记录错误并使用内置默认值。
-
-## 成就配置
-
-自定义成就配置位于服务器目录：
-
-```text
-config/qiandao-achievements.json
-```
-
-首次启动时会生成一个“石匠”示例。配置根节点必须是 `achievements` 数组；每个成就可以包含多个要求，所有要求同时满足后才算达成：
-
-```json
-{
+  "format_version": 1,
   "achievements": [
     {
       "id": "stone_breaker",
@@ -281,405 +133,121 @@ config/qiandao-achievements.json
       "description": "挖掘石头 1000 个",
       "icon": "minecraft:stone",
       "requirements": [
-        {
-          "type": "block_mined",
-          "target": "minecraft:stone",
-          "count": 1000
-        }
+        { "type": "block_mined", "target": "minecraft:stone", "count": 1000 }
       ],
-      "rewards": {
-        "coins": 500,
-        "titles": ["geologist"]
-      }
+      "rewards": { "coins": 500, "titles": ["geologist"] }
     }
   ]
 }
 ```
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `id` | 是 | 唯一成就 ID，会转为小写，必须匹配 `[a-z0-9_.-]`，长度为 1 至 64 个字符。 |
-| `display` | 是 | GUI 中显示的名称，必须有可见文字，最长 128 个字符；支持传统 `§` 颜色代码。 |
-| `description` | 是 | GUI 中显示的说明文字，最长 512 个字符。 |
-| `icon` | 是 | 有效的 Minecraft 物品注册 ID，用作成就图标；不能使用 `minecraft:air`。 |
-| `requirements` | 是 | 非空要求数组；数组中的要求全部完成后解锁成就。 |
-| `rewards.coins` | 否 | 领取时增加的模组内部货币，必须是非负整数，省略时为 `0`。 |
-| `rewards.titles` | 否 | 领取时授予的称号 ID 数组；称号 ID 必须符合相同的 ID 格式，省略时为空数组。 |
+支持的统计类型是 `block_mined` 和 `entity_killed`。方块、生物及图标会在加载时解析并缓存；目标不存在、数量非正数、ID 重复或称号引用无效时配置不会替换当前有效快照。
 
-要求对象支持以下字段：
-
-| `type` | `target` | 统计来源 |
-| --- | --- | --- |
-| `block_mined` | 方块 ID，例如 `minecraft:stone` | `Stats.BLOCK_MINED` |
-| `entity_killed` | 生物类型 ID，例如 `minecraft:zombie` | `Stats.ENTITY_KILLED` |
-
-`count` 必须是正整数。加载配置时会校验 ID、数量、图标物品、方块和生物类型是否存在，并将目标注册对象缓存；GUI 刷新时不会重复查询注册表。配置无效时当前会话不加载任何成就，并在修正后执行 `/qiandao reload` 恢复。
-
-成就进度不会写回 `qiandao-achievements.json`，也不会被模组重复计数；当前值始终来自 Minecraft 原版统计。奖励中的称号会调用现有称号系统授予，若称号 ID 当前不存在，货币奖励仍会发放，但该称号不会新增。修改后执行 `/qiandao reload`，在线玩家会立即重新检查目标。
-
-## 权限
-
-云端储存使用原生权限节点：
-
-```text
-qiandao:cloud_storage
-```
-
-拥有 Minecraft 权限等级 `2`（`GAMEMASTERS`）的管理员默认可以打开云端储存。非管理员需要由兼容原生权限 API 的权限系统授予上面的节点；也可以给称号效果定义 `PERMISSION` 类型的 `qiandao:cloud_storage` 节点。称号方式仅在该称号已佩戴且称号效果开关开启时生效，例如：
+### 云端存储
 
 ```json
 {
-  "cloud_storage_access": {
-    "name": "云端储存权限",
-    "type": "PERMISSION",
-    "permission": "qiandao:cloud_storage",
-    "display": "§b可使用云端储存"
-  }
+  "format_version": 1,
+  "expansionCost": 1000,
+  "maxPages": 2
 }
 ```
 
-## 称号
+`maxPages` 至少为 1，默认玩家拥有 1 页。云存储物品和页数保存在世界数据中，不会因配置重载丢失。
 
-称号独立于签到货币和奖励发放。管理员负责授予与回收，玩家只能在自己已解锁的称号中选择佩戴。所有选择和所有权由服务器保存，重新登录后仍会保留。
+## 模块开关与重载
 
-### 使用称号
+使用 `/qiandao reload` 重新读取主配置和所有模块配置。加载流程会先迁移旧配置、读取主配置、等待服务端注册表可用、校验所有模块和跨模块引用，然后一次性替换配置快照。
 
-玩家可使用以下任一命令打开“我的称号”界面：
+- 缺失文件：生成默认文件。
+- 重载失败：保留上一份有效快照，不清空其他模块。
+- 禁用模块：命令、GUI 点击、Tick、加入/断开事件和称号显示逻辑均停止；SavedData 保留。
+- 重新启用模块：无需重启服务器，在线玩家会重新检查成就、称号显示和效果。
 
-```text
-/qiandao title
-/qiandao title open
-/checkin title
-/checkin title open
-/title
-/title open
-```
-
-界面每页显示最多 45 个已解锁称号。点击称号即可佩戴；再次点击当前已佩戴的称号，或点击底栏的屏障图标，即可卸下。未解锁的称号不会显示在玩家界面中。
-
-| 稀有度 | 聊天 | 玩家列表（Tab） | 头顶名称 |
-| --- | --- | --- | --- |
-| `common`（普通） | 显示 | 不显示 | 不显示 |
-| `rare`（稀有） | 显示 | 显示 | 不显示 |
-| `legendary`（传说） | 显示 | 显示 | 显示 |
-
-佩戴后，聊天消息会带上称号前缀；稀有和传说称号会同步到在线玩家的玩家列表，传说称号还会显示在角色头顶。
-
-#### 佩戴效果的生效方式
-
-称号的显示与称号效果是两个独立状态。玩家点击一个已解锁称号时，服务器会先移除旧称号的效果，再按新称号的 `effects` 数组应用效果；没有佩戴称号时不会应用任何称号效果。一个称号可以同时引用多个效果，效果 ID 会在 `qiandao-title-effects.json` 中逐一查找，找不到的 ID 只会被忽略。
-
-底栏的染料图标是玩家自己的总开关：绿色染料表示已开启，灰色染料表示已关闭。关闭后称号仍会在聊天、Tab 和头顶正常显示，但药水、属性、粒子和权限效果会立即移除；重新开启、切换称号、重新登录、重生或管理员执行 `/qiandao reload` 后会再次刷新。这个开关会保存在 `players.<UUID>.effects_enabled`，未填写时默认为 `true`。
-
-配置称号效果时需要同时修改两个文件：
-
-1. 在 `qiandao-title-effects.json` 中定义效果，例如定义 `speed_1`。
-2. 在 `qiandao-titles.json` 对应称号的 `effects` 数组中填写 `speed_1`。
-3. 可选地在称号的 `tooltip` 数组中写入悬停说明；`tooltip` 只负责界面展示，不会创建或修改实际效果。
-4. 执行 `/qiandao reload`，然后在称号界面佩戴称号并确认效果开关已开启。
-
-### 称号配置
-
-称号配置位于服务端：
-
-```text
-config/qiandao-titles.json
-```
-
-首次启动会生成以下默认定义；`players` 节由模组自动维护，用于保存玩家名、已解锁称号、当前佩戴项和效果开关。管理员编辑称号定义时应保留该节，避免丢失所有权记录。
-
-```json
-{
-  "titles": [
-    {
-      "id": "geologist",
-      "display": "§7[§r地质学家§7] §r",
-      "rarity": "common",
-      "effects": ["health_2"],
-      "tooltip": ["§7佩戴效果：", "§c♥ 生命上限 +4"]
-    },
-    {
-      "id": "architect",
-      "display": "§b[§r建筑师§b] §r",
-      "rarity": "rare",
-      "effects": ["speed_1"],
-      "tooltip": ["§7佩戴效果：", "§a✔ 移动速度提升"]
-    },
-    {
-      "id": "legend",
-      "display": "§6[§r传说§6] §r",
-      "rarity": "legendary",
-      "effects": ["resistance_1", "night_vision"],
-      "tooltip": ["§7佩戴效果：", "§a✔ 抗性提升 I", "§a✔ 永久夜视"]
-    }
-  ],
-  "players": {}
-}
-```
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 唯一称号 ID。会转为小写，推荐使用 `[a-z0-9_.-]`，长度为 1 至 64 个字符。 |
-| `display` | 游戏中显示的称号文本；必须有可见文字，最长 128 个字符。支持 Minecraft 传统 `§` 格式代码，也支持 `§x§R§R§G§G§B§B` 十六进制颜色。 |
-| `rarity` | 显示范围，使用 `common`、`rare` 或 `legendary`。 |
-| `effects` | 可选。称号效果 ID 数组；每个 ID 必须符合 `[a-z0-9_.-]`，并在 `qiandao-title-effects.json` 中定义。重复 ID 会被拒绝。 |
-| `tooltip` | 可选。称号物品悬停提示的文本数组，每行最长 256 个字符；它只负责展示，不会自动从效果定义生成。 |
-| `players` | 模组维护的玩家数据；不应手动覆盖或删除。每名玩家会保存 `unlocked`、`selected` 和默认值为 `true` 的 `effects_enabled`。 |
-
-称号只有在玩家已佩戴且效果开关开启时才会应用关联的效果。效果 ID 不存在时不会阻止称号佩戴或显示，但该 ID 不会产生实际效果。
-
-旧版称号配置可以省略 `effects`、`tooltip` 和玩家记录中的 `effects_enabled` 字段：省略时分别按空数组和 `true` 处理。升级时请保留 `players` 节；只需要给称号定义增加效果 ID，不要删除已保存的 `unlocked`、`selected` 或 `effects_enabled` 数据。
-
-### 称号效果配置
-
-称号效果定义位于服务端：
-
-```text
-config/qiandao-title-effects.json
-```
-
-配置根节点是“效果 ID -> 定义”的对象；也可以将这些定义包在根节点的 `effects` 对象中。首次启动会生成速度 I/II、抗性提升 I、生命上限 II、夜视、防火、红石粒子和游戏管理员权限等默认定义。称号通过其 `effects` 数组引用这些 ID。
-
-以下示例覆盖四种支持的效果类型：
-
-```json
-{
-  "speed_1": {
-    "name": "速度 I",
-    "type": "POTION",
-    "effect": "minecraft:speed",
-    "amplifier": 0,
-    "duration": -1,
-    "display": "§a移动速度提升 20%"
-  },
-  "health_2": {
-    "name": "生命提升 II",
-    "type": "ATTRIBUTE",
-    "attribute": "minecraft:generic.max_health",
-    "operation": "ADDITION",
-    "amount": 4.0,
-    "display": "§c♥ 生命上限 +4"
-  },
-  "particle_redstone": {
-    "name": "红石粒子",
-    "type": "PARTICLE",
-    "particle": "minecraft:redstone",
-    "frequency": 10,
-    "display": "§c行走时飘落红石粒子"
-  },
-  "command_gamemaster": {
-    "name": "游戏管理员命令权限",
-    "type": "PERMISSION",
-    "permission": "qiandao:command.gamemaster",
-    "display": "§d解锁游戏管理员命令"
-  }
-}
-```
-
-| 类型 | 必填字段 | 可选字段与行为 |
-| --- | --- | --- |
-| `POTION` | `effect`：有效的药水效果 ID | `amplifier` 默认为 `0`，对应游戏内 I 级；`duration` 默认为 `-1`（永久），其他值必须为正游戏刻。 |
-| `ATTRIBUTE` | `attribute`：有效的属性 ID；`amount`：有限数值 | `operation` 默认为 `ADDITION`，还可使用 `ADD_MULTIPLIED_BASE` 或 `ADD_MULTIPLIED_TOTAL`。属性修正会在卸下称号、关闭效果、断开连接或重载后移除。 |
-| `PARTICLE` | `particle`：有效的粒子 ID | `frequency` 默认为 `10`，必须为正整数。玩家在地面移动时，按该间隔发出粒子。 |
-| `PERMISSION` | `permission`：有效的权限 ID | 将权限加入玩家当前的原生权限集合，仅在称号效果启用且称号处于佩戴状态时有效。 |
-
-所有类型都可使用可选的 `name` 和 `display` 字段；`display` 会显示在称号界面的效果开关提示中，未填写时使用 `name`。效果 ID 会转为小写，且必须符合 `[a-z0-9_.-]`、长度为 1 至 64 个字符。
-
-药水效果的 `duration` 使用游戏刻：`-1` 表示永久，正数表示从佩戴或刷新时开始计时的持续时间，持续时间结束后会自然消失，并会在下一次效果刷新（例如重新佩戴、重新登录、重生或重新加载配置）时再次应用。属性修正使用模组生成的临时修正，不会写入玩家的永久属性；卸下称号、关闭开关、断开连接或刷新配置时会移除。粒子只在玩家在地面移动时按 `frequency` 间隔生成。权限效果只在称号处于佩戴且开关开启时加入玩家的原生权限检查。
-
-在称号界面底栏点击染料图标可切换个人效果开关。关闭后称号的聊天、Tab 与头顶显示保持不变，但药水、属性、粒子和权限效果会立即移除；重新开启或更换称号后会重新应用。玩家重新登录、重生，以及管理员重载配置时也会刷新效果。
-
-`PERMISSION` 效果可影响服务器权限，应仅授予可信玩家。`qiandao:command.moderator`、`qiandao:command.gamemaster`、`qiandao:command.admin` 和 `qiandao:command.owner` 分别映射为原生权限级别 `MODERATORS`、`GAMEMASTERS`、`ADMINS` 和 `OWNERS`；其中 `qiandao:command.gamemaster` 可以满足本模组的管理命令权限要求。`qiandao:cloud_storage` 是云端储存的原生节点；其他有效权限 ID 也可供使用 Minecraft 原生权限 API 的内容检查。
-
-修改奖励、商店、称号、称号效果、云端储存或成就配置后，执行 `/qiandao reload` 即可重新加载六类配置；称号显示、在线玩家的效果和成就完成状态会立刻刷新。称号配置无效时当前会话不会提供称号；称号效果配置无效时称号仍可佩戴和显示，但不会提供任何称号效果；成就配置无效时当前会话不会提供成就。修正配置后重新加载即可恢复。
-
-### 称号命令
-
-以下管理命令需要 Minecraft 权限等级 `2`，控制台也可以执行。`<玩家>` 使用 Minecraft 的玩家参数，`<称号ID>` 必须是配置中存在的 ID。
-
-| 用途 | 命令 |
-| --- | --- |
-| 授予称号 | `/qiandao title give <玩家> <称号ID>` 或 `/qiandao title add <玩家> <称号ID>` |
-| 回收称号 | `/qiandao title remove <玩家> <称号ID>` 或 `/qiandao title take <玩家> <称号ID>` |
-
-`/checkin title ...` 与 `/title ...` 也支持同样的 `give`、`add`、`remove`、`take` 子命令。回收当前佩戴的称号时，模组会自动卸下它，并刷新在线玩家的显示。
+模块依赖关系：在线奖励、商店、成就和云存储共享核心余额；`title_effects` 依赖 `titles`；`permissions` 目前仅作预留开关。
 
 ## 命令
 
-### 玩家命令
+玩家命令：
 
 | 用途 | 命令 |
 | --- | --- |
-| 打开签到界面 | `/qiandao`、`/qiandao open`、`/checkin` |
-| 打开在线时长奖励界面 | `/qiandao online`、`/qiandao online rewards`、`/checkin online` |
-| 打开商店 | `/qiandao shop`、`/qiandao shop open`、`/checkin shop`、`/checkin shop open` |
-| 打开称号界面 | `/qiandao title`、`/qiandao title open`、`/checkin title`、`/checkin title open`、`/title`、`/title open` |
-| 打开云端储存 | `/qiandao storage`、`/qiandao storage open`、`/checkin storage`、`/checkin storage open`、`/cloudstorage`、`/cloudstorage open`、`/cstorage`、`/cstorage open`。需要 `qiandao:cloud_storage` 或管理员权限。 |
-| 打开自定义成就 | `/qiandao achievements`、`/qiandao achievements open`、`/checkin achievements`、`/checkin achievements open` |
-| 查询自己的余额 | `/qiandao balance`、`/checkin balance`、`/qiandao currency`、`/qiandao currency balance`、`/qiandao currency get`、`/checkin currency`、`/checkin currency balance`、`/checkin currency get`、`/money`、`/money balance`、`/money get`、`/balance` |
+| 签到 | `/qiandao`、`/qiandao open` |
+| 在线奖励 | `/qiandao online`、`/qiandao online rewards` |
+| 商店 | `/qiandao shop`、`/qiandao shop open` |
+| 称号 | `/qiandao title`、`/title` |
+| 成就 | `/qiandao achievements` |
+| 云存储 | `/qiandao storage`、`/cloudstorage`、`/cstorage` |
+| 余额 | `/qiandao balance`、`/qiandao currency`、`/money`、`/balance` |
 
-### 管理员命令
+管理员命令（Minecraft 权限等级 2，控制台也可执行）：
 
-以下命令需要 Minecraft `2` 级权限（控制台也可以执行）：
+| 用途 | 命令 |
+| --- | --- |
+| 查询指定玩家余额 | `/qiandao balance <玩家>` |
+| 增加/扣除余额 | `/qiandao add <玩家> <数量>`、`/qiandao remove <玩家> <数量>` |
+| 授予/回收称号 | `/qiandao title give <玩家> <称号ID>`、`/qiandao title remove <玩家> <称号ID>` |
+| 清除今日签到 | `/qiandao clear [today]` |
+| 重载配置 | `/qiandao reload` |
 
-| 用途 | 主命令 | 可用别名 |
-| --- | --- | --- |
-| 查询指定玩家余额 | `/qiandao balance <玩家>` | `/checkin balance <玩家>`、`/qiandao currency <查询操作> <玩家>`、`/checkin currency <查询操作> <玩家>`、`/money <查询操作> <玩家>`、`/balance <玩家>` |
-| 增加余额 | `/qiandao add <玩家> <数量>` | `/qiandao currency add <玩家> <数量>`、`/checkin currency add <玩家> <数量>`、`/money add <玩家> <数量>` |
-| 扣除余额 | `/qiandao remove <玩家> <数量>` | `/qiandao currency <操作> <玩家> <数量>`、`/checkin currency <操作> <玩家> <数量>`、`/money <操作> <玩家> <数量>` |
-| 清除今日签到 | `/qiandao clear` 或 `/qiandao clear today` | `/checkin clear`、`/checkin clear today` |
-| 重新加载奖励、商店、称号、称号效果、云端储存和成就配置 | `/qiandao reload` | 无 |
+## 持久化与备份
 
-`<玩家>` 使用 Minecraft 的玩家选择器参数，可以一次指定多个已知玩家。数量必须是大于 0 的整数；扣除数量不会超过目标玩家当前余额。清除操作只影响服务器当前日期的签到状态、名次和时间，并重新计算连续签到，不会回滚已经发放的货币或月度奖励。
-
-上表中的 `<查询操作>` 可替换为 `balance` 或 `get`；扣除命令中的 `<操作>` 可替换为 `remove`、`deduct` 或 `take`。这些子命令的参数顺序均为玩家选择器后跟正整数数量。
-
-## 数据与备份
-
-称号定义、玩家已解锁称号、已佩戴项和个人效果开关保存在 `config/qiandao-titles.json`；称号效果定义保存在 `config/qiandao-title-effects.json`；云端储存价格与页数上限保存在 `config/qiandao-cloud-storage.json`；成就定义保存在 `config/qiandao-achievements.json`。备份或迁移时，请将这些文件与奖励、商店配置和世界数据一并保留。
-
-签到数据保存在主世界的 Minecraft `SavedData` 中，数据 ID 为 `qiandao_data`，通常对应：
+玩家运行时数据使用世界 `SavedData`，典型文件为：
 
 ```text
-<世界目录>/data/qiandao_data.dat
+<世界>/data/qiandao_data.dat                 # 签到、余额、月度奖励、在线时长
+<世界>/data/qiandao_titles.dat               # 称号拥有、佩戴和效果开关
+<世界>/data/qiandao_achievements.dat         # 成就解锁和领取状态
+<世界>/data/qiandao_cloud_storage.dat        # 云存储物品和页数
 ```
 
-数据按玩家 UUID 保存每日签到日期、名次、签到时间、累计天数、连续天数、余额、月度奖励领取记录、当日在线时长和在线奖励领取记录。所有维度共享同一份数据。云端储存会单独保存到：
+备份或迁移前应停止服务端并备份整个世界目录，以及 `config/qiandao/` 和 `config/qiandao/legacy/`。不要只备份配置文件，否则无法恢复余额、物品和领取状态。
 
-```text
-<世界目录>/data/qiandao_cloud_storage.dat
-```
+## 旧配置迁移
 
-成就解锁与奖励领取状态会单独保存到：
+首次加载时会迁移以下旧文件，且不会删除源文件：
 
-```text
-<世界目录>/data/qiandao_achievements.dat
-```
+| 旧文件 | 新位置 |
+| --- | --- |
+| `qiandao-rewards.json` | `daily_checkin/config.json` 与 `online_reward/config.json` |
+| `qiandao-shop.json` | `shop/config.json` |
+| `qiandao-titles.json` | `titles/config.json`，玩家状态导入 `qiandao_titles.dat` |
+| `qiandao-title-effects.json` | `title_effects/config.json` |
+| `qiandao-achievements.json` | `achievements/config.json` |
+| `qiandao-cloud-storage.json` | `cloud_storage/config.json` |
 
-该文件只保存每名玩家的成就 ID 集合，不保存当前挖掘/击杀数；当前进度始终从 Minecraft 原版统计读取。原版统计通常位于世界的 `stats/<玩家 UUID>.json`，由 Minecraft 自己维护。
+迁移只在目标不存在时执行，成功后把旧文件复制到 `legacy/` 并写入 `legacy/manifest.json`。原称号玩家状态只导入一次，避免重启重复覆盖 SavedData。
 
-迁移或升级前应先完全停止服务器，并备份整个世界目录，尤其是 `data/qiandao_data.dat`、`data/qiandao_cloud_storage.dat`、`data/qiandao_achievements.dat`、`config/qiandao-rewards.json`、`config/qiandao-shop.json`、`config/qiandao-titles.json`、`config/qiandao-title-effects.json`、`config/qiandao-cloud-storage.json` 和 `config/qiandao-achievements.json`。只备份配置文件不会包含签到历史、在线时长、余额、云端储存物品或成就解锁/领取状态。
+## 权限
 
-服务器日期以 Java 进程系统时区为准；漏签后再次签到会从 1 天重新计算连续签到。模组不会向外部服务上传玩家数据。
+云存储使用原生权限节点 `qiandao:cloud_storage`。Minecraft 管理员等级 2 及以上默认绕过该节点；其他玩家需要由权限后端授予该节点。称号效果产生的权限同样经过白名单校验，不会改变任意原生管理员等级。
 
-## 常见问题
+## 故障排查
 
-### 命令没有打开界面
+- GUI 无法打开：确认服务端和客户端模组版本一致，并检查对应模块是否启用及玩家是否拥有权限。
+- 配置修改未生效：确认 JSON 使用 UTF-8、ID 唯一、目标注册表 ID 正确，然后执行 `/qiandao reload`。
+- 重载失败：查看服务端日志；旧快照会继续运行，修复配置后再次重载即可。
+- 成就进度不正确：确认原版统计中存在目标；模组只读取原版统计，不维护第二份计数。
+- 在线奖励重复或错位：不要复用奖励 ID；旧槽位记录会按旧顺序转换为稳定 ID。
+- 重启后数据缺失：确认使用了原来的世界目录，并恢复对应的 `data/qiandao_*.dat` 文件。
 
-确认命令由玩家而不是控制台执行，并检查服务器和客户端是否都安装了本模组及兼容版本的 Fabric API。
+## 构建与验证
 
-### 奖励配置没有生效
+Windows PowerShell：
 
-确认编辑的是服务器端 `config/qiandao-rewards.json`，JSON 格式有效且数值为非负整数，然后执行 `/qiandao reload`。查看服务器日志中的配置解析错误；出现错误时当前运行会使用默认奖励。
-
-### 商店打开后没有商品
-
-确认编辑的是服务器端 `config/qiandao-shop.json`，根节点为 JSON 数组，商品的 `index` 没有重复，且物品 ID、组件或 SNBT 能被 Minecraft 1.21.11 解析。任一条商品不合法都会让商店临时禁用；修正后执行 `/qiandao reload`，并查看服务器日志中的具体错误。
-
-### 成就没有进度或无法领取
-
-确认编辑的是服务器端 `config/qiandao-achievements.json`，根节点为对象且包含 `achievements` 数组。`block_mined` 的 `target` 必须是有效方块 ID，`entity_killed` 的 `target` 必须是有效生物类型 ID，`icon` 必须是有效物品 ID，`count` 必须为正整数。成就进度来自 Minecraft 原版统计；如果管理员重置了统计，未解锁成就的进度会随之降低，但已经解锁或领取的成就状态不会回退。修正配置后执行 `/qiandao reload`，再重新打开成就界面。
-
-### 无法打开云端储存或无法扩展
-
-确认命令由玩家执行，且该玩家具有 `qiandao:cloud_storage` 节点或 Minecraft `2` 级管理员权限。然后检查 `config/qiandao-cloud-storage.json` 中的 `expansionCost` 与 `maxPages`：前者必须是非负整数，后者只能为 `1` 或 `2`。货币余额不足、已达到页数上限或配置错误时，界面会给出相应提示；修正配置后执行 `/qiandao reload` 并重新打开界面。
-
-### 称号显示正常但效果没有生效
-
-确认玩家已经佩戴该称号，并在称号界面开启了效果开关。然后检查 `config/qiandao-titles.json` 中称号的 `effects` ID 是否与 `config/qiandao-title-effects.json` 的定义一致。两个文件任一格式无效都会在服务器日志中记录解析错误；修正后执行 `/qiandao reload`。权限类型还应确认该权限不会授予超出预期的命令级别。
-
-### 日期或倒计时不正确
-
-检查服务器操作系统的日期、时间和时区。客户端时区不参与签到判断。跨过午夜后重新打开界面即可刷新。
-
-### 重启或换图后记录消失
-
-确认启动时使用的是原来的世界目录。若有备份，从对应世界恢复 `data/qiandao_data.dat`；云端储存物品还需要恢复 `data/qiandao_cloud_storage.dat`。仅恢复配置文件不会恢复历史记录、余额或储存物品。
-
-## 构建
-
-项目使用 Gradle Wrapper，无需单独安装 Gradle：
-
-```bash
-# Linux/macOS
-./gradlew build
-
-# Windows PowerShell
+```powershell
+.\gradlew.bat compileJava
 .\gradlew.bat build
 ```
 
-产物位于 `build/libs/`：
+Linux/macOS：
 
-- `qiandao-<版本>.jar`：可安装的模组 JAR
-- `qiandao-<版本>-sources.jar`：源代码 JAR
-
-版本号由 `gradle.properties` 中的 `mod_version` 定义。需要完全清理时执行 `clean build`。
-
-提交改动前建议至少运行一次 `build`，确认 Java 21、资源 JSON 和 Fabric 元数据均能正常打包。构建不需要单独安装 Gradle；Wrapper 会使用项目声明的 Minecraft、Fabric Loader 和 Fabric API 版本。
-
-## 项目结构
-
-### 模块说明
-
-| 模块 | 主要文件 | 职责 |
-| --- | --- | --- |
-| 初始化与命令 | `ModMindEntry` | 注册菜单、生命周期事件、签到提醒、全部指令，以及称号聊天前缀。 |
-| 客户端菜单 | `ModMindClient`、各 `*Screen` | 注册并渲染签到、记录、在线奖励、商店、称号、成就和云端储存 GUI。 |
-| 签到与记录 | `CheckinData`、`CheckinScreenHandler`、`CheckinRecordsScreenHandler` | 保存签到数据，提供日历、连续天数、名次和今日记录。 |
-| 货币与奖励 | `CheckinRewardConfig`、`CheckinRewardService`、`OnlineTimeRewardService` | 加载每日、月度和在线时长奖励，并以服务端货币余额结算。 |
-| 商店 | `ShopConfig`、`ShopScreenHandler`、`ShopScreen` | 解析商品配置、处理分页和服务端购买校验。 |
-| 云端储存 | `CloudStorageConfig`、`CloudStorageData`、`CloudStorageScreenHandler`、`CloudStorageScreen` | 读取扩展设置、持久化玩家物品、处理两页菜单与服务端扣款校验。 |
-| 自定义成就 | `AchievementConfig`、`AchievementData`、`AchievementService`、`AchievementScreenHandler`、`AchievementScreen` | 读取并校验原版统计目标，持久化解锁/领取状态，周期检查进度并处理分页 GUI 与奖励领取。 |
-| 称号数据 | `TitleConfig`、`TitleRarity`、`LegacyTitleText` | 读取称号定义，保存玩家所有权、选择和效果开关，并解析颜色格式文本。 |
-| 称号效果 | `TitleEffectConfig`、`TitleEffectService`、`ServerPlayerPermissionMixin` | 读取效果定义，应用或移除药水、属性、粒子和权限效果。 |
-| 称号显示 | `TitleDisplayService`、`ServerPlayerTabListMixin`、`PlayerNameTagMixin` | 将已佩戴称号同步到聊天、Tab 列表和传说称号的头顶名称。 |
-| 称号界面 | `TitleScreenHandler`、`TitleScreen` | 展示已解锁称号、效果提示、效果开关、分页、佩戴与卸下操作。 |
-
-```text
-src/main/java/dev/modmind/qiandao/
-├── ModMindEntry.java                 # 初始化、提醒、命令和奖励重载
-├── ModMindClient.java                # 客户端 GUI 注册
-├── CheckinData.java                  # SavedData、签到统计、余额和月度记录
-├── CheckinRewardConfig.java          # 奖励配置读取、校验和生成
-├── CheckinRewardService.java         # 每日及月度奖励发放
-├── OnlineTimeRewardService.java      # 在线时长累计与奖励领取校验
-├── OnlineTimeRewardScreenHandler.java # 在线时长奖励菜单和服务端校验
-├── OnlineTimeRewardScreen.java       # 在线时长奖励界面渲染
-├── ShopConfig.java                   # 商店配置与完整物品堆叠 SNBT 读取
-├── ShopScreenHandler.java            # 商店菜单、分页和服务端购买校验
-├── ShopScreen.java                   # 商店界面渲染
-├── CloudStorageConfig.java            # 云端储存价格和页数上限配置
-├── CloudStorageData.java              # 云端储存 SavedData 与物品持久化
-├── CloudStorageScreenHandler.java     # 云端储存菜单、翻页和扩展校验
-├── CloudStorageScreen.java            # 云端储存界面渲染
-├── AchievementConfig.java              # 成就配置、目标注册表解析与缓存
-├── AchievementData.java                # 成就 SavedData 与解锁/领取状态
-├── AchievementService.java             # 原版统计检查与一次性奖励发放
-├── AchievementScreenHandler.java       # 成就分页菜单和服务端领取校验
-├── AchievementScreen.java              # 成就界面渲染
-├── CheckinScreenHandler.java         # 签到菜单、日期槽位和服务端校验
-├── CheckinScreen.java                # 签到界面渲染
-├── CheckinRecordsScreenHandler.java  # 今日记录排序、分页和头像物品
-├── CheckinRecordsScreen.java         # 记录界面渲染
-├── LegacyTitleText.java               # 传统颜色代码与格式文本解析
-├── TitleConfig.java                   # 称号定义、玩家所有权、佩戴项和效果开关
-├── TitleDisplayService.java           # 聊天、Tab 和头顶称号显示
-├── TitleEffectConfig.java             # 称号效果定义读取、校验和生成
-├── TitleEffectService.java            # 药水、属性、粒子和权限效果的应用与移除
-├── TitleRarity.java                   # 称号稀有度与显示范围
-├── TitleScreenHandler.java            # 称号菜单、分页和服务端交互校验
-├── TitleScreen.java                   # 称号界面渲染
-└── mixin/
-    ├── ServerPlayerPermissionMixin.java # 将活动称号权限加入玩家权限集合
-    ├── ServerPlayerTabListMixin.java    # 在 Tab 列表显示稀有及传说称号
-    └── client/PlayerNameTagMixin.java   # 在头顶显示传说称号
-
-src/main/resources/
-├── fabric.mod.json                   # 模组元数据和依赖声明
-└── assets/qiandao/lang/
-    ├── zh_cn.json                    # 简体中文文本
-    └── en_us.json                    # English text
+```bash
+./gradlew compileJava
+./gradlew build
 ```
+
+产物位于 `build/libs/`。ModMind 工作流还会执行资源内容校验、托管构建和隔离服务端烟雾测试；测试实例不会打开用户的 Minecraft 窗口。
 
 ## 许可证
 
