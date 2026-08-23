@@ -1,355 +1,6 @@
 # omnitools
 
-## 成就系统（`achievements`）
 
-成就系统 v2 使用服务端条件树描述解锁条件。模组直接读取 Minecraft 原版统计，不在 `SavedData` 中维护第二份统计计数；配置在启动或 `/omnitools reload` 时解析为不可变模型。运行时只读取已经解析的注册对象，配置错误不会替换当前有效快照。
-
-本模块先说明工作原理、统计适配和目标解析，再按“如何使用 → 玩家命令 → 管理员命令 → 默认配置 → 示例配置与字段解析”说明实际操作；旧配置迁移、持久化、GUI 和性能限制放在后续小节。成就模块由主配置中的 `modules.achievements.enabled` 控制，关闭后不执行周期检查、不解锁成就、不发放奖励，但不会删除已有的世界数据。
-
-### 模块快速导航
-
-| 小节 | 你可以在这里找到 |
-| --- | --- |
-| 工作原理 | 条件树、统计读取、解锁和进度计算流程。 |
-| 如何使用 | 配置文件位置、重载流程和一份可直接改写的 v2 配置。 |
-| 玩家命令 | 打开成就菜单、查看进度和领取奖励。 |
-| 管理员命令 | 重载配置、权限要求和失败回退。 |
-| 默认配置 | 首次启动生成的最小可用配置。 |
-| 示例配置与字段解析 | `sum`、`each`、`any`、逻辑嵌套、单位和字段约束。 |
-
-### 工作原理
-
-一次玩家检查的流程是：
-
-1. 读取当前有效的成就配置快照；配置文件不会在检查期间被重新读取。
-2. 为该玩家创建一个 `StatisticEvaluationContext`，按“统计类型 + 目标对象”缓存原版统计值。
-3. 从根节点向下求值，得到统一的 `completed`、`current`、`target` 结果。
-4. 条件满足且成就尚未解锁时，写入世界 `SavedData`；已解锁成就跳过后续周期求值。
-5. 领奖和 GUI 刷新继续使用同一棵条件树，服务端重新校验，客户端不参与判定。
-
-因此，成就系统不复制 Minecraft 统计，也不会因为原版统计后来被重置而撤销已经写入的解锁状态。
-
-条件节点的语义如下：
-
-| 节点 | 作用 |
-| --- | --- |
-| `stat` | 读取一个原版统计源和一组目标。叶子条件达到 `at_least` 后完成。 |
-| `sum` | 把多个统计源的当前值相加后与一个阈值比较。只允许相同单位类别。 |
-| `all` | 所有子条件都完成才完成。 |
-| `any` | 任一子条件完成即完成。 |
-| `not` | 子条件未完成时为 `true`，子条件完成后为 `false`。可以嵌套在 `all` 或 `any` 中。 |
-
-`stat` 的 `match` 决定多个目标之间的关系：`sum` 为目标合计，`each` 为每个目标分别达标，`any` 为任一目标达标。所有节点都输出 `completed`、`current` 和 `target`，GUI 只展示服务端生成的结果。顶层成就不能只有 `not`，必须包含至少一个正向统计条件。
-
-#### 支持的原版统计
-
-| `stat` | 目标注册表 | 示例 |
-| --- | --- | --- |
-| `block_mined` | 方块 | 挖掘石头、深板岩 |
-| `item_crafted` | 物品 | 合成石头 100 个 |
-| `item_used` | 物品 | 使用钻石剑 100 次 |
-| `item_broken` | 物品 | 损坏工具 |
-| `item_picked_up` | 物品 | 拾取物品 |
-| `item_dropped` | 物品 | 丢弃物品 |
-| `entity_killed` | 实体类型 | 击杀凋灵或末影龙 |
-| `entity_killed_by` | 实体类型 | 被指定实体击杀 |
-| `custom` | `Stats.CUSTOM` | 移动、游戏时长、伤害、死亡 |
-
-`custom` 必须提供 `custom_stat`，例如 `minecraft:walk_one_cm`、`minecraft:play_time`、`minecraft:damage_dealt`、`minecraft:damage_taken`、`minecraft:deaths`。物品、方块和实体目标只接受显式注册 ID、标签、目标组或通配符展开后的对象；不会把任意字符串当作统计目标。
-
-常用 `custom_stat` 可以按单位类别理解：`walk_one_cm`、`sprint_one_cm`、`swim_one_cm` 和 `fly_one_cm` 属于距离；`play_time` 和 `total_world_time` 属于时长；`damage_dealt`、`damage_taken` 和 `damage_blocked_by_shield` 属于伤害；`deaths`、`mob_kills`、`player_kills`、`jump`、`animals_bred`、`fish_caught`、`traded_with_villager` 和 `raid_win` 按次数计算。具体统计 ID 必须能在当前服务端的 `Stats.CUSTOM` 注册表中找到。
-
-#### 目标解析与单位
-
-目标写法如下：
-
-| 写法 | 含义 |
-| --- | --- |
-| `minecraft:stone` | 显式注册对象 ID。 |
-| `$stone_family` | 当前文件 `target_groups` 中定义的目标组。 |
-| `#minecraft:logs` | 当前统计域对应的 Minecraft 标签。 |
-| `*` | 当前统计类型注册表中的全部目标；不能与其他目标混用。 |
-
-目标组、标签和 `*` 只在配置加载或重载时展开、去重和缓存。未知 ID、未知标签、空标签、目标组循环、`*` 混用都会拒绝新配置。每个条件最多 2048 个展开目标，每个成就最多 128 个统计叶子，条件树最多 8 层。
-
-原版统计值内部保持原始单位，配置加载时把阈值换算为原始单位：
-
-| 数据类别 | 可用 `unit` | 说明 |
-| --- | --- | --- |
-| 方块、物品、实体、跳跃、击杀 | `count`（默认） | 直接按次数比较。 |
-| 距离 | `cm`、`meters`、`blocks`、`kilometers` | 例如 `10 kilometers` 转换为厘米阈值。 |
-| 伤害 | `damage`、`hearts` | `hearts` 按 Minecraft 伤害单位换算。 |
-| 时长 | `ticks`、`seconds`、`minutes`、`hours` | 例如 `play_time` 以 tick 为原始值。 |
-
-`sum` 只能合计同一单位类别；数量不能与距离、伤害或时长相加。配置校验阶段发现单位不兼容时，重载会失败并保留旧快照。
-
-### 如何使用
-
-编辑 `config/omnitools/achievements/config.json`，保存为 UTF-8 后执行 `/omnitools reload`。推荐按以下步骤操作：
-
-1. 先复制并备份当前配置，尤其是已经在线上使用的成就 ID。
-2. 在 `achievements` 数组中新增或修改成就，确保每个 ID 唯一且至少有一个正向统计条件。
-3. 在测试世界执行 `/omnitools reload`，确认服务器提示加载成功后再发布到正式世界。
-
-一个完整的 v2 配置如下：
-
-```json
-{
-  "format_version": 2,
-  "target_groups": {
-    "stone_family": ["minecraft:stone", "minecraft:deepslate"],
-    "bosses": ["minecraft:wither", "minecraft:ender_dragon"]
-  },
-  "achievements": [
-    {
-      "id": "stone_worker",
-      "display": "石匠",
-      "description": "挖掘石头系方块累计 1000 个",
-      "icon": "minecraft:stone",
-      "requirements": {
-        "type": "stat",
-        "stat": "block_mined",
-        "targets": ["$stone_family"],
-        "match": "sum",
-        "at_least": 1000
-      },
-      "rewards": {"coins": 500, "titles": []}
-    }
-  ]
-}
-```
-
-`requirements` 在 v2 中是一个条件对象；旧版数组仍会自动转换，见“旧配置兼容”。`id` 必须唯一，`display`、`description` 不能为空，`icon` 必须是有效物品。奖励中的 `coins` 为领取时增加的货币，`titles` 为领取时授予的称号 ID。
-
-配置修改只有在整份文件校验成功后才会生效；不要直接编辑世界 `SavedData` 或把玩家统计复制到成就文件中。服务器首次启动会自动创建默认文件，首次使用前应先确认该文件位于当前服务器的 `config/omnitools/achievements/` 目录。
-
-### 示例配置与字段解析
-
-石头和深板岩分别达到 1000：
-
-```json
-{
-  "type": "stat",
-  "stat": "block_mined",
-  "targets": ["$stone_family"],
-  "match": "each",
-  "at_least": 1000
-}
-```
-
-石头和深板岩任意一个达到 1000：把 `match` 改为 `any`。挖掘或使用石头系累计 1000：
-
-```json
-{
-  "type": "sum",
-  "at_least": 1000,
-  "sources": [
-    {"stat": "block_mined", "targets": ["$stone_family"]},
-    {"stat": "item_used", "targets": ["$stone_family"]}
-  ]
-}
-```
-
-组合条件可以任意嵌套：
-
-```json
-{
-  "type": "all",
-  "children": [
-    {
-      "type": "stat",
-      "stat": "block_mined",
-      "targets": ["$stone_family"],
-      "match": "sum",
-      "at_least": 1000
-    },
-    {
-      "type": "any",
-      "children": [
-        {"type": "stat", "stat": "entity_killed", "targets": ["minecraft:wither"], "at_least": 1},
-        {"type": "stat", "stat": "entity_killed", "targets": ["minecraft:ender_dragon"], "at_least": 1}
-      ]
-    }
-  ]
-}
-```
-
-`not` 表示“子条件尚未完成”。它可以嵌套在 `all` 或 `any` 中，但不能单独作为顶层成就：
-
-```json
-{
-  "type": "all",
-  "children": [
-    {
-      "type": "stat",
-      "stat": "block_mined",
-      "targets": ["minecraft:stone"],
-      "at_least": 1000
-    },
-    {
-      "type": "not",
-      "child": {
-        "type": "stat",
-        "stat": "custom",
-        "custom_stat": "minecraft:deaths",
-        "at_least": 1
-      }
-    }
-  ]
-}
-```
-
-上例要求玩家累计挖掘 1000 个石头，并且累计死亡统计仍为 0；它不能表达“从接取任务后从未死亡”，因为原版统计是累计值。
-
-移动 10 公里或造成 10000 点伤害的叶子条件分别可以写成：
-
-```json
-{"type": "stat", "stat": "custom", "custom_stat": "minecraft:walk_one_cm", "unit": "kilometers", "at_least": 10}
-```
-
-```json
-{"type": "stat", "stat": "custom", "custom_stat": "minecraft:damage_dealt", "unit": "damage", "at_least": 10000}
-```
-
-### 玩家命令
-
-```text
-/omnitools achievements
-/omnitools achievements open
-/checkin achievements
-/checkin achievements open
-```
-
-玩家在成就界面查看条件树进度，并领取已经完成但尚未领取的奖励。服务端会在打开界面和点击领取时重新验证条件、解锁状态和领取状态；客户端不能修改统计或绕过校验。
-
-### 管理员命令
-
-```text
-/omnitools reload
-```
-
-默认需要 `config.reload` 权限动作（Minecraft 权限等级 2）。没有单独的授予、清除或伪造成就命令；管理员通过编辑配置并重载来维护成就定义。称号奖励只有在 `titles` 模块启用且称号存在时才会发放。
-
-### 默认配置
-
-首次启动生成 `config/omnitools/achievements/config.json`，格式版本为 `2`。默认成就挖掘 `minecraft:stone` 1000 个，奖励 500 货币；`geologist` 称号仅在称号模块启用且已定义时发放。
-
-```json
-{
-  "format_version": 2,
-  "achievements": [
-    {
-      "id": "stone_breaker",
-      "display": "石匠",
-      "description": "挖掘石头 1000 个",
-      "icon": "minecraft:stone",
-      "requirements": {
-        "type": "stat",
-        "stat": "block_mined",
-        "targets": ["minecraft:stone"],
-        "match": "sum",
-        "at_least": 1000
-      },
-      "rewards": {"coins": 500, "titles": ["geologist"]}
-    }
-  ]
-}
-```
-
-### 旧配置兼容
-
-`format_version: 1` 的旧配置无需修改：
-
-```json
-{
-  "format_version": 1,
-  "achievements": [
-    {
-      "id": "stone_breaker",
-      "display": "石匠",
-      "description": "挖掘石头 1000 个",
-      "icon": "minecraft:stone",
-      "requirements": [
-        {"type": "block_mined", "target": "minecraft:stone", "count": 1000}
-      ],
-      "rewards": {"coins": 500, "titles": []}
-    }
-  ]
-}
-```
-
-加载时会把每个旧 requirement 转换为 `stat` 叶子，再放入 `all` 节点。不会自动覆盖用户原文件；新配置校验失败时，上一份有效配置、解锁状态和领奖判定继续使用，保证旧版“挖掘石头 1000 个”的行为不变。旧数组中的 `type`、`target`、`count` 分别映射为 `stat`、单项 `targets` 和 `at_least`。
-
-v2 的规范写法是把条件对象直接放在 `requirements` 下，不再额外包一层数组：
-
-```json
-"requirements": {
-  "type": "stat",
-  "stat": "custom",
-  "custom_stat": "minecraft:walk_one_cm",
-  "unit": "kilometers",
-  "at_least": 10
-}
-```
-
-为兼容实际升级过程中常见的混合写法，当前加载器也接受“数组中的每一项都是 v2 条件节点”，并将该数组按隐式 `all` 处理。因此下面这种写法也等价于上面的单个条件：
-
-```json
-"requirements": [
-  {
-    "type": "stat",
-    "stat": "custom",
-    "custom_stat": "minecraft:walk_one_cm",
-    "unit": "kilometers",
-    "at_least": 10
-  }
-]
-```
-
-同一个数组不能混用 v1 的 `{ "type": "block_mined", "target": ..., "count": ... }` 和 v2 的 `{ "type": "stat", ... }` 条目；混用会拒绝新快照并继续使用上一份有效配置。
-
-如果日志出现 `Unknown achievement requirement type: stat`，通常是服务器仍在运行旧 JAR，或配置被写成了旧版数组但使用了 v2 节点。先确认文件顶层包含 `"format_version": 2` 和 `"achievements": [...]`，再优先改用上面的对象写法；若要继续使用数组写法，必须把服务器 `mods/` 中的 OmniTools JAR 更新到包含 v2 条件数组兼容分支的版本，然后重启服务器或执行 `/omnitools reload`。
-
-### 解锁、领奖与持久化
-
-达到条件后，服务端将成就 ID 写入世界 `SavedData`，解锁状态不会因原版统计后来被重置而回退。奖励领取状态单独保存，每个成就只能领取一次。数据文件为 `<世界>/data/omnitools_achievements.dat`；备份或迁移服务器时必须同时备份世界目录和 `config/omnitools/`。
-
-### GUI 展示
-
-成就菜单由服务端生成进度快照，显示条件关系和 `current/target`：
-
-```text
-挖掘石头与深板岩：650/1000
-石头：1000/1000
-深板岩：420/1000
-条件关系：全部满足
-```
-
-`sum` 显示合计进度，`each` 展开每个目标，`all`、`any`、`not` 显示关系。方块、物品和实体优先使用原版本地化名称，无翻译时回退资源 ID。客户端不新增判定逻辑；`broadcastChanges()` 不会每 tick 重新读取全部统计。
-
-### 重载、性能与边界
-
-重载先读取主配置和所有模块配置，再解析、校验成就条件树；全部成功后一次性替换 `OmniToolsConfigSnapshot`，并刷新在线玩家的成就菜单。JSON 错误、未知目标、循环目标组、空标签、通配符混用、单位不兼容、树深度/叶子/目标数量超限或纯 `not` 顶层成就都会拒绝新快照，旧快照继续工作。
-
-每名玩家每轮检查只创建一个 `StatisticEvaluationContext`，相同“统计类型 + 目标”只读取一次；已解锁成就跳过求值。目标组、标签和 `*` 只在配置加载时展开，不在每 10 tick 的检查中扫描注册表。GUI 使用同一份服务端条件进度，避免重复计算。
-
-### 配置字段速查
-
-| 字段 | 说明 |
-| --- | --- |
-| `format_version` | 当前新格式为 `2`；`1` 仅用于兼容旧数组。 |
-| `target_groups` | 可复用目标组，引用自身或间接循环会被拒绝。 |
-| `requirements.type` | `stat`、`sum`、`all`、`any` 或 `not`。 |
-| `requirements.stat` | 原版统计类型，见“支持的原版统计”。 |
-| `requirements.targets` | 显式 ID、`$` 目标组、`#` 标签或 `*`。自定义统计不使用目标列表。 |
-| `requirements.match` | `sum`、`each` 或 `any`，默认按目标合计。 |
-| `requirements.at_least` | 正整数阈值，加载时按 `unit` 转换。 |
-| `requirements.children` / `child` | 逻辑节点的子条件；不允许空数组，支持嵌套。 |
-| `requirements.sources` | `sum` 节点的统计源列表，必须属于同一单位类别。 |
-| `requirements.custom_stat` | `stat: "custom"` 时对应的 `Stats.CUSTOM` ID。 |
-| `requirements.unit` | 距离、时长或伤害统计的显示单位；普通数量统计使用 `count`。 |
-| `achievements[].display` / `description` / `icon` | 成就标题、说明和 GUI 图标；图标必须是有效物品。 |
-| `rewards.coins` / `rewards.titles` | 领取时发放的货币和称号。 |
 
 `omnitools` 是面向 Minecraft Java Edition Fabric 服务器的玩家服务模组，提供每日签到、在线时长奖励、虚拟货币、配置化商店、称号与称号效果、原版统计驱动的自定义成就，以及玩家独立的云端存储。
 
@@ -1187,6 +838,359 @@ Brigadier 的 `.requires(...)` 只负责命令树显示、补全和入口过滤�
 - `allow_title_command_grants`：默认 `false`。称号效果只能授予 `omnitools:cloud_storage`；若设为 `true`，才允许标题效果配置中的 `omnitools:command.*` 节点参与原生命令权限扩展。该开关不会自动授予任何节点。
 
 称号权限效果默认禁止 `omnitools:command.moderator`、`omnitools:command.gamemaster`、`omnitools:command.admin` 和 `omnitools:command.owner`，避免玩家佩戴称号后意外获得管理命令；云存储原生节点行为不受影响。
+
+## 成就系统（`achievements`）
+
+成就系统 v2 使用服务端条件树描述解锁条件。模组直接读取 Minecraft 原版统计，不在 `SavedData` 中维护第二份统计计数；配置在启动或 `/omnitools reload` 时解析为不可变模型。运行时只读取已经解析的注册对象，配置错误不会替换当前有效快照。
+
+本模块先说明工作原理、统计适配和目标解析，再按“如何使用 → 玩家命令 → 管理员命令 → 默认配置 → 示例配置与字段解析”说明实际操作；旧配置迁移、持久化、GUI 和性能限制放在后续小节。成就模块由主配置中的 `modules.achievements.enabled` 控制，关闭后不执行周期检查、不解锁成就、不发放奖励，但不会删除已有的世界数据。
+
+### 模块快速导航
+
+| 小节 | 你可以在这里找到 |
+| --- | --- |
+| 工作原理 | 条件树、统计读取、解锁和进度计算流程。 |
+| 如何使用 | 配置文件位置、重载流程和一份可直接改写的 v2 配置。 |
+| 玩家命令 | 打开成就菜单、查看进度和领取奖励。 |
+| 管理员命令 | 重载配置、权限要求和失败回退。 |
+| 默认配置 | 首次启动生成的最小可用配置。 |
+| 示例配置与字段解析 | `sum`、`each`、`any`、逻辑嵌套、单位和字段约束。 |
+
+### 工作原理
+
+一次玩家检查的流程是：
+
+1. 读取当前有效的成就配置快照；配置文件不会在检查期间被重新读取。
+2. 为该玩家创建一个 `StatisticEvaluationContext`，按“统计类型 + 目标对象”缓存原版统计值。
+3. 从根节点向下求值，得到统一的 `completed`、`current`、`target` 结果。
+4. 条件满足且成就尚未解锁时，写入世界 `SavedData`；已解锁成就跳过后续周期求值。
+5. 领奖和 GUI 刷新继续使用同一棵条件树，服务端重新校验，客户端不参与判定。
+
+因此，成就系统不复制 Minecraft 统计，也不会因为原版统计后来被重置而撤销已经写入的解锁状态。
+
+条件节点的语义如下：
+
+| 节点 | 作用 |
+| --- | --- |
+| `stat` | 读取一个原版统计源和一组目标。叶子条件达到 `at_least` 后完成。 |
+| `sum` | 把多个统计源的当前值相加后与一个阈值比较。只允许相同单位类别。 |
+| `all` | 所有子条件都完成才完成。 |
+| `any` | 任一子条件完成即完成。 |
+| `not` | 子条件未完成时为 `true`，子条件完成后为 `false`。可以嵌套在 `all` 或 `any` 中。 |
+
+`stat` 的 `match` 决定多个目标之间的关系：`sum` 为目标合计，`each` 为每个目标分别达标，`any` 为任一目标达标。所有节点都输出 `completed`、`current` 和 `target`，GUI 只展示服务端生成的结果。顶层成就不能只有 `not`，必须包含至少一个正向统计条件。
+
+#### 支持的原版统计
+
+| `stat` | 目标注册表 | 示例 |
+| --- | --- | --- |
+| `block_mined` | 方块 | 挖掘石头、深板岩 |
+| `item_crafted` | 物品 | 合成石头 100 个 |
+| `item_used` | 物品 | 使用钻石剑 100 次 |
+| `item_broken` | 物品 | 损坏工具 |
+| `item_picked_up` | 物品 | 拾取物品 |
+| `item_dropped` | 物品 | 丢弃物品 |
+| `entity_killed` | 实体类型 | 击杀凋灵或末影龙 |
+| `entity_killed_by` | 实体类型 | 被指定实体击杀 |
+| `custom` | `Stats.CUSTOM` | 移动、游戏时长、伤害、死亡 |
+
+`custom` 必须提供 `custom_stat`，例如 `minecraft:walk_one_cm`、`minecraft:play_time`、`minecraft:damage_dealt`、`minecraft:damage_taken`、`minecraft:deaths`。物品、方块和实体目标只接受显式注册 ID、标签、目标组或通配符展开后的对象；不会把任意字符串当作统计目标。
+
+常用 `custom_stat` 可以按单位类别理解：`walk_one_cm`、`sprint_one_cm`、`swim_one_cm` 和 `fly_one_cm` 属于距离；`play_time` 和 `total_world_time` 属于时长；`damage_dealt`、`damage_taken` 和 `damage_blocked_by_shield` 属于伤害；`deaths`、`mob_kills`、`player_kills`、`jump`、`animals_bred`、`fish_caught`、`traded_with_villager` 和 `raid_win` 按次数计算。具体统计 ID 必须能在当前服务端的 `Stats.CUSTOM` 注册表中找到。
+
+#### 目标解析与单位
+
+目标写法如下：
+
+| 写法 | 含义 |
+| --- | --- |
+| `minecraft:stone` | 显式注册对象 ID。 |
+| `$stone_family` | 当前文件 `target_groups` 中定义的目标组。 |
+| `#minecraft:logs` | 当前统计域对应的 Minecraft 标签。 |
+| `*` | 当前统计类型注册表中的全部目标；不能与其他目标混用。 |
+
+目标组、标签和 `*` 只在配置加载或重载时展开、去重和缓存。未知 ID、未知标签、空标签、目标组循环、`*` 混用都会拒绝新配置。每个条件最多 2048 个展开目标，每个成就最多 128 个统计叶子，条件树最多 8 层。
+
+原版统计值内部保持原始单位，配置加载时把阈值换算为原始单位：
+
+| 数据类别 | 可用 `unit` | 说明 |
+| --- | --- | --- |
+| 方块、物品、实体、跳跃、击杀 | `count`（默认） | 直接按次数比较。 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` | 例如 `10 kilometers` 转换为厘米阈值。 |
+| 伤害 | `damage`、`hearts` | `hearts` 按 Minecraft 伤害单位换算。 |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` | 例如 `play_time` 以 tick 为原始值。 |
+
+`sum` 只能合计同一单位类别；数量不能与距离、伤害或时长相加。配置校验阶段发现单位不兼容时，重载会失败并保留旧快照。
+
+### 如何使用
+
+编辑 `config/omnitools/achievements/config.json`，保存为 UTF-8 后执行 `/omnitools reload`。推荐按以下步骤操作：
+
+1. 先复制并备份当前配置，尤其是已经在线上使用的成就 ID。
+2. 在 `achievements` 数组中新增或修改成就，确保每个 ID 唯一且至少有一个正向统计条件。
+3. 在测试世界执行 `/omnitools reload`，确认服务器提示加载成功后再发布到正式世界。
+
+一个完整的 v2 配置如下：
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": ["minecraft:stone", "minecraft:deepslate"],
+    "bosses": ["minecraft:wither", "minecraft:ender_dragon"]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头系方块累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {"coins": 500, "titles": []}
+    }
+  ]
+}
+```
+
+`requirements` 在 v2 中是一个条件对象；旧版数组仍会自动转换，见“旧配置兼容”。`id` 必须唯一，`display`、`description` 不能为空，`icon` 必须是有效物品。奖励中的 `coins` 为领取时增加的货币，`titles` 为领取时授予的称号 ID。
+
+配置修改只有在整份文件校验成功后才会生效；不要直接编辑世界 `SavedData` 或把玩家统计复制到成就文件中。服务器首次启动会自动创建默认文件，首次使用前应先确认该文件位于当前服务器的 `config/omnitools/achievements/` 目录。
+
+### 示例配置与字段解析
+
+石头和深板岩分别达到 1000：
+
+```json
+{
+  "type": "stat",
+  "stat": "block_mined",
+  "targets": ["$stone_family"],
+  "match": "each",
+  "at_least": 1000
+}
+```
+
+石头和深板岩任意一个达到 1000：把 `match` 改为 `any`。挖掘或使用石头系累计 1000：
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {"stat": "block_mined", "targets": ["$stone_family"]},
+    {"stat": "item_used", "targets": ["$stone_family"]}
+  ]
+}
+```
+
+组合条件可以任意嵌套：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "any",
+      "children": [
+        {"type": "stat", "stat": "entity_killed", "targets": ["minecraft:wither"], "at_least": 1},
+        {"type": "stat", "stat": "entity_killed", "targets": ["minecraft:ender_dragon"], "at_least": 1}
+      ]
+    }
+  ]
+}
+```
+
+`not` 表示“子条件尚未完成”。它可以嵌套在 `all` 或 `any` 中，但不能单独作为顶层成就：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "at_least": 1000
+    },
+    {
+      "type": "not",
+      "child": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:deaths",
+        "at_least": 1
+      }
+    }
+  ]
+}
+```
+
+上例要求玩家累计挖掘 1000 个石头，并且累计死亡统计仍为 0；它不能表达“从接取任务后从未死亡”，因为原版统计是累计值。
+
+移动 10 公里或造成 10000 点伤害的叶子条件分别可以写成：
+
+```json
+{"type": "stat", "stat": "custom", "custom_stat": "minecraft:walk_one_cm", "unit": "kilometers", "at_least": 10}
+```
+
+```json
+{"type": "stat", "stat": "custom", "custom_stat": "minecraft:damage_dealt", "unit": "damage", "at_least": 10000}
+```
+
+### 玩家命令
+
+```text
+/omnitools achievements
+/omnitools achievements open
+/checkin achievements
+/checkin achievements open
+```
+
+玩家在成就界面查看条件树进度，并领取已经完成但尚未领取的奖励。服务端会在打开界面和点击领取时重新验证条件、解锁状态和领取状态；客户端不能修改统计或绕过校验。
+
+### 管理员命令
+
+```text
+/omnitools reload
+```
+
+默认需要 `config.reload` 权限动作（Minecraft 权限等级 2）。没有单独的授予、清除或伪造成就命令；管理员通过编辑配置并重载来维护成就定义。称号奖励只有在 `titles` 模块启用且称号存在时才会发放。
+
+### 默认配置
+
+首次启动生成 `config/omnitools/achievements/config.json`，格式版本为 `2`。默认成就挖掘 `minecraft:stone` 1000 个，奖励 500 货币；`geologist` 称号仅在称号模块启用且已定义时发放。
+
+```json
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "stone_breaker",
+      "display": "石匠",
+      "description": "挖掘石头 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["minecraft:stone"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {"coins": 500, "titles": ["geologist"]}
+    }
+  ]
+}
+```
+
+### 旧配置兼容
+
+`format_version: 1` 的旧配置无需修改：
+
+```json
+{
+  "format_version": 1,
+  "achievements": [
+    {
+      "id": "stone_breaker",
+      "display": "石匠",
+      "description": "挖掘石头 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": [
+        {"type": "block_mined", "target": "minecraft:stone", "count": 1000}
+      ],
+      "rewards": {"coins": 500, "titles": []}
+    }
+  ]
+}
+```
+
+加载时会把每个旧 requirement 转换为 `stat` 叶子，再放入 `all` 节点。不会自动覆盖用户原文件；新配置校验失败时，上一份有效配置、解锁状态和领奖判定继续使用，保证旧版“挖掘石头 1000 个”的行为不变。旧数组中的 `type`、`target`、`count` 分别映射为 `stat`、单项 `targets` 和 `at_least`。
+
+v2 的规范写法是把条件对象直接放在 `requirements` 下，不再额外包一层数组：
+
+```json
+"requirements": {
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "unit": "kilometers",
+  "at_least": 10
+}
+```
+
+为兼容实际升级过程中常见的混合写法，当前加载器也接受“数组中的每一项都是 v2 条件节点”，并将该数组按隐式 `all` 处理。因此下面这种写法也等价于上面的单个条件：
+
+```json
+"requirements": [
+  {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:walk_one_cm",
+    "unit": "kilometers",
+    "at_least": 10
+  }
+]
+```
+
+同一个数组不能混用 v1 的 `{ "type": "block_mined", "target": ..., "count": ... }` 和 v2 的 `{ "type": "stat", ... }` 条目；混用会拒绝新快照并继续使用上一份有效配置。
+
+如果日志出现 `Unknown achievement requirement type: stat`，通常是服务器仍在运行旧 JAR，或配置被写成了旧版数组但使用了 v2 节点。先确认文件顶层包含 `"format_version": 2` 和 `"achievements": [...]`，再优先改用上面的对象写法；若要继续使用数组写法，必须把服务器 `mods/` 中的 OmniTools JAR 更新到包含 v2 条件数组兼容分支的版本，然后重启服务器或执行 `/omnitools reload`。
+
+### 解锁、领奖与持久化
+
+达到条件后，服务端将成就 ID 写入世界 `SavedData`，解锁状态不会因原版统计后来被重置而回退。奖励领取状态单独保存，每个成就只能领取一次。数据文件为 `<世界>/data/omnitools_achievements.dat`；备份或迁移服务器时必须同时备份世界目录和 `config/omnitools/`。
+
+### GUI 展示
+
+成就菜单由服务端生成进度快照，显示条件关系和 `current/target`：
+
+```text
+挖掘石头与深板岩：650/1000
+石头：1000/1000
+深板岩：420/1000
+条件关系：全部满足
+```
+
+`sum` 显示合计进度，`each` 展开每个目标，`all`、`any`、`not` 显示关系。方块、物品和实体优先使用原版本地化名称，无翻译时回退资源 ID。客户端不新增判定逻辑；`broadcastChanges()` 不会每 tick 重新读取全部统计。
+
+### 重载、性能与边界
+
+重载先读取主配置和所有模块配置，再解析、校验成就条件树；全部成功后一次性替换 `OmniToolsConfigSnapshot`，并刷新在线玩家的成就菜单。JSON 错误、未知目标、循环目标组、空标签、通配符混用、单位不兼容、树深度/叶子/目标数量超限或纯 `not` 顶层成就都会拒绝新快照，旧快照继续工作。
+
+每名玩家每轮检查只创建一个 `StatisticEvaluationContext`，相同“统计类型 + 目标”只读取一次；已解锁成就跳过求值。目标组、标签和 `*` 只在配置加载时展开，不在每 10 tick 的检查中扫描注册表。GUI 使用同一份服务端条件进度，避免重复计算。
+
+### 配置字段速查
+
+| 字段 | 说明 |
+| --- | --- |
+| `format_version` | 当前新格式为 `2`；`1` 仅用于兼容旧数组。 |
+| `target_groups` | 可复用目标组，引用自身或间接循环会被拒绝。 |
+| `requirements.type` | `stat`、`sum`、`all`、`any` 或 `not`。 |
+| `requirements.stat` | 原版统计类型，见“支持的原版统计”。 |
+| `requirements.targets` | 显式 ID、`$` 目标组、`#` 标签或 `*`。自定义统计不使用目标列表。 |
+| `requirements.match` | `sum`、`each` 或 `any`，默认按目标合计。 |
+| `requirements.at_least` | 正整数阈值，加载时按 `unit` 转换。 |
+| `requirements.children` / `child` | 逻辑节点的子条件；不允许空数组，支持嵌套。 |
+| `requirements.sources` | `sum` 节点的统计源列表，必须属于同一单位类别。 |
+| `requirements.custom_stat` | `stat: "custom"` 时对应的 `Stats.CUSTOM` ID。 |
+| `requirements.unit` | 距离、时长或伤害统计的显示单位；普通数量统计使用 `count`。 |
+| `achievements[].display` / `description` / `icon` | 成就标题、说明和 GUI 图标；图标必须是有效物品。 |
+| `rewards.coins` / `rewards.titles` | 领取时发放的货币和称号。 |
+
+
 
 ## 共享货币命令
 
