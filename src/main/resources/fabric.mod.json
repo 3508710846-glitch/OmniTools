@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "id": "qiandao",
+  "id": "omnitools",
   "version": "${version}",
-  "name": "qiandao",
+  "name": "omnitools",
   "description": "A persistent daily check-in GUI for Fabric.",
   "environment": "*",
   "entrypoints": {
     "main": [
-      "dev.modmind.qiandao.ModMindEntry"
+      "dev.modmind.omnitools.ModMindEntry"
     ],
     "client": [
-      "dev.modmind.qiandao.ModMindClient"
+      "dev.modmind.omnitools.ModMindClient"
     ]
   },
   "mixins": [
-    "qiandao.mixins.json"
+    "omnitools.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.3",
