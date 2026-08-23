@@ -15,7 +15,8 @@ public final class ConfigValidator {
     public static void validate(OmniToolsConfigSnapshot snapshot) {
         if (snapshot.root() == null || snapshot.rewards() == null || snapshot.shop() == null
                 || snapshot.titles() == null || snapshot.titleEffects() == null
-                || snapshot.cloudStorage() == null || snapshot.achievements() == null) {
+                || snapshot.cloudStorage() == null || snapshot.achievements() == null
+                || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
         Set<String> effects = new HashSet<>();

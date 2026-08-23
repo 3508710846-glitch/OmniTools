@@ -113,7 +113,9 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     @Override
     public ItemStack quickMoveStack(Player player, int slotIndex) {
-        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE)) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE)
+                || !(player instanceof ServerPlayer serverPlayerForPermission)
+                || !ModMindEntry.hasCloudStoragePermissionForPlayer(serverPlayerForPermission)) {
             return ItemStack.EMPTY;
         }
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
@@ -164,7 +166,11 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     @Override
     public void removed(Player player) {
-        saveStoragePage();
+        if (player instanceof ServerPlayer serverPlayer
+                && ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE)
+                && ModMindEntry.hasCloudStoragePermissionForPlayer(serverPlayer)) {
+            saveStoragePage();
+        }
         super.removed(player);
     }
 

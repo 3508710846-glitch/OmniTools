@@ -148,5 +148,6 @@
   "message.omnitools.achievement.claimed": "Claimed achievement %s: +%d currency, %d title(s) granted (balance: %d).",
   "message.omnitools.achievement.already_claimed": "This achievement reward has already been claimed.",
   "message.omnitools.achievement.not_completed": "This achievement has not been completed yet.",
-  "message.omnitools.achievement.unknown": "This achievement is not present in the current configuration."
+  "message.omnitools.achievement.unknown": "This achievement is not present in the current configuration.",
+  "message.omnitools.permission_denied": "You do not have permission to perform this action."
 }

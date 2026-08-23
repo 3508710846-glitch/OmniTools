@@ -1,13 +1,17 @@
 {
-  "prompt": "根据现有功能，详细地将README.md补充完整，每个模块要有：\n1.工作原理\n2.如何使用\n3.玩家命令\n4.管理员命令\n5.默认配置\n6.示例配置\n都要有详细地解析\n\n为了防止内容太多导致codex连接超时，你一个模块一个模块的修改",
+  "prompt": "# OmniTools 指令权限配置方案\n\n## 目标\n\n新增服务端配置文件：\n\n```text\nconfig/omnitools/permissions/config.json\n```\n\n服务器首次启动时自动生成默认配置。服主可为每个 OmniTools 指令动作配置最低权限角色：\n\n- `PLAYER`：玩家，Minecraft 权限等级 `0`\n- `MODERATOR`：协管，等级 `1`\n- `ADMIN`：管理员，等级 `2`\n- `OWNER`：服主，等级 `4`\n- 控制台：始终允许\n\n默认值必须保持当前行为，避免升级后普通玩家或管理员的权限发生变化。\n\n## 当前命令现状\n\n权限判断集中在 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:127)。\n\n目前以下命令硬编码为等级 `2`：\n\n```text\n/omnitools add\n/omnitools remove\n/omnitools reload\n/balance <玩家>\n/omnitools title give|add\n/omnitools title remove|take\n/omnitools clear [today]\n/omnitools currency add|remove|deduct|take\n/money add|remove|deduct|take\n```\n\n以下默认对玩家开放，仅受功能模块开关限制：\n\n```text\n/omnitools\n/omnitools open\n/omnitools online [rewards]\n/omnitools shop [open]\n/omnitools title [open]\n/omnitools achievements [open]\n/omnitools balance\n/omnitools currency [balance|get]\n/checkin 及对应子命令\n/money [balance|get]\n```\n\n云存储当前需要 `omnitools:cloud_storage` 节点或权限等级 `2`。\n\n## 配置格式\n\n```json\n{\n  \"format_version\": 1,\n  \"commands\": {\n    \"checkin.open\": \"PLAYER\",\n    \"online.open\": \"PLAYER\",\n    \"shop.open\": \"PLAYER\",\n    \"title.open\": \"PLAYER\",\n    \"achievements.open\": \"PLAYER\",\n    \"currency.balance.self\": \"PLAYER\",\n\n    \"storage.open\": {\n      \"role\": \"ADMIN\",\n      \"allow_native_node\": true\n    },\n\n    \"currency.balance.other\": \"ADMIN\",\n    \"currency.add\": \"ADMIN\",\n    \"currency.remove\": \"ADMIN\",\n    \"checkin.clear\": \"ADMIN\",\n    \"title.grant\": \"ADMIN\",\n    \"title.revoke\": \"ADMIN\",\n    \"config.reload\": \"ADMIN\"\n  }\n}\n```\n\n`storage.open.allow_native_node: true` 保持现有行为：等级 `2` 管理员或拥有 `omnitools:cloud_storage` 节点的玩家都可使用。\n\n角色名称大小写不敏感。配置解析后统一转换为枚举。\n\n## 规范动作 ID\n\n不要按每条命令别名分别配置。所有别名共享一个规范动作，避免权限绕过。\n\n| 动作 ID | 覆盖命令 |\n|---|---|\n| `checkin.open` | `/omnitools`、`/omnitools open`、`/checkin` |\n| `online.open` | `/omnitools online`、`/checkin online` |\n| `shop.open` | `/omnitools shop`、`/checkin shop` |\n| `title.open` | `/omnitools title`、`/title`、`/checkin title` |\n| `achievements.open` | `/omnitools achievements`、`/checkin achievements` |\n| `storage.open` | `/omnitools storage`、`/checkin storage`、`/cloudstorage`、`/cstorage` |\n| `currency.balance.self` | `/omnitools balance`、`currency`、`/money`、`/balance` |\n| `currency.balance.other` | `/omnitools balance <玩家>`、`/balance <玩家>` |\n| `currency.add` | `/omnitools add`、`currency add`、`/money add` |\n| `currency.remove` | `/omnitools remove`、`currency remove|deduct|take`、`/money remove` |\n| `checkin.clear` | `/omnitools clear [today]`、`/checkin clear [today]` |\n| `title.grant` | `title give|add` 的所有入口 |\n| `title.revoke` | `title remove|take` 的所有入口 |\n| `config.reload` | `/omnitools reload` |\n\n## 新增类\n\n```text\nsrc/main/java/dev/modmind/omnitools/permissions/\n├── CommandAction.java\n├── CommandRole.java\n├── CommandPermissionConfig.java\n└── CommandPermissionService.java\n```\n\n职责：\n\n- `CommandAction`：所有规范动作 ID 的枚举及默认角色。\n- `CommandRole`：解析 `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER`，映射 Minecraft 权限等级。\n- `CommandPermissionConfig`：读取、校验和首次生成 JSON。\n- `CommandPermissionService`：提供统一权限判断。\n\n建议 API：\n\n```java\nboolean canUse(CommandSourceStack source, CommandAction action);\n\nboolean canUse(ServerPlayer player, CommandAction action);\n\nPredicate<CommandSourceStack> requirement(CommandAction action);\n\nboolean canUseAny(CommandSourceStack source, CommandAction... actions);\n```\n\n控制台必须始终通过。玩家权限判断使用 Fabric 1.21.11 的原生 `PermissionLevel` / `CommandSourceStack.permissions()`，不要自行维护玩家 UUID 白名单。\n\n## 配置快照接入\n\n当前 [OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:28) 已支持完整配置快照和失败保留旧快照。\n\n修改内容：\n\n- `ConfigPaths.moduleConfig(ModuleId.PERMISSIONS)` 作为文件路径。\n- `OmniToolsConfigSnapshot` 新增 `CommandPermissionConfig commandPermissions`。\n- `OmniToolsConfigManager.load(server)` 始终加载命令权限配置。\n- 不要让主配置 `permissions.enabled` 关闭命令安全；可保留该字段作为未来“玩家节点数据模块”预留，但命令权限配置始终有效。\n- 配置错误、未知动作、未知角色、重复动作时，拒绝新快照，继续使用旧权限规则。\n\n## 命令注册修改\n\n将所有硬编码：\n\n```java\n.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))\n```\n\n替换为：\n\n```java\n.requires(permissionService.requirement(CommandAction.CONFIG_RELOAD))\n```\n\n或对应动作。\n\n父节点需要特别处理。例如 `/omnitools title` 的根节点不能只校验 `title.open`，否则管理员在“仅允许管理员授予称号、玩家不可打开称号 GUI”的配置下看不到 `give` 子命令。\n\n```java\n.requires(permissionService.requirementAny(\n    CommandAction.TITLE_OPEN,\n    CommandAction.TITLE_GRANT,\n    CommandAction.TITLE_REVOKE\n))\n```\n\n叶子节点分别执行严格校验。\n\n所有 `.requires(...)` 只能引用运行时当前快照，不能捕获启动时的旧配置对象。这样 `/omnitools reload` 后权限会立即生效。\n\n## 服务端二次校验\n\nBrigadier `.requires(...)` 只影响命令树显示、补全和入口，不足以作为唯一防线。\n\n必须在以下位置再次调用 `canUse(...)`：\n\n- 所有命令实际执行方法。\n- `openCheckinMenu`、`openOnlineTimeRewardMenu`、`openShopMenu`、`openTitleMenu`、`openAchievementMenu`、`openCloudStorageMenu`。\n- 云存储 `ScreenHandler` 的存取、扩展和点击逻辑。\n- 称号授予、移除、余额修改、清除签到等状态变更方法。\n\n重载后还应关闭当前在线玩家已经不再有权限访问的 GUI。\n\n## 称号权限效果约束\n\n当前 [TitleEffectService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:252) 已支持称号效果授予：\n\n```text\nomnitools:command.moderator\nomnitools:command.gamemaster\nomnitools:command.admin\nomnitools:command.owner\n```\n\n这会影响原生命令等级判断。权限配置上线后，建议默认只允许称号效果授予：\n\n```text\nomnitools:cloud_storage\n```\n\n`omnitools:command.*` 应在 `ConfigValidator` 中默认拒绝，或增加总开关：\n\n```json\n{\n  \"allow_title_command_grants\": false\n}\n```\n\n否则玩家佩戴称号后可能获得配置要求的管理员或服主命令。\n\n## 重载规则\n\n`/omnitools reload` 的默认权限仍是 `ADMIN`，避免服主把它设成自己无法使用的角色后丢失配置控制权。\n\n重载流程：\n\n1. 读取和校验所有模块配置及权限配置。\n2. 全部成功后一次性替换配置快照。\n3. 刷新在线玩家命令树。\n4. 关闭因模块禁用或权限不足而无权继续操作的 GUI。\n5. 重载失败则保留旧快照、旧权限和旧命令行为。\n\n## 验收标准\n\n- 首次启动生成 `config/omnitools/permissions/config.json`，默认行为与当前版本完全一致。\n- 普通玩家、等级 1、等级 2、等级 4、控制台分别验证各类命令。\n- 修改某动作到 `OWNER` 后，等级 2 管理员不能执行也不能补全。\n- 所有别名遵循同一规范动作权限，不能绕过。\n- 重载后权限立即更新。\n- 权限被撤销后，已打开 GUI 无法继续进行服务端状态修改。\n- 损坏权限配置后仍使用上一次有效权限快照。\n- 称号默认不能获得管理命令；云存储原生节点行为保持可用。\n\n完成之后同步写入README.md中",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-22T17:27:59.862Z",
-  "summary": "已完成审查要求的缺失阶段：\n\n- 托管构建成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- 隔离无窗口服务端运行测试通过，稳定运行 15 秒\n- 测试日志：[runServer-1787419629079.log](D:/mod/qiandao/.modmind/builds/runServer-1787419629079.log)",
-  "finalResponse": "已完成审查要求的缺失阶段：\n\n- 托管构建成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- 隔离无窗口服务端运行测试通过，稳定运行 15 秒\n- 测试日志：[runServer-1787419629079.log](D:/mod/qiandao/.modmind/builds/runServer-1787419629079.log)",
+  "createdAt": "2026-08-23T04:19:50.588Z",
+  "summary": "已完成可配置指令权限系统。\n\n- 新增 [permissions 包](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandPermissionConfig.java:21)，首次启动自动生成 `config/omnitools/permissions/config.json`，默认保持原有玩家、管理员和云存储节点行为。\n- 所有命令别名归并到规范动作 ID；权限配置支持角色大小写无关、`storage.open.allow_native_node`、未知/重复动作校验及失败保留旧快照。\n- 命令树、实际执行方法、GUI 打开和 GUI 点击均进行服务端二次校验；重载后刷新在线玩家命令树并关闭失权 GUI。\n- 默认禁用称号授予管理命令权限；旧配置可继续加载，但 `omnitools:command.*` 会被忽略，除非显式开启 `allow_title_command_grants`。\n- README 已补充权限模块说明、默认配置、动作表、角色映射和示例配置：[README.md](/D:/mod/qiandao/README.md:716)。\n\n验证通过：内容校验、Gradle 构建、服务端启动并稳定运行 15 秒。",
+  "finalResponse": "已完成可配置指令权限系统。\n\n- 新增 [permissions 包](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandPermissionConfig.java:21)，首次启动自动生成 `config/omnitools/permissions/config.json`，默认保持原有玩家、管理员和云存储节点行为。\n- 所有命令别名归并到规范动作 ID；权限配置支持角色大小写无关、`storage.open.allow_native_node`、未知/重复动作校验及失败保留旧快照。\n- 命令树、实际执行方法、GUI 打开和 GUI 点击均进行服务端二次校验；重载后刷新在线玩家命令树并关闭失权 GUI。\n- 默认禁用称号授予管理命令权限；旧配置可继续加载，但 `omnitools:command.*` 会被忽略，除非显式开启 `allow_title_command_grants`。\n- README 已补充权限模块说明、默认配置、动作表、角色映射和示例配置：[README.md](/D:/mod/qiandao/README.md:716)。\n\n验证通过：内容校验、Gradle 构建、服务端启动并稳定运行 15 秒。",
   "intent": "engineering",
   "tasks": [],
   "files": [
+    {
+      "path": "README.md",
+      "purpose": "外部代理修改"
+    },
     {
       "path": "docs/idea.md",
       "purpose": "外部代理修改"
@@ -53,11 +57,103 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "README.md",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-22-6.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRecordsScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleEffectConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleEffectService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigSnapshot.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/permissions/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-6.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandPermissionConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandPermissionService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandRole.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -66,7 +162,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-22T17-14-07-840Z",
+  "snapshotId": "2026-08-23T03-16-20-311Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {

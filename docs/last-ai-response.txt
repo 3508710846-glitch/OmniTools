@@ -1,5 +1,9 @@
-已完成审查要求的缺失阶段：
+已完成可配置指令权限系统。
 
-- 托管构建成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)
-- 隔离无窗口服务端运行测试通过，稳定运行 15 秒
-- 测试日志：[runServer-1787419629079.log](D:/mod/qiandao/.modmind/builds/runServer-1787419629079.log)
+- 新增 [permissions 包](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandPermissionConfig.java:21)，首次启动自动生成 `config/omnitools/permissions/config.json`，默认保持原有玩家、管理员和云存储节点行为。
+- 所有命令别名归并到规范动作 ID；权限配置支持角色大小写无关、`storage.open.allow_native_node`、未知/重复动作校验及失败保留旧快照。
+- 命令树、实际执行方法、GUI 打开和 GUI 点击均进行服务端二次校验；重载后刷新在线玩家命令树并关闭失权 GUI。
+- 默认禁用称号授予管理命令权限；旧配置可继续加载，但 `omnitools:command.*` 会被忽略，除非显式开启 `allow_title_command_grants`。
+- README 已补充权限模块说明、默认配置、动作表、角色映射和示例配置：[README.md](/D:/mod/qiandao/README.md:716)。
+
+验证通过：内容校验、Gradle 构建、服务端启动并稳定运行 15 秒。

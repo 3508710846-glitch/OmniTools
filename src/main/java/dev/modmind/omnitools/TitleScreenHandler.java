@@ -72,7 +72,10 @@ public final class TitleScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.TITLES)) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.TITLES)
+                || (player instanceof ServerPlayer serverPlayerForPermission
+                && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,
+                dev.modmind.omnitools.permissions.CommandAction.TITLE_OPEN))) {
             if (player instanceof ServerPlayer serverPlayer) {
                 serverPlayer.closeContainer();
             }

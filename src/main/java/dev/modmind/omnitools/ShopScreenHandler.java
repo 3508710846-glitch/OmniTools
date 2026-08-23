@@ -73,7 +73,10 @@ public final class ShopScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.SHOP)) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.SHOP)
+                || (player instanceof ServerPlayer serverPlayerForPermission
+                && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,
+                dev.modmind.omnitools.permissions.CommandAction.SHOP_OPEN))) {
             if (player instanceof ServerPlayer serverPlayer) {
                 serverPlayer.closeContainer();
             }

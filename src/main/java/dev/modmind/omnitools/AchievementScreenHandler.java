@@ -74,7 +74,10 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.ACHIEVEMENTS)) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.ACHIEVEMENTS)
+                || (player instanceof ServerPlayer serverPlayerForPermission
+                && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,
+                dev.modmind.omnitools.permissions.CommandAction.ACHIEVEMENTS_OPEN))) {
             if (player instanceof ServerPlayer serverPlayer) {
                 serverPlayer.closeContainer();
             }

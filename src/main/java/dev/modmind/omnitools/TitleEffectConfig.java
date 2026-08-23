@@ -174,10 +174,6 @@ public final class TitleEffectConfig {
         defaults.put("particle_redstone", new EffectDefinition("particle_redstone", "\u7ea2\u77f3\u7c92\u5b50", EffectType.PARTICLE,
                 "", 0, -1, "", AttributeOperation.ADDITION, 0.0D, "minecraft:redstone", 10, "",
                 "\u00a7c\u884c\u8d70\u65f6\u98d8\u843d\u7ea2\u77f3\u7c92\u5b50"));
-        defaults.put("command_gamemaster", new EffectDefinition("command_gamemaster",
-                "\u6e38\u620f\u7ba1\u7406\u5458\u547d\u4ee4\u6743\u9650", EffectType.PERMISSION, "", 0, -1,
-                "", AttributeOperation.ADDITION, 0.0D, "", 10, "omnitools:command.gamemaster",
-                "\u00a7d\u89e3\u9501\u6e38\u620f\u7ba1\u7406\u5458\u547d\u4ee4"));
         return new TitleEffectConfig(defaults);
     }
 
