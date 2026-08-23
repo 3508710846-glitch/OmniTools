@@ -3869,3 +3869,2577 @@ dev.modmind.omnitools/
 - 有 Placeholder API：仅记录一次注册成功日志，所有 ID 可被下游模组解析。
 - 签到、货币增减、在线时长、称号切换、成就领取后，占位符在下一次解析时反映最新值。
 - 关闭对应模块或总集成后，结果符合上述默认值，不产生异常或日志刷屏。
+
+---
+
+## Development request 2026/8/23 15:16:13
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+---
+
+## Development request 2026/8/23 15:28:55
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+
+
+为了防止内容过多导致codex连接超时，你一部分一部分的写
+
+---
+
+## Development request 2026/8/23 15:37:14
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+
+
+为了防止内容过多导致codex连接超时，你一部分一部分的写
+
+---
+
+## Development request 2026/8/23 15:37:19
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+
+
+为了防止内容过多导致codex连接超时，你一部分一部分的写
+
+---
+
+## Development request 2026/8/23 15:37:51
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+
+
+为了防止内容过多导致codex连接超时，你一部分一部分的写
+
+---
+
+## Development request 2026/8/23 15:38:02
+
+## 成就系统 v2：原版统计条件树
+
+将 OmniTools 成就从当前的“平铺 requirements 且全部满足”升级为“条件树”。支持原版统计、多个目标合计、每项分别达标、与/或/非组合，并保持旧配置兼容。
+
+当前影响范围：
+
+- [`AchievementConfig.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- [`AchievementService.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)
+- [`AchievementScreenHandler.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)
+- [`ConfigValidator.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)
+- `zh_cn.json`、`en_us.json`
+- `config/omnitools/achievements/config.json`
+
+### 1. 配置协议
+
+升级 `config/omnitools/achievements/config.json` 为 `format_version: 2`。
+
+```json
+{
+  "format_version": 2,
+  "target_groups": {
+    "stone_family": [
+      "minecraft:stone",
+      "minecraft:deepslate"
+    ],
+    "bosses": [
+      "minecraft:ender_dragon",
+      "minecraft:wither"
+    ]
+  },
+  "achievements": [
+    {
+      "id": "stone_worker",
+      "display": "石匠",
+      "description": "挖掘石头与深板岩累计 1000 个",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["$stone_family"],
+        "match": "sum",
+        "at_least": 1000
+      },
+      "rewards": {
+        "coins": 500,
+        "titles": ["geologist"]
+      }
+    }
+  ]
+}
+```
+
+`target_groups` 是可复用目标组：
+
+- `$stone_family`：引用同文件分组。
+- `minecraft:stone`：指定 ID。
+- `#minecraft:logs`：引用方块、物品或实体标签。
+- `*`：当前统计域的全部注册对象，例如全部物品。
+
+禁止把 `*` 与其他 `targets` 混用。
+
+### 2. 条件类型
+
+```text
+stat  单个统计源条件
+sum   多个统计源累计
+all   全部子条件满足
+any   任一子条件满足
+not   子条件不满足
+```
+
+`stat`：
+
+```json
+{
+  "type": "stat",
+  "stat": "item_used",
+  "targets": ["minecraft:stone", "minecraft:deepslate"],
+  "match": "sum",
+  "at_least": 1000
+}
+```
+
+`match` 规则：
+
+- `sum`：所有目标统计值相加后达到 `at_least`。
+- `each`：每个目标均达到 `at_least`。
+- `any`：任一个目标达到 `at_least`。
+
+`sum`：用于跨统计类型累计。
+
+```json
+{
+  "type": "sum",
+  "at_least": 1000,
+  "sources": [
+    {
+      "stat": "block_mined",
+      "targets": ["$stone_family"]
+    },
+    {
+      "stat": "item_used",
+      "targets": ["$stone_family"]
+    }
+  ]
+}
+```
+
+`all`、`any`、`not`：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["$stone_family"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "stat",
+      "stat": "entity_killed",
+      "targets": ["$bosses"],
+      "match": "sum",
+      "at_least": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "not",
+  "child": {
+    "type": "stat",
+    "stat": "custom",
+    "custom_stat": "minecraft:deaths",
+    "at_least": 1
+  }
+}
+```
+
+### 3. 支持的原版统计
+
+首版支持：
+
+```text
+block_mined
+item_crafted
+item_used
+item_broken
+item_picked_up
+item_dropped
+entity_killed
+entity_killed_by
+custom
+```
+
+这些映射到 Minecraft 1.21.11 的 `Stats`：
+
+- 方块：`Stats.BLOCK_MINED`
+- 物品：`ITEM_CRAFTED`、`ITEM_USED`、`ITEM_BROKEN`、`ITEM_PICKED_UP`、`ITEM_DROPPED`
+- 实体：`ENTITY_KILLED`、`ENTITY_KILLED_BY`
+- 自定义：`Stats.CUSTOM`
+
+`custom` 使用 `custom_stat`，且不允许 `targets`：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:damage_dealt",
+  "at_least": 10000,
+  "unit": "damage"
+}
+```
+
+可用的原版自定义统计包括：
+
+```text
+minecraft:walk_one_cm
+minecraft:sprint_one_cm
+minecraft:swim_one_cm
+minecraft:fly_one_cm
+minecraft:aviate_one_cm
+minecraft:boat_one_cm
+minecraft:horse_one_cm
+minecraft:play_time
+minecraft:jump
+minecraft:damage_dealt
+minecraft:damage_taken
+minecraft:damage_blocked_by_shield
+minecraft:mob_kills
+minecraft:player_kills
+minecraft:deaths
+minecraft:animals_bred
+minecraft:fish_caught
+minecraft:traded_with_villager
+minecraft:raid_win
+```
+
+### 4. 单位规则
+
+内部永远使用原版统计原始值；配置加载时转换阈值。
+
+| 类别 | 可用 `unit` |
+|---|---|
+| 物品、方块、实体、跳跃、击杀 | `count`，默认 |
+| 距离 | `cm`、`meters`、`blocks`、`kilometers` |
+| 伤害 | `damage`、`hearts` |
+| 时长 | `ticks`、`seconds`、`minutes`、`hours` |
+
+例如累计移动 10 公里：
+
+```json
+{
+  "type": "stat",
+  "stat": "custom",
+  "custom_stat": "minecraft:walk_one_cm",
+  "at_least": 10,
+  "unit": "kilometers"
+}
+```
+
+`sum` 仅能合计同类单位：
+
+- 可合计：挖掘数 + 使用次数。
+- 不可合计：移动距离 + 造成伤害。
+- 不可合计：游戏时长 + 物品数量。
+
+### 5. 旧配置迁移
+
+兼容 `format_version: 1`：
+
+```json
+{
+  "requirements": [
+    {
+      "type": "block_mined",
+      "target": "minecraft:stone",
+      "count": 1000
+    }
+  ]
+}
+```
+
+加载时转换为：
+
+```json
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    }
+  ]
+}
+```
+
+要求：
+
+- 不自动覆写用户 v1 配置。
+- 新生成默认配置使用 v2。
+- `/omnitools reload` 在新配置校验失败时，保留旧快照，符合当前重载行为。
+
+### 6. 代码结构
+
+建议新增独立条件模型包：
+
+```text
+dev.modmind.omnitools.achievement/
+├── AchievementCondition.java
+├── StatCondition.java
+├── SumCondition.java
+├── AllCondition.java
+├── AnyCondition.java
+├── NotCondition.java
+├── StatisticType.java
+├── StatisticTargetResolver.java
+├── StatisticEvaluationContext.java
+└── ConditionProgress.java
+```
+
+职责：
+
+- `AchievementConfig`：只解析 JSON 并生成不可变、已校验的条件树。
+- `StatisticTargetResolver`：启动或重载时展开 ID、标签、分组和 `*`。
+- `StatisticEvaluationContext`：一次玩家检查共享的统计缓存。
+- `AchievementCondition`：提供 `evaluate(context)` 和 `progress(context)`。
+- `AchievementService`：管理解锁、领奖、通知及玩家级检查。
+- `AchievementScreenHandler`：消费 `ConditionProgress`，不自行读取原版统计。
+
+### 7. 性能与安全
+
+当前成就服务每 10 tick 检查一次。必须满足：
+
+- 每次玩家检查仅创建一个 `StatisticEvaluationContext`。
+- 缓存键为“统计类型 + 注册对象”；同一次检查的石头挖掘统计只能读取一次。
+- 已解锁成就不再求值。
+- `*`、标签、分组在配置加载时展开，不能在每次检查时扫描注册表。
+- 对 `*` 和标签设置目标上限，例如 2048；超限配置直接拒绝并保留旧快照。
+- 限制条件树深度，例如最多 8 层；限制单成就叶子条件数，例如最多 128。
+- GUI 使用服务端计算后的 `ConditionProgress`，不要在 `broadcastChanges()` 内重新扫描全部统计。
+- 所有统计解析与读取必须在服务端主线程执行。
+
+### 8. `not` 的限制
+
+`not` 适合表达“满足正向条件时，某累计条件仍未达标”。
+
+但累计原版统计不能表达“从接取任务开始从未死亡”或“一局内完成”。因此：
+
+- 顶层条件树必须至少包含一个正向统计阈值。
+- 禁止仅由 `not` 组成的成就。
+- “无死亡通关”“限定时间完成”等以后单独开发挑战系统，保存开始时间、基准统计值和失败状态，不混入累计统计成就。
+
+### 9. UI 与本地化
+
+成就菜单从目前的逐条 `requirements` 渲染，改为显示条件树的进度行：
+
+```text
+挖掘石头与深板岩：650/1000
+击杀 Boss：1/2
+条件关系：全部满足
+```
+
+对 `each`：
+
+```text
+石头：1000/1000
+深板岩：360/1000
+```
+
+新增中英文翻译键：
+
+```text
+gui.omnitools.achievement.condition.all
+gui.omnitools.achievement.condition.any
+gui.omnitools.achievement.condition.not
+gui.omnitools.achievement.progress.count
+gui.omnitools.achievement.progress.distance
+gui.omnitools.achievement.progress.damage
+gui.omnitools.achievement.progress.time
+gui.omnitools.achievement.target.all
+```
+
+优先显示方块、物品、实体的本地化名称；仅在无翻译时回退显示资源 ID。
+
+### 10. 验收标准
+
+- 旧版“挖石头 1000”配置可直接加载并正常解锁。
+- 石头与深板岩合计 1000、各自 1000、任一 1000 三种语义正确区分。
+- 挖掘与使用的跨统计合计正确。
+- `item_used: ["*"]` 能统计全部物品使用次数，且不会每次检查扫描注册表。
+- 造成伤害、承受伤害、移动距离、游戏时长、Boss 击杀均可配置并正确显示单位。
+- `all`、`any`、`not` 嵌套可正确判定，错误配置能明确报错且不替换运行中配置。
+- 成就界面显示进度与服务端解锁判定一致。
+- 多玩家、多成就和包含 `*` 的配置下，不出现每 10 tick 明显卡顿或重复注册表扫描。
+
+
+
+为了防止内容过多导致codex连接超时，你一部分一部分的写
+
+---
+
+## Development request 2026/8/23 16:13:27
+
+将成就配置升级为 format_version 2 的条件模型。
+
+只处理：
+1. 新增不可变的 Condition 模型。
+2. 支持 stat 条件。
+3. 暂时只支持 block_mined 和 entity_killed。
+4. 将旧版 requirements 数组自动转换为 all 条件。
+5. 保持旧配置无需修改即可加载。
+6. 更新 AchievementConfig、AchievementService、ConfigValidator。
+
+本阶段不要添加新统计类型、标签、通配符、GUI 改造。
+要求旧版“挖掘石头 1000 个”行为完全不变。
+验收：旧配置和单个 v2 stat 条件都能加载，错误配置不会替换当前有效配置。
+
+---
+
+## Development request 2026/8/23 16:32:14
+
+在现有 Condition 模型上增加逻辑条件：
+
+1. all：所有子条件满足。
+2. any：任一子条件满足。
+3. not：子条件不满足。
+4. 支持嵌套条件。
+5. AchievementService 的解锁和领奖判定统一使用条件树。
+6. 保留旧配置的 all 语义。
+
+暂不添加物品统计、距离、伤害、标签和通配符。
+为条件树增加 completed、current、target 三类进度结果。
+示例：
+
+{
+  "type": "all",
+  "children": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "at_least": 1000
+    },
+    {
+      "type": "any",
+      "children": [
+        {
+          "type": "stat",
+          "stat": "entity_killed",
+          "targets": ["minecraft:wither"],
+          "at_least": 1
+        },
+        {
+          "type": "stat",
+          "stat": "entity_killed",
+          "targets": ["minecraft:ender_dragon"],
+          "at_least": 1
+        }
+      ]
+    }
+  ]
+}
+
+---
+
+## Development request 2026/8/23 16:43:33
+
+阶段三：扩展原版统计
+交给工作台：
+
+扩展 AchievementConfig 的统计适配层。
+
+新增：
+1. item_crafted
+2. item_used
+3. item_broken
+4. item_picked_up
+5. item_dropped
+6. entity_killed_by
+7. custom 原版统计
+
+custom 通过 custom_stat 映射 Stats.CUSTOM，支持移动距离、游戏时长、造成伤害、承受伤害、死亡次数、Boss 相关统计。
+
+本阶段只允许显式目标 ID，不实现标签、目标分组和 "*"。
+确保不同统计类型使用正确的方块、物品、实体注册表。
+验收示例：
+
+合成石头 100 个
+使用钻石剑 100 次
+击杀凋灵 1 次
+移动 10 公里
+造成 10000 点伤害
+
+---
+
+## Development request 2026/8/23 16:55:38
+
+阶段四：目标组、标签、合计和分别达标
+交给工作台：
+
+增加成就目标解析功能。
+
+支持：
+1. target_groups 配置分组，例如 $stone_family。
+2. Minecraft 标签，例如 #minecraft:logs。
+3. "*" 表示当前统计类型的全部目标。
+4. match=sum：所有目标累计。
+5. match=each：每个目标分别达标。
+6. match=any：任意目标达标。
+7. sum 条件：多个统计源累计。
+
+目标必须在配置加载或重载时解析，不能每 10 tick 重新扫描注册表。
+增加目标数量上限、条件深度上限和循环引用检测。
+此阶段覆盖：
+
+石头 + 深板岩合计 1000
+石头和深板岩各自 1000
+挖掘或使用石头系累计 1000
+使用全部物品累计 1000
+跨统计 sum 只允许合计相同单位类型，例如数量可以相加，距离和伤害不能相加。
+
+---
+
+## Development request 2026/8/23 17:46:51
+
+阶段五：成就界面与本地化
+交给工作台：
+
+将成就 GUI 从旧 requirements 展示改为条件树进度展示。
+
+修改 AchievementScreenHandler：
+1. 显示 all、any、not 的关系。
+2. 显示 sum、each、any 的进度。
+3. 显示 current/target。
+4. 物品、方块、实体优先显示本地化名称。
+5. 不在 broadcastChanges 中重复读取全部统计。
+
+更新 zh_cn.json 和 en_us.json。
+客户端不新增判定逻辑，所有进度以服务端结果为准。
+展示示例：
+
+挖掘石头与深板岩：650/1000
+石头：1000/1000
+深板岩：420/1000
+条件关系：全部满足
+
+---
+
+## Development request 2026/8/23 17:59:30
+
+阶段六：性能、重载和完整验收
+交给工作台：
+
+对成就系统 v2 做最终加固。
+
+要求：
+1. 每名玩家每轮检查共享统计读取缓存。
+2. 已解锁成就跳过重复计算。
+3. "*"、标签和分组只在配置加载时展开。
+4. 限制条件树深度、叶子数量和目标数量。
+5. 配置重载失败时保留旧快照。
+6. 不允许纯 not 条件作为顶层成就。
+7. 检查成就、领奖、GUI 显示三者使用同一套判定结果。
+8. 增加旧配置、逻辑组合、物品统计、距离、伤害、Boss 击杀的验收测试。
+
+---
+
+## Development request 2026/8/23 18:32:11
+
+```text
+请对 OmniTools 成就系统 v2 做一次“完成度自检”，只在隔离测试目录中运行，不要覆盖正式 run/config 和正式世界数据。
+
+目标环境：
+- Fabric 1.21.11
+- Java 21
+- 成就相关代码位于：
+  src/main/java/dev/modmind/omnitools/AchievementConfig.java
+  src/main/java/dev/modmind/omnitools/AchievementService.java
+  src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java
+  src/main/java/dev/modmind/omnitools/config/ConfigValidator.java
+  src/main/java/dev/modmind/omnitools/achievement/
+
+必须输出 PASS、PARTIAL 或 FAIL，不允许只根据文件存在判定完成。
+```
+
+**检查一：静态结构**
+
+确认：
+
+- `AchievementCondition`、`StatCondition`、`SumCondition`、`AllCondition`、`AnyCondition`、`NotCondition` 存在并实现统一接口。
+- `AchievementConfig.CURRENT_FORMAT_VERSION` 为 `2`。
+- `AchievementService` 的解锁、领奖、GUI 进度都使用同一套条件树。
+- `AchievementScreenHandler` 不再直接按旧 `requirements` 逻辑判定。
+- `StatisticEvaluationContext` 在一次玩家检查中复用统计读取缓存。
+- `StatisticTargetResolver` 只在配置加载或重载时展开标签、分组和 `*`。
+- `broadcastChanges()` 没有每 tick 重建全部成就统计。
+- 不存在只支持旧 `block_mined/entity_killed` 的残余判定分支。
+
+**检查二：配置解析矩阵**
+
+在临时配置目录分别测试：
+
+1. v1 旧配置：应自动转换为 `all + stat`。
+2. 单个 `block_mined`。
+3. `item_crafted`、`item_used`、`item_broken`。
+4. `entity_killed`、`entity_killed_by`。
+5. `custom_stat`：移动距离、游戏时长、造成伤害、承受伤害。
+6. `$target_group`。
+7. `#minecraft:logs` 等标签。
+8. `*` 全部目标。
+9. `match: sum`、`each`、`any`。
+10. `sum` 跨统计源合计。
+11. `all`、`any`、嵌套 `not`。
+12. 空数组、未知 ID、未知标签、未知分组、循环分组、错误单位、通配符混用。
+
+每个配置都要记录“预期结果”和“实际结果”。
+
+**检查三：逻辑语义**
+
+必须验证：
+
+```text
+石头 1000：
+只有石头达到 1000 才完成。
+
+石头 + 深板岩 sum 1000：
+两者合计达到 1000 即完成。
+
+石头 + 深板岩 each 1000：
+两个目标都达到 1000 才完成。
+
+石头 + 深板岩 any 1000：
+任意一个达到 1000 即完成。
+
+all：
+所有子条件完成。
+
+any：
+任一子条件完成。
+
+not：
+子条件未完成时为 true，子条件完成后为 false。
+
+not-only：
+只有 not、没有正向统计条件的成就必须被拒绝。
+```
+
+注意检查 `not` 嵌套在 `all`、`any` 中时的实际语义。
+
+**检查四：运行时测试**
+
+使用 Fabric GameTest、HeadlessMC 或隔离测试服务器验证：
+
+- 挖掘、合成、使用、损坏、拾取、丢弃统计能增长。
+- 击杀 Boss 和被实体击杀统计正确。
+- 距离、伤害、游戏时长单位换算正确。
+- 配置重载后新条件立即生效。
+- 错误配置重载失败时保留旧快照。
+- 成就只解锁一次。
+- 奖励只能领取一次。
+- 关闭成就模块后不再检查或发奖。
+- 玩家重新登录后解锁和领取状态仍然存在。
+
+**检查五：GUI 一致性**
+
+打开成就界面确认：
+
+- `sum` 显示合计进度。
+- `each` 显示每个目标的独立进度。
+- `any`、`all`、`not` 显示正确关系。
+- 方块、物品、实体优先显示本地化名称。
+- GUI 状态与服务端领奖判定一致。
+- 配置重载后页面不会显示旧成就数量或旧进度。
+- 已解锁、可领取、已领取三种状态正确区分。
+
+**检查六：性能和边界**
+
+确认：
+
+- 同一玩家同一轮检查不会重复读取相同统计。
+- `*` 不会在每 10 tick 重新展开注册表。
+- 目标数量、条件树深度、叶子数量限制有效。
+- 多玩家、多成就配置下没有明显 tick 延迟。
+- 统计溢出、阈值溢出不会变成负数。
+- 成就配置错误不会导致服务器启动崩溃。
+
+最终报告必须包含：
+
+```text
+检查项 | 结果 | 证据
+静态结构 | PASS/PARTIAL/FAIL | 文件和行号
+配置解析 | PASS/PARTIAL/FAIL | 临时配置和日志
+逻辑判定 | PASS/PARTIAL/FAIL | 测试步骤和结果
+运行时功能 | PASS/PARTIAL/FAIL | 服务器日志
+GUI | PASS/PARTIAL/FAIL | 截图或日志
+性能边界 | PASS/PARTIAL/FAIL | 统计或代码证据
+```
+
+判定规则：
+
+- 所有关键项通过：`PASS`
+- 能编译但缺少运行时或 GUI 证据：`PARTIAL`
+- 任意核心逻辑、迁移、领奖或重载失败：`FAIL`
+```
+补充完整README.md
+
+---
+
+## Development request 2026/8/23 19:21:17
+
+将README.md的关于新成就系统的内容重新梳理一遍
+
+---
+
+## Development request 2026/8/23 20:05:36
+
+我在测试中，遇到了这样的错误：[20:03:16] [Server thread/INFO]: [STDERR]: [omnitools] Could not load E:\minecraft\1.21.11-Fabric服务器\.minecraft\versions\1.21.11-Fabric服务器\config\omnitools\achievements\config.json: Unknown achievement requirement type: stat. The configuration snapshot will not be replaced.
+
+
+我是这样配置的：
+{
+      "id":"yidong",
+      "display":"跑",
+      "description":"行走10公里",
+      "icon":"minecraft:diamond_boots",
+      "requirements":[
+        {
+        "type": "stat", 
+        "stat": "custom", 
+        "custom_stat":"minecraft:walk_one_cm",
+        "unit": "kilometers", 
+        "at_least": 10
+        }
+      ],
+      "rewards":{
+        "coins":500,
+        "titles":[
+          "zhangshi"
+        ]
+      }
+    }
+
+在readme.md中，有这样的默认配置：
+{"type": "stat", "stat": "custom", "custom_stat": "minecraft:walk_one_cm", "unit": "kilometers", "at_least": 10}

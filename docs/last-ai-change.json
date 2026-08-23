@@ -1,19 +1,15 @@
 {
-  "prompt": "**目标**\n\n为 OmniTools 注册 Fabric Placeholder API 占位符，使用稳定命名空间 `omnitools`。Placeholder API 未安装时，OmniTools 必须照常启动；占位符解析只读，不触发签到、领奖、扣币或配置写入。\n\n当前工程已具备前提：[`build.gradle`](/D:/mod/qiandao/build.gradle) 已引入 Placeholder API，[`fabric.mod.json`](/D:/mod/qiandao/src/main/resources/fabric.mod.json) 已用 `suggests` 声明可选依赖。\n\n**配置设计**\n\n不要把 Placeholder API 加入 `ModuleId`，它是兼容集成，不是游戏功能模块。在 [`config/omnitools/config.json`](/D:/mod/qiandao/run/config/omnitools/config.json) 增加独立节点：\n\n```json\n{\n  \"format_version\": 2,\n  \"global\": {\n    \"debug\": false,\n    \"timezone\": \"Asia/Shanghai\"\n  },\n  \"integrations\": {\n    \"placeholder_api\": {\n      \"enabled\": true\n    }\n  },\n  \"modules\": {\n    \"daily_checkin\": { \"enabled\": true },\n    \"online_reward\": { \"enabled\": true },\n    \"shop\": { \"enabled\": true },\n    \"titles\": { \"enabled\": true },\n    \"title_effects\": { \"enabled\": true },\n    \"achievements\": { \"enabled\": true },\n    \"cloud_storage\": { \"enabled\": true },\n    \"permissions\": { \"enabled\": false }\n  }\n}\n```\n\n兼容规则：\n\n- 旧版 `format_version: 1` 且缺少 `integrations` 时，`placeholder_api.enabled` 默认 `true`。\n- 新生成配置写入版本 `2`。\n- 不强制覆写旧配置；用户补充节点后执行 `/omnitools reload` 即可生效。\n- 禁用集成后，已注册的 ID 不能注销，但回调返回安全默认值；这是 Placeholder API 注册表的正常限制。\n\n**代码结构**\n\n新增 3 个类，建议仍放在 `dev.modmind.omnitools` 根包。当前 `ModMindEntry` 的服务访问器是包可见的，放根包可避免为第三方集成扩大内部 API 可见性。\n\n```text\ndev.modmind.omnitools/\n├── PlaceholderBootstrap.java\n├── FabricPlaceholderRegistrar.java\n└── OmniToolsPlaceholderResolver.java\n```\n\n职责：\n\n- `PlaceholderBootstrap`\n  - 不引用 Placeholder API 类型。\n  - 用 `FabricLoader.getInstance().isModLoaded(\"placeholder-api\")` 判断是否安装。\n  - 判断总配置 `integrations.placeholder_api.enabled`。\n  - 仅在满足条件时加载注册器。\n\n- `FabricPlaceholderRegistrar`\n  - 唯一引用 Fabric Placeholder API 类型的类。\n  - 基于当前 `placeholder-api-2.8.2+1.21.10` 的 `PlaceholderAPI.register(...)` 回调注册所有 ID。\n  - 用静态布尔值保证每个 ID 在一个 JVM 中只注册一次。\n  - 不在 `ModMindEntry` 的字段、方法签名或静态初始化中暴露 Placeholder API 类型，避免未安装 API 时发生类加载错误。\n\n- `OmniToolsPlaceholderResolver`\n  - 所有数据查询和模块开关判断集中在这里。\n  - 每次解析从上下文取得当前 `ServerPlayer`；不缓存 `ServerPlayer`。\n  - 返回 `Component`：数值使用 `Component.literal(...)`，称号展示直接复用既有 `displayComponent()`。\n  - 不读写文件、不发奖、不修改 `SavedData`。\n\n注册时机：\n\n1. `SERVER_STARTED` 中，`applySnapshot(CONFIG_MANAGER.load(server))` 之后调用 `PlaceholderBootstrap.registerIfAvailable()`。\n2. `/omnitools reload` 成功应用新快照后再次调用该方法，以便“启动时关闭、重载后开启”的配置能完成首次注册。\n3. 已注册后再次调用直接跳过；关闭配置时，解析器读取当前快照并返回默认值。\n\n**首批公开占位符**\n\n以下是注册 ID，不在文档里硬编码第三方消费模组的文本写法；实际书写形式遵循 Fabric Placeholder API 及使用方模组的语法。\n\n| ID | 返回值 | 模块关闭或无玩家时 |\n|---|---|---|\n| `omnitools:balance` | 原始货币余额 | `0` |\n| `omnitools:balance_formatted` | 带千分位的余额 | `0` |\n| `omnitools:checkin_today` | 今日是否签到，`true/false` | `false` |\n| `omnitools:checkin_today_rank` | 已签到后的今日实际名次 | 未签到时 `0` |\n| `omnitools:checkin_total_days` | 累计签到天数 | `0` |\n| `omnitools:checkin_streak_days` | 当前连续签到天数 | `0` |\n| `omnitools:checkin_month_days` | 本月签到天数 | `0` |\n| `omnitools:online_today_seconds` | 今日在线秒数，向下取整 | `0` |\n| `omnitools:online_today_minutes` | 今日在线分钟数，向下取整 | `0` |\n| `omnitools:online_today_hms` | 今日在线时长，如 `01:23:45` | `00:00:00` |\n| `omnitools:title_id` | 当前佩戴称号 ID | 空文本 |\n| `omnitools:title` | 当前称号，保留颜色与样式 | 空文本 |\n| `omnitools:title_plain` | 当前称号纯文本 | 空文本 |\n| `omnitools:title_effects_enabled` | 称号效果总开关与玩家开关均有效时为 `true` | `false` |\n| `omnitools:achievements_unlocked` | 已解锁成就数 | `0` |\n| `omnitools:achievements_claimed` | 已领取成就数 | `0` |\n| `omnitools:achievements_total` | 当前配置的成就总数 | `0` |\n\n不要让 `checkin_today_rank` 在未签到时返回“预计名次”。当前 [`CheckinData.getStats`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:107) 会给未签到玩家计算下一个可能名次，语义容易误导；首版固定返回 `0`。\n\n**数据映射**\n\n- 签到数据来自 [`CheckinData`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:107)，日期必须使用 `CheckinData.today(server)`，确保与总配置的 `global.timezone` 一致。\n- 在线时长使用 [`OnlineTimeRewardService.getTodayOnlineTime`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OnlineTimeRewardService.java:48)，它会包含本次尚未落盘的在线时间。\n- 称号 ID 和展示使用 [`TitleConfig.selectedTitle`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:99)；纯文本使用既有 `TitleDefinition.plainDisplay()`，不能把 `§` 色码直接交给记分板等消费者。\n- 玩家称号效果开关读取 [`TitleData.PlayerRecord.effectsEnabled()`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java:280)。\n- 成就计数使用 [`AchievementService.unlockedCount`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:138)、`claimedCount` 和当前配置列表大小。\n- `balance` 不受 `daily_checkin` 开关限制。余额虽保存在 `CheckinData`，但商店、成就奖励和 `/money` 也在使用它。\n\n**解析规则与边界**\n\n- 所有玩家相关占位符只接受当前上下文玩家，不提供“按玩家名/UUID 查询他人数据”的参数，避免泄露余额、成就等数据。\n- `daily_checkin`、`online_reward`、`titles`、`title_effects`、`achievements` 各自关闭时，只影响所属占位符。\n- Placeholder API 集成整体关闭时，数值返回 `0`、布尔返回 `false`、普通文本返回空文本。\n- 不支持任意参数、动态奖励 ID、商店商品价格等可变语法；后续确有需求再定义稳定参数协议。\n- 不在每次解析中读取配置文件或扫描世界。当前 `checkin_month_days` 会遍历该玩家签到历史，首版可接受；若用于高频计分板，应再做“按玩家、按服务端 tick”的只读快照缓存。\n- 不在异步线程直接访问 `SavedData` 或 `ServerPlayer`；缺少服务端玩家上下文时直接返回默认值。\n\n**依赖与验收**\n\n- 保留 `fabric.mod.json` 的 `suggests`，不要改成 `depends`。\n- 不要对 Placeholder API 使用 `include` 或 Jar-in-Jar；成品服需自行安装 Placeholder API 才启用联动。\n- 确认 Placeholder API 的运行版本与 Minecraft `1.21.11` 兼容，且与当前编译 API 保持兼容。\n- 无 Placeholder API：服务器正常启动，无 `ClassNotFoundException`。\n- 有 Placeholder API：仅记录一次注册成功日志，所有 ID 可被下游模组解析。\n- 签到、货币增减、在线时长、称号切换、成就领取后，占位符在下一次解析时反映最新值。\n- 关闭对应模块或总集成后，结果符合上述默认值，不产生异常或日志刷屏。",
+  "prompt": "```text\n请对 OmniTools 成就系统 v2 做一次“完成度自检”，只在隔离测试目录中运行，不要覆盖正式 run/config 和正式世界数据。\n\n目标环境：\n- Fabric 1.21.11\n- Java 21\n- 成就相关代码位于：\n  src/main/java/dev/modmind/omnitools/AchievementConfig.java\n  src/main/java/dev/modmind/omnitools/AchievementService.java\n  src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java\n  src/main/java/dev/modmind/omnitools/config/ConfigValidator.java\n  src/main/java/dev/modmind/omnitools/achievement/\n\n必须输出 PASS、PARTIAL 或 FAIL，不允许只根据文件存在判定完成。\n```\n\n**检查一：静态结构**\n\n确认：\n\n- `AchievementCondition`、`StatCondition`、`SumCondition`、`AllCondition`、`AnyCondition`、`NotCondition` 存在并实现统一接口。\n- `AchievementConfig.CURRENT_FORMAT_VERSION` 为 `2`。\n- `AchievementService` 的解锁、领奖、GUI 进度都使用同一套条件树。\n- `AchievementScreenHandler` 不再直接按旧 `requirements` 逻辑判定。\n- `StatisticEvaluationContext` 在一次玩家检查中复用统计读取缓存。\n- `StatisticTargetResolver` 只在配置加载或重载时展开标签、分组和 `*`。\n- `broadcastChanges()` 没有每 tick 重建全部成就统计。\n- 不存在只支持旧 `block_mined/entity_killed` 的残余判定分支。\n\n**检查二：配置解析矩阵**\n\n在临时配置目录分别测试：\n\n1. v1 旧配置：应自动转换为 `all + stat`。\n2. 单个 `block_mined`。\n3. `item_crafted`、`item_used`、`item_broken`。\n4. `entity_killed`、`entity_killed_by`。\n5. `custom_stat`：移动距离、游戏时长、造成伤害、承受伤害。\n6. `$target_group`。\n7. `#minecraft:logs` 等标签。\n8. `*` 全部目标。\n9. `match: sum`、`each`、`any`。\n10. `sum` 跨统计源合计。\n11. `all`、`any`、嵌套 `not`。\n12. 空数组、未知 ID、未知标签、未知分组、循环分组、错误单位、通配符混用。\n\n每个配置都要记录“预期结果”和“实际结果”。\n\n**检查三：逻辑语义**\n\n必须验证：\n\n```text\n石头 1000：\n只有石头达到 1000 才完成。\n\n石头 + 深板岩 sum 1000：\n两者合计达到 1000 即完成。\n\n石头 + 深板岩 each 1000：\n两个目标都达到 1000 才完成。\n\n石头 + 深板岩 any 1000：\n任意一个达到 1000 即完成。\n\nall：\n所有子条件完成。\n\nany：\n任一子条件完成。\n\nnot：\n子条件未完成时为 true，子条件完成后为 false。\n\nnot-only：\n只有 not、没有正向统计条件的成就必须被拒绝。\n```\n\n注意检查 `not` 嵌套在 `all`、`any` 中时的实际语义。\n\n**检查四：运行时测试**\n\n使用 Fabric GameTest、HeadlessMC 或隔离测试服务器验证：\n\n- 挖掘、合成、使用、损坏、拾取、丢弃统计能增长。\n- 击杀 Boss 和被实体击杀统计正确。\n- 距离、伤害、游戏时长单位换算正确。\n- 配置重载后新条件立即生效。\n- 错误配置重载失败时保留旧快照。\n- 成就只解锁一次。\n- 奖励只能领取一次。\n- 关闭成就模块后不再检查或发奖。\n- 玩家重新登录后解锁和领取状态仍然存在。\n\n**检查五：GUI 一致性**\n\n打开成就界面确认：\n\n- `sum` 显示合计进度。\n- `each` 显示每个目标的独立进度。\n- `any`、`all`、`not` 显示正确关系。\n- 方块、物品、实体优先显示本地化名称。\n- GUI 状态与服务端领奖判定一致。\n- 配置重载后页面不会显示旧成就数量或旧进度。\n- 已解锁、可领取、已领取三种状态正确区分。\n\n**检查六：性能和边界**\n\n确认：\n\n- 同一玩家同一轮检查不会重复读取相同统计。\n- `*` 不会在每 10 tick 重新展开注册表。\n- 目标数量、条件树深度、叶子数量限制有效。\n- 多玩家、多成就配置下没有明显 tick 延迟。\n- 统计溢出、阈值溢出不会变成负数。\n- 成就配置错误不会导致服务器启动崩溃。\n\n最终报告必须包含：\n\n```text\n检查项 | 结果 | 证据\n静态结构 | PASS/PARTIAL/FAIL | 文件和行号\n配置解析 | PASS/PARTIAL/FAIL | 临时配置和日志\n逻辑判定 | PASS/PARTIAL/FAIL | 测试步骤和结果\n运行时功能 | PASS/PARTIAL/FAIL | 服务器日志\nGUI | PASS/PARTIAL/FAIL | 截图或日志\n性能边界 | PASS/PARTIAL/FAIL | 统计或代码证据\n```\n\n判定规则：\n\n- 所有关键项通过：`PASS`\n- 能编译但缺少运行时或 GUI 证据：`PARTIAL`\n- 任意核心逻辑、迁移、领奖或重载失败：`FAIL`\n```\n补充完整README.md",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-23T06:27:04.626Z",
-  "summary": "Placeholder API 集成已完成并验证：\n\n- 新增稳定 `omnitools` 命名空间的 17 个只读占位符。\n- 配置支持 `integrations.placeholder_api.enabled`，旧版配置默认启用。\n- 未安装 Placeholder API 时不会加载第三方类；注册器已与解析器隔离。\n- 占位符仅读取当前玩家数据，不触发签到、领奖、扣币或配置写入。\n- README 已补充配置、使用方式、占位符列表和兼容说明。\n\n验证结果：\n\n- 内容校验：通过，无错误。\n- Gradle 构建：通过，产物已生成。\n- 服务端测试：通过，服务器稳定运行 15 秒。\n- Placeholder API 环境：成功注册 17 个占位符。\n- `git diff --check`：通过，无空白错误。\n- 未发现 `ClassNotFoundException` 或配置回退错误。",
-  "finalResponse": "Placeholder API 集成已完成并验证：\n\n- 新增稳定 `omnitools` 命名空间的 17 个只读占位符。\n- 配置支持 `integrations.placeholder_api.enabled`，旧版配置默认启用。\n- 未安装 Placeholder API 时不会加载第三方类；注册器已与解析器隔离。\n- 占位符仅读取当前玩家数据，不触发签到、领奖、扣币或配置写入。\n- README 已补充配置、使用方式、占位符列表和兼容说明。\n\n验证结果：\n\n- 内容校验：通过，无错误。\n- Gradle 构建：通过，产物已生成。\n- 服务端测试：通过，服务器稳定运行 15 秒。\n- Placeholder API 环境：成功注册 17 个占位符。\n- `git diff --check`：通过，无空白错误。\n- 未发现 `ClassNotFoundException` 或配置回退错误。",
+  "createdAt": "2026-08-23T11:10:51.899Z",
+  "summary": "已完成 README 的成就系统 v2 完成度自检报告补充：\n\n- 总体结论：`PARTIAL`\n- 已记录静态结构、配置解析、逻辑语义、运行时、GUI、性能边界六项结果。\n- 已加入完整配置矩阵、预期/实际结果、错误回退日志和隔离测试路径。\n- 已在隔离目录完成编译、构建、内容校验和服务端稳定启动测试。\n- 正式 `run/config` 与世界数据未被修改。\n\n主要证据目录：`.modmind/builds/achievement-self-check-20260823-1038/`  \n最终服务端日志：`.modmind/builds/runServer-1787483277644.log`  \n文档位置：[README.md](/D:/mod/qiandao/README.md:1222)",
+  "finalResponse": "已完成 README 的成就系统 v2 完成度自检报告补充：\n\n- 总体结论：`PARTIAL`\n- 已记录静态结构、配置解析、逻辑语义、运行时、GUI、性能边界六项结果。\n- 已加入完整配置矩阵、预期/实际结果、错误回退日志和隔离测试路径。\n- 已在隔离目录完成编译、构建、内容校验和服务端稳定启动测试。\n- 正式 `run/config` 与世界数据未被修改。\n\n主要证据目录：`.modmind/builds/achievement-self-check-20260823-1038/`  \n最终服务端日志：`.modmind/builds/runServer-1787483277644.log`  \n文档位置：[README.md](/D:/mod/qiandao/README.md:1222)",
   "intent": "engineering",
   "tasks": [],
   "files": [
     {
       "path": "README.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/config/omnitools/config.json",
       "purpose": "外部代理修改"
     },
     {
@@ -38,6 +34,10 @@
     },
     {
       "path": "run/logs/2026-08-23-6.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-23-7.log.gz",
       "purpose": "外部代理修改"
     },
     {
@@ -79,34 +79,6 @@
     {
       "path": "run/world/level.dat_old",
       "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigSnapshot.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-23-7.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/FabricPlaceholderRegistrar.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/OmniToolsPlaceholderResolver.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/PlaceholderBootstrap.java",
-      "purpose": "外部代理修改"
     }
   ],
   "tests": [
@@ -114,7 +86,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-23T06-06-30-866Z",
+  "snapshotId": "2026-08-23T10-32-13-914Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -125,16 +97,16 @@
       "runtime_test"
     ],
     "completed": [
+      "runtime_test",
       "validate",
       "build",
-      "runtime_test",
       "implementation"
     ],
     "missing": [],
     "evidence": {
+      "runtime_test": "modmind_test_matrix passed runtime targets",
       "validate": "modmind_validate_content completed successfully",
-      "build": "modmind_build_project completed successfully",
-      "runtime_test": "modmind_test_matrix passed runtime targets"
+      "build": "modmind_test_matrix passed a build/client target"
     }
   }
 }

@@ -5,6 +5,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
@@ -19,6 +20,14 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.ResolvableProfile;
+import dev.modmind.omnitools.achievement.AchievementCondition;
+import dev.modmind.omnitools.achievement.AllCondition;
+import dev.modmind.omnitools.achievement.AnyCondition;
+import dev.modmind.omnitools.achievement.ConditionProgress;
+import dev.modmind.omnitools.achievement.NotCondition;
+import dev.modmind.omnitools.achievement.StatCondition;
+import dev.modmind.omnitools.achievement.SumCondition;
+import dev.modmind.omnitools.achievement.TargetMatch;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +51,8 @@ public final class AchievementScreenHandler extends ChestMenu {
     private final ServerPlayer owner;
     private final AchievementService service;
     private int page;
-    private int stateHash = Integer.MIN_VALUE;
+    private long lastRefreshTick = Long.MIN_VALUE;
+    private int lastConfigRevision = Integer.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -61,7 +71,6 @@ public final class AchievementScreenHandler extends ChestMenu {
         this.service = service;
         this.page = page;
         if (owner != null && service != null) {
-            service.check(owner);
             refreshContents();
         }
     }
@@ -135,14 +144,18 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     @Override
     public void broadcastChanges() {
-        if (owner != null && service != null && service.stateHash(owner) != stateHash) {
-            refreshContents();
+        if (owner != null && service != null) {
+            long tick = owner.level().getServer().getTickCount();
+            if (tick - lastRefreshTick >= AchievementService.CHECK_INTERVAL_TICKS
+                    || service.revision() != lastConfigRevision) {
+                refreshContents();
+            }
         }
         super.broadcastChanges();
     }
 
     private void refreshContents() {
-        service.check(owner);
+        AchievementService.MenuSnapshot menuSnapshot = service.menuSnapshot(owner);
         AchievementConfig config = service.config();
         List<AchievementConfig.AchievementDefinition> achievements = config.achievements();
         int pageCount = pageCount(achievements.size());
@@ -162,7 +175,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         int firstAchievement = page * ACHIEVEMENT_SLOTS;
         for (int slot = 0; slot < ACHIEVEMENT_SLOTS && firstAchievement + slot < achievements.size(); slot++) {
             AchievementConfig.AchievementDefinition achievement = achievements.get(firstAchievement + slot);
-            achievementContainer.setItem(slot, achievementItem(achievement));
+            AchievementService.Evaluation evaluation = menuSnapshot.evaluation(achievement.id());
+            achievementContainer.setItem(slot, achievementItem(achievement, evaluation));
         }
 
         if (page > 0) {
@@ -178,12 +192,15 @@ public final class AchievementScreenHandler extends ChestMenu {
                     List.of(Component.translatable("gui.omnitools.achievement.next_hint")
                             .withStyle(ChatFormatting.GRAY))));
         }
-        stateHash = service.stateHash(owner);
+        lastRefreshTick = owner.level().getServer().getTickCount();
+        lastConfigRevision = service.revision();
     }
 
-    private ItemStack achievementItem(AchievementConfig.AchievementDefinition achievement) {
-        AchievementService.State state = service.state(owner, achievement);
-        ChatFormatting color = stateColor(achievement, state);
+    private ItemStack achievementItem(AchievementConfig.AchievementDefinition achievement,
+                                      AchievementService.Evaluation evaluation) {
+        ConditionProgress progress = evaluation.progress();
+        AchievementService.State state = evaluation.state();
+        ChatFormatting color = stateColor(achievement, state, progress);
         ItemStack item = new ItemStack(achievement.icon());
         if (state == AchievementService.State.CLAIMED) {
             item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
@@ -192,11 +209,7 @@ public final class AchievementScreenHandler extends ChestMenu {
                 .withStyle(color, ChatFormatting.BOLD));
         List<Component> lore = new ArrayList<>();
         lore.add(LegacyTitleText.parse(achievement.description()).copy().withStyle(ChatFormatting.GRAY));
-        for (AchievementConfig.Requirement requirement : achievement.requirements()) {
-            long progress = Math.min(requirement.current(owner), requirement.count());
-            lore.add(Component.translatable(requirement.type().translationKey(), requirement.targetId(), progress,
-                    requirement.count()).withStyle(color));
-        }
+        appendConditionLore(achievement.condition(), progress, lore, color, 0);
         AchievementConfig.Reward reward = achievement.rewards();
         if (reward.coins() > 0L) {
             lore.add(Component.translatable("gui.omnitools.achievement.reward_coins", reward.coins())
@@ -230,15 +243,113 @@ public final class AchievementScreenHandler extends ChestMenu {
     }
 
     private ChatFormatting stateColor(AchievementConfig.AchievementDefinition achievement,
-                                      AchievementService.State state) {
+                                      AchievementService.State state, ConditionProgress progress) {
         if (state == AchievementService.State.CLAIMED) {
             return ChatFormatting.GOLD;
         }
         if (state == AchievementService.State.CLAIMABLE) {
             return ChatFormatting.GREEN;
         }
-        return achievement.requirements().stream().anyMatch(requirement -> requirement.current(owner) > 0L)
+        return hasProgress(progress)
                 ? ChatFormatting.RED : ChatFormatting.DARK_GRAY;
+    }
+
+    private static boolean hasProgress(ConditionProgress progress) {
+        if (progress.current() > 0L) {
+            return true;
+        }
+        return progress.children().stream().anyMatch(AchievementScreenHandler::hasProgress);
+    }
+
+    private void appendConditionLore(AchievementCondition condition, ConditionProgress progress,
+                                     List<Component> lore, ChatFormatting color, int indent) {
+        Component prefix = Component.literal("  ".repeat(Math.max(0, indent)));
+        if (condition instanceof StatCondition stat) {
+            if (stat.match() == TargetMatch.SUM) {
+                if (stat.requirements().size() == 1) {
+                    lore.add(prefix.copy().append(statLine(stat.requirements().get(0), progress.current(),
+                            stat.atLeast())).withStyle(color));
+                } else {
+                    lore.add(prefix.copy().append(Component.translatable(
+                            "gui.omnitools.achievement.condition.stat_sum",
+                            joinTargetNames(stat.requirements()), progress.current(), stat.atLeast()))
+                            .withStyle(color));
+                }
+            } else {
+                lore.add(prefix.copy().append(Component.translatable(
+                        stat.match() == TargetMatch.EACH
+                                ? "gui.omnitools.achievement.match.each"
+                                : "gui.omnitools.achievement.match.any",
+                        progress.current(), progress.target())).withStyle(color));
+                for (int index = 0; index < stat.requirements().size(); index++) {
+                    ConditionProgress child = index < progress.children().size()
+                            ? progress.children().get(index) : ConditionProgress.leaf(0, stat.atLeast(), false);
+                    lore.add(Component.literal("  ".repeat(Math.max(0, indent + 1)))
+                            .append(statLine(stat.requirements().get(index), child.current(), stat.atLeast()))
+                            .withStyle(color));
+                }
+            }
+            return;
+        }
+        if (condition instanceof SumCondition sum) {
+            lore.add(prefix.copy().append(Component.translatable(
+                    "gui.omnitools.achievement.condition.sum", joinTargetNames(sum.requirements()),
+                    progress.current(), sum.atLeast())).withStyle(color));
+            return;
+        }
+        if (condition instanceof AllCondition all) {
+            lore.add(prefix.copy().append(Component.translatable(
+                    "gui.omnitools.achievement.condition.all", progress.current(), progress.target()))
+                    .withStyle(color));
+            appendChildren(all.children(), progress, lore, color, indent + 1);
+            return;
+        }
+        if (condition instanceof AnyCondition any) {
+            lore.add(prefix.copy().append(Component.translatable(
+                    "gui.omnitools.achievement.condition.any", progress.current(), progress.target()))
+                    .withStyle(color));
+            appendChildren(any.children(), progress, lore, color, indent + 1);
+            return;
+        }
+        if (condition instanceof NotCondition not) {
+            lore.add(prefix.copy().append(Component.translatable(
+                    "gui.omnitools.achievement.condition.not", progress.current(), progress.target()))
+                    .withStyle(color));
+            appendChildren(List.of(not.child()), progress, lore, color, indent + 1);
+        }
+    }
+
+    private void appendChildren(List<AchievementCondition> children, ConditionProgress progress,
+                                List<Component> lore, ChatFormatting color, int indent) {
+        for (int index = 0; index < children.size(); index++) {
+            ConditionProgress childProgress = index < progress.children().size()
+                    ? progress.children().get(index) : ConditionProgress.leaf(0, 0, false);
+            appendConditionLore(children.get(index), childProgress, lore, color, indent);
+        }
+    }
+
+    private Component statLine(AchievementConfig.Requirement requirement, long current, long target) {
+        return Component.translatable(requirement.type().translationKey(), targetName(requirement), current, target);
+    }
+
+    private Component joinTargetNames(List<AchievementConfig.Requirement> requirements) {
+        MutableComponent joined = Component.empty();
+        for (int index = 0; index < requirements.size(); index++) {
+            if (index > 0) {
+                joined.append(Component.translatable("gui.omnitools.achievement.target.separator"));
+            }
+            joined.append(targetName(requirements.get(index)));
+        }
+        return joined;
+    }
+
+    private Component targetName(AchievementConfig.Requirement requirement) {
+        return switch (requirement.type().domain()) {
+            case BLOCK -> ((net.minecraft.world.level.block.Block) requirement.target()).getName();
+            case ITEM -> ((Item) requirement.target()).getName();
+            case ENTITY -> ((net.minecraft.world.entity.EntityType<?>) requirement.target()).getDescription();
+            case CUSTOM -> Component.literal(requirement.targetId());
+        };
     }
 
     private static String stateTranslationKey(AchievementService.State state) {

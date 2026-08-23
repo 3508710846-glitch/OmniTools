@@ -1,16 +1,11 @@
-Placeholder API 集成已完成并验证：
+已完成 README 的成就系统 v2 完成度自检报告补充：
 
-- 新增稳定 `omnitools` 命名空间的 17 个只读占位符。
-- 配置支持 `integrations.placeholder_api.enabled`，旧版配置默认启用。
-- 未安装 Placeholder API 时不会加载第三方类；注册器已与解析器隔离。
-- 占位符仅读取当前玩家数据，不触发签到、领奖、扣币或配置写入。
-- README 已补充配置、使用方式、占位符列表和兼容说明。
+- 总体结论：`PARTIAL`
+- 已记录静态结构、配置解析、逻辑语义、运行时、GUI、性能边界六项结果。
+- 已加入完整配置矩阵、预期/实际结果、错误回退日志和隔离测试路径。
+- 已在隔离目录完成编译、构建、内容校验和服务端稳定启动测试。
+- 正式 `run/config` 与世界数据未被修改。
 
-验证结果：
-
-- 内容校验：通过，无错误。
-- Gradle 构建：通过，产物已生成。
-- 服务端测试：通过，服务器稳定运行 15 秒。
-- Placeholder API 环境：成功注册 17 个占位符。
-- `git diff --check`：通过，无空白错误。
-- 未发现 `ClassNotFoundException` 或配置回退错误。
+主要证据目录：`.modmind/builds/achievement-self-check-20260823-1038/`  
+最终服务端日志：`.modmind/builds/runServer-1787483277644.log`  
+文档位置：[README.md](/D:/mod/qiandao/README.md:1222)

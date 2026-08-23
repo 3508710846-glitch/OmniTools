@@ -5,7 +5,18 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Optional;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.achievement.ConditionProgress;
+import dev.modmind.omnitools.achievement.AchievementCondition;
+import dev.modmind.omnitools.achievement.AllCondition;
+import dev.modmind.omnitools.achievement.AnyCondition;
+import dev.modmind.omnitools.achievement.NotCondition;
+import dev.modmind.omnitools.achievement.StatCondition;
+import dev.modmind.omnitools.achievement.SumCondition;
+import dev.modmind.omnitools.achievement.StatisticEvaluationContext;
 
 /** Server-side achievement progression, unlock checks, and one-time reward claims. */
 public final class AchievementService {
@@ -62,12 +73,80 @@ public final class AchievementService {
         return checkInternal(player, true);
     }
 
+    /** Checks achievements using a caller-owned per-refresh statistic cache. */
+    public int check(ServerPlayer player, StatisticEvaluationContext context) {
+        return checkInternal(player, true, context);
+    }
+
+    /** Builds one server-authoritative menu snapshot from one shared statistic context. */
+    public MenuSnapshot menuSnapshot(ServerPlayer player) {
+        AchievementConfig snapshot = config();
+        AchievementData data = AchievementData.get(player);
+        StatisticEvaluationContext context = new StatisticEvaluationContext(player);
+        Map<String, Evaluation> evaluations = new LinkedHashMap<>();
+        for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements()) {
+            boolean unlocked = data.isUnlocked(player.getUUID(), achievement.id());
+            ConditionProgress progress = unlocked
+                    ? completedProgress(achievement.condition()) : achievement.progress(context);
+            if (!unlocked && progress.completed() && data.unlock(player.getUUID(), achievement.id())) {
+                player.displayClientMessage(Component.translatable(
+                        "message.omnitools.achievement.unlocked", achievement.display()), true);
+            }
+            evaluations.put(achievement.id(), evaluation(player, achievement, progress));
+        }
+        return new MenuSnapshot(Map.copyOf(evaluations), revision());
+    }
+
+    private static ConditionProgress completedProgress(AchievementCondition condition) {
+        if (condition instanceof StatCondition stat) {
+            if (stat.match() == dev.modmind.omnitools.achievement.TargetMatch.SUM) {
+                return ConditionProgress.leaf(stat.atLeast(), stat.atLeast(), true);
+            }
+            List<ConditionProgress> children = stat.requirements().stream()
+                    .map(ignored -> ConditionProgress.leaf(stat.atLeast(), stat.atLeast(), true)).toList();
+            return ConditionProgress.group(true, children.size(), children.size(), children);
+        }
+        if (condition instanceof SumCondition sum) {
+            return ConditionProgress.leaf(sum.atLeast(), sum.atLeast(), true);
+        }
+        if (condition instanceof AllCondition all) {
+            List<ConditionProgress> children = all.children().stream().map(AchievementService::completedProgress).toList();
+            return ConditionProgress.group(true, children.size(), children.size(), children);
+        }
+        if (condition instanceof AnyCondition any) {
+            List<ConditionProgress> children = any.children().stream().map(AchievementService::completedProgress).toList();
+            return ConditionProgress.group(true, 1L, 1L, children);
+        }
+        if (condition instanceof NotCondition not) {
+            return ConditionProgress.group(true, 1L, 1L, List.of(completedProgress(not.child())));
+        }
+        return ConditionProgress.leaf(1L, 1L, true);
+    }
+
+    public Evaluation evaluation(ServerPlayer player, AchievementConfig.AchievementDefinition achievement,
+                                 ConditionProgress progress) {
+        AchievementData data = AchievementData.get(player);
+        State state;
+        if (data.isClaimed(player.getUUID(), achievement.id())) {
+            state = State.CLAIMED;
+        } else if (data.isUnlocked(player.getUUID(), achievement.id()) || progress.completed()) {
+            state = State.CLAIMABLE;
+        } else {
+            state = State.IN_PROGRESS;
+        }
+        return new Evaluation(state, progress);
+    }
+
     private int checkInternal(ServerPlayer player, boolean announce) {
+        return checkInternal(player, announce, new StatisticEvaluationContext(player));
+    }
+
+    private int checkInternal(ServerPlayer player, boolean announce, StatisticEvaluationContext context) {
         AchievementConfig snapshot = config();
         AchievementData data = AchievementData.get(player);
         int newlyUnlocked = 0;
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements()) {
-            if (data.isUnlocked(player.getUUID(), achievement.id()) || !achievement.complete(player)) {
+            if (data.isUnlocked(player.getUUID(), achievement.id()) || !achievement.complete(context)) {
                 continue;
             }
             if (data.unlock(player.getUUID(), achievement.id())) {
@@ -95,7 +174,8 @@ public final class AchievementService {
         }
         // A click can arrive before the next periodic check, so validate live statistics unless
         // the achievement was already unlocked and therefore remains permanently complete.
-        if (!data.isUnlocked(player.getUUID(), achievement.id()) && !achievement.complete(player)) {
+        StatisticEvaluationContext context = new StatisticEvaluationContext(player);
+        if (!data.isUnlocked(player.getUUID(), achievement.id()) && !achievement.complete(context)) {
             return new ClaimResult(ClaimStatus.NOT_COMPLETED,
                     CheckinData.get(player).getBalance(player.getUUID()), 0);
         }
@@ -121,14 +201,17 @@ public final class AchievementService {
     }
 
     public State state(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {
-        AchievementData data = AchievementData.get(player);
-        if (data.isClaimed(player.getUUID(), achievement.id())) {
-            return State.CLAIMED;
-        }
-        if (data.isUnlocked(player.getUUID(), achievement.id()) || achievement.complete(player)) {
-            return State.CLAIMABLE;
-        }
-        return State.IN_PROGRESS;
+        return state(player, achievement, new StatisticEvaluationContext(player));
+    }
+
+    /** Returns the server-authoritative progress tree for one achievement. */
+    public ConditionProgress progress(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {
+        return achievement.progress(new StatisticEvaluationContext(player));
+    }
+
+    public State state(ServerPlayer player, AchievementConfig.AchievementDefinition achievement,
+                       StatisticEvaluationContext context) {
+        return evaluation(player, achievement, achievement.progress(context)).state();
     }
 
     public int currentValue(ServerPlayer player, AchievementConfig.Requirement requirement) {
@@ -157,19 +240,6 @@ public final class AchievementService {
         return count;
     }
 
-    /** Hashes only server-owned state used by an open menu, avoiding a full item rebuild every tick. */
-    public int stateHash(ServerPlayer player) {
-        int hash = revision();
-        for (AchievementConfig.AchievementDefinition achievement : config().achievements()) {
-            hash = 31 * hash + achievement.id().hashCode();
-            hash = 31 * hash + state(player, achievement).ordinal();
-            for (AchievementConfig.Requirement requirement : achievement.requirements()) {
-                hash = 31 * hash + Long.hashCode(requirement.current(player));
-            }
-        }
-        return hash;
-    }
-
     public enum State {
         IN_PROGRESS,
         CLAIMABLE,
@@ -184,5 +254,18 @@ public final class AchievementService {
     }
 
     public record ClaimResult(ClaimStatus status, long balance, int grantedTitles) {
+    }
+
+    public record Evaluation(State state, ConditionProgress progress) {
+    }
+
+    public record MenuSnapshot(Map<String, Evaluation> evaluations, int revision) {
+        public MenuSnapshot {
+            evaluations = Map.copyOf(evaluations);
+        }
+
+        public Evaluation evaluation(String achievementId) {
+            return evaluations.get(achievementId);
+        }
     }
 }

@@ -6,13 +6,21 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.modmind.omnitools.achievement.AchievementCondition;
+import dev.modmind.omnitools.achievement.AllCondition;
+import dev.modmind.omnitools.achievement.AnyCondition;
+import dev.modmind.omnitools.achievement.NotCondition;
+import dev.modmind.omnitools.achievement.StatCondition;
+import dev.modmind.omnitools.achievement.StatisticEvaluationContext;
+import dev.modmind.omnitools.achievement.StatisticTargetResolver;
+import dev.modmind.omnitools.achievement.StatisticUnit;
+import dev.modmind.omnitools.achievement.SumCondition;
+import dev.modmind.omnitools.achievement.TargetMatch;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.stats.Stats;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
@@ -32,12 +40,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-/** Server-side definitions for custom achievements backed by vanilla statistics. */
+/** Server-side achievement definitions backed by a small, versioned condition model. */
 public final class AchievementConfig {
     public static final String FILE_NAME = "omnitools-achievements.json";
+    public static final int CURRENT_FORMAT_VERSION = 2;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final int MAX_DISPLAY_LENGTH = 128;
     private static final int MAX_DESCRIPTION_LENGTH = 512;
+    private static final int MAX_CONDITION_LEAVES = 128;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.ACHIEVEMENTS);
 
@@ -59,7 +69,6 @@ public final class AchievementConfig {
             write(defaults);
             return defaults;
         }
-
         try (Reader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
             JsonElement root = GSON.fromJson(reader, JsonElement.class);
             if (root == null || !root.isJsonObject()) {
@@ -90,20 +99,25 @@ public final class AchievementConfig {
     }
 
     private static AchievementConfig parse(JsonObject root) {
+        int version = integer(root, "format_version", 1);
+        if (version < 1 || version > CURRENT_FORMAT_VERSION) {
+            throw new JsonParseException("Unsupported achievement format_version: " + version);
+        }
+        Map<String, List<String>> targetGroups = parseTargetGroups(root.get("target_groups"));
+        validateTargetGroupGraph(targetGroups);
         JsonElement element = root.get("achievements");
         if (element == null || !element.isJsonArray()) {
             throw new JsonParseException("achievements must be an array");
         }
-
         JsonArray array = element.getAsJsonArray();
         List<AchievementDefinition> definitions = new ArrayList<>();
         Map<String, Boolean> ids = new LinkedHashMap<>();
         for (int index = 0; index < array.size(); index++) {
-            JsonElement achievementElement = array.get(index);
-            if (!achievementElement.isJsonObject()) {
+            JsonElement entry = array.get(index);
+            if (!entry.isJsonObject()) {
                 throw new JsonParseException("Achievement entry " + index + " must be an object");
             }
-            JsonObject achievement = achievementElement.getAsJsonObject();
+            JsonObject achievement = entry.getAsJsonObject();
             String id = normalizeId(requiredString(achievement, "id"));
             if (!ID_PATTERN.matcher(id).matches()) {
                 throw new JsonParseException("Achievement id " + id + " must match " + ID_PATTERN.pattern());
@@ -111,56 +125,348 @@ public final class AchievementConfig {
             if (ids.put(id, Boolean.TRUE) != null) {
                 throw new JsonParseException("Achievement id " + id + " is configured more than once");
             }
-
             String display = requiredString(achievement, "display");
             if (display.length() > MAX_DISPLAY_LENGTH || LegacyTitleText.plainText(display).isBlank()) {
-                throw new JsonParseException("Achievement display for " + id
-                        + " must contain visible text and be at most " + MAX_DISPLAY_LENGTH + " characters");
+                throw new JsonParseException("Achievement display for " + id + " is invalid");
             }
             String description = requiredString(achievement, "description");
             if (description.length() > MAX_DESCRIPTION_LENGTH) {
                 throw new JsonParseException("Achievement description for " + id + " is too long");
             }
-
             String iconId = requiredString(achievement, "icon");
             Item icon = resolveItem(iconId, "icon for achievement " + id);
             if (icon == net.minecraft.world.item.Items.AIR) {
                 throw new JsonParseException("Achievement " + id + " cannot use minecraft:air as an icon");
             }
 
-            JsonElement requirementsElement = achievement.get("requirements");
-            if (requirementsElement == null || !requirementsElement.isJsonArray()
-                    || requirementsElement.getAsJsonArray().isEmpty()) {
-                throw new JsonParseException("Achievement " + id + " must contain at least one requirement");
+            JsonElement requirements = achievement.get("requirements");
+            ParseState state = new ParseState(targetGroups);
+            ParsedCondition parsed;
+            if (requirements != null && requirements.isJsonArray()
+                    && isV2ConditionArray(requirements, id)) {
+                // Accept the common migration form where v2 condition nodes are
+                // kept in an array. The array has the same semantics as an all node.
+                parsed = parseV2ConditionArray(id, requirements, state);
+            } else if (version == 1 || (requirements != null && requirements.isJsonArray())) {
+                parsed = parseLegacyRequirements(id, requirements, state);
+            } else {
+                parsed = parseV2Condition(id, requirements, state);
             }
-            List<Requirement> requirements = parseRequirements(id, requirementsElement.getAsJsonArray());
+            if (!parsed.hasPositiveStat()) {
+                throw new JsonParseException("Achievement " + id
+                        + " must contain at least one positive statistic condition");
+            }
             Reward reward = parseReward(achievement.get("rewards"), id);
-            definitions.add(new AchievementDefinition(id, display, description, iconId, icon, requirements, reward));
+            definitions.add(new AchievementDefinition(id, display, description, iconId, icon,
+                    parsed.requirements(), parsed.condition(), reward));
         }
         return new AchievementConfig(definitions);
     }
 
-    private static List<Requirement> parseRequirements(String achievementId, JsonArray array) {
+    private static boolean isV2ConditionArray(JsonElement element, String achievementId) {
+        if (!element.isJsonArray() || element.getAsJsonArray().isEmpty()) {
+            return false;
+        }
+        boolean hasV2Node = false;
+        boolean hasLegacyNode = false;
+        for (JsonElement child : element.getAsJsonArray()) {
+            if (!child.isJsonObject()) {
+                return false;
+            }
+            JsonElement typeElement = child.getAsJsonObject().get("type");
+            if (typeElement == null || !typeElement.isJsonPrimitive()
+                    || !typeElement.getAsJsonPrimitive().isString()) {
+                return false;
+            }
+            String type = typeElement.getAsString().trim().toLowerCase(Locale.ROOT);
+            if (isV2ConditionType(type)) {
+                hasV2Node = true;
+            } else {
+                hasLegacyNode = true;
+            }
+        }
+        if (hasV2Node && hasLegacyNode) {
+            throw new JsonParseException("Achievement " + achievementId
+                    + " cannot mix v1 requirements and v2 condition nodes in one array");
+        }
+        return hasV2Node;
+    }
+
+    private static boolean isV2ConditionType(String type) {
+        return switch (type) {
+            case "stat", "sum", "all", "any", "not" -> true;
+            default -> false;
+        };
+    }
+
+    private static ParsedCondition parseV2ConditionArray(String achievementId, JsonElement element,
+                                                         ParseState state) {
+        JsonArray array = element.getAsJsonArray();
+        List<AchievementCondition> children = new ArrayList<>();
         List<Requirement> requirements = new ArrayList<>();
+        boolean hasPositiveStat = false;
         for (int index = 0; index < array.size(); index++) {
-            JsonElement element = array.get(index);
-            if (!element.isJsonObject()) {
+            JsonElement childElement = array.get(index);
+            if (!childElement.isJsonObject()) {
+                throw new JsonParseException("Condition " + achievementId + "[" + index
+                        + "] must be an object");
+            }
+            ParsedNode child = parseCondition(childElement.getAsJsonObject(), achievementId, 1, state);
+            children.add(child.condition());
+            requirements.addAll(child.requirements());
+            hasPositiveStat |= child.hasPositiveStat();
+        }
+        return new ParsedCondition(requirements, new AllCondition(children), hasPositiveStat);
+    }
+
+    private static ParsedCondition parseLegacyRequirements(String achievementId, JsonElement element, ParseState state) {
+        if (element == null || !element.isJsonArray() || element.getAsJsonArray().isEmpty()) {
+            throw new JsonParseException("Achievement " + achievementId + " must contain requirements array");
+        }
+        List<Requirement> requirements = new ArrayList<>();
+        List<AchievementCondition> children = new ArrayList<>();
+        JsonArray array = element.getAsJsonArray();
+        for (int index = 0; index < array.size(); index++) {
+            JsonElement value = array.get(index);
+            if (!value.isJsonObject()) {
                 throw new JsonParseException("Requirement " + achievementId + "[" + index + "] must be an object");
             }
-            JsonObject requirement = element.getAsJsonObject();
+            JsonObject requirement = value.getAsJsonObject();
             RequirementType type = RequirementType.parse(requiredString(requirement, "type"));
             String targetId = requiredString(requirement, "target");
             long count = positiveLong(requirement, "count");
-            if (type == RequirementType.BLOCK_MINED) {
-                Block block = resolveBlock(targetId, "block target for achievement " + achievementId);
-                requirements.add(new Requirement(type, targetId, count, block, null));
-            } else {
-                EntityType<?> entityType = resolveEntityType(targetId,
-                        "entity target for achievement " + achievementId);
-                requirements.add(new Requirement(type, targetId, count, null, entityType));
-            }
+            Requirement parsed = requirement(type, targetId, count,
+                    "requirement target for achievement " + achievementId);
+            state.addLeaf(achievementId);
+            requirements.add(parsed);
+            children.add(new StatCondition(List.of(parsed), count, TargetMatch.SUM,
+                    unitFor(type, targetId)));
         }
-        return List.copyOf(requirements);
+        return new ParsedCondition(requirements, new AllCondition(children), true);
+    }
+
+    private static ParsedCondition parseV2Condition(String achievementId, JsonElement element, ParseState state) {
+        if (element == null || !element.isJsonObject()) {
+            throw new JsonParseException("Achievement " + achievementId + " must contain a condition object");
+        }
+        ParsedNode parsed = parseCondition(element.getAsJsonObject(), achievementId, 0, state);
+        return new ParsedCondition(parsed.requirements(), parsed.condition(), parsed.hasPositiveStat());
+    }
+
+    private static ParsedNode parseCondition(JsonObject condition, String achievementId, int depth, ParseState state) {
+        if (depth >= 8) {
+            throw new JsonParseException("Achievement " + achievementId + " condition nesting exceeds 8 levels");
+        }
+        String type = requiredString(condition, "type").toLowerCase(Locale.ROOT);
+        return switch (type) {
+            case "stat" -> parseStatCondition(achievementId, condition, state);
+            case "sum" -> parseSumCondition(achievementId, condition, state);
+            case "all", "any" -> parseChildrenCondition(achievementId, condition, depth, type, state);
+            case "not" -> parseNotCondition(achievementId, condition, depth, state);
+            default -> throw new JsonParseException("Unknown achievement condition type: " + type);
+        };
+    }
+
+    private static ParsedNode parseStatCondition(String achievementId, JsonObject condition, ParseState state) {
+        state.addLeaf(achievementId);
+        String stat = requiredString(condition, "stat");
+        RequirementType requirementType;
+        try {
+            requirementType = RequirementType.parse(stat);
+        } catch (JsonParseException exception) {
+            throw new JsonParseException("Unsupported achievement stat: " + stat
+                    + ". Supported values are block_mined, item_crafted, item_used, item_broken, "
+                    + "item_picked_up, item_dropped, entity_killed, entity_killed_by and custom");
+        }
+        TargetMatch match;
+        try {
+            match = TargetMatch.parse(optionalString(condition, "match", "sum"));
+        } catch (IllegalArgumentException exception) {
+            throw new JsonParseException(exception.getMessage());
+        }
+        long atLeast = positiveLong(condition, "at_least");
+        List<Requirement> requirements = new ArrayList<>();
+        if (requirementType == RequirementType.CUSTOM) {
+            if (condition.has("targets")) {
+                throw new JsonParseException("custom stat condition " + achievementId
+                        + " must use custom_stat instead of targets");
+            }
+            String customStat = requiredString(condition, "custom_stat");
+            String unit = optionalString(condition, "unit", "count");
+            atLeast = convertCustomThreshold(customStat, atLeast, unit);
+            requirements.add(requirement(requirementType, customStat, atLeast,
+                    "custom stat target for achievement " + achievementId));
+            return new ParsedNode(requirements, new StatCondition(requirements, atLeast, match,
+                    unitFor(requirementType, customStat)), true);
+        }
+        JsonElement targetsElement = condition.get("targets");
+        if (targetsElement == null || !targetsElement.isJsonArray() || targetsElement.getAsJsonArray().isEmpty()) {
+            throw new JsonParseException("stat condition " + achievementId + " must contain targets");
+        }
+        List<String> rawTargets = new ArrayList<>();
+        for (JsonElement targetElement : targetsElement.getAsJsonArray()) {
+            if (!targetElement.isJsonPrimitive() || !targetElement.getAsJsonPrimitive().isString()) {
+                throw new JsonParseException("stat targets for " + achievementId + " must contain strings");
+            }
+            rawTargets.add(targetElement.getAsString().trim());
+        }
+        List<String> targets;
+        try {
+            targets = StatisticTargetResolver.resolve(requirementType, rawTargets, state.targetGroups,
+                    "achievement " + achievementId);
+        } catch (IllegalArgumentException exception) {
+            throw new JsonParseException(exception.getMessage());
+        }
+        for (String targetId : targets) {
+            requirements.add(requirement(requirementType, targetId, atLeast,
+                    "stat target for achievement " + achievementId));
+        }
+        return new ParsedNode(requirements, new StatCondition(requirements, atLeast, match,
+                unitFor(requirementType, targets.get(0))), true);
+    }
+
+    private static ParsedNode parseSumCondition(String achievementId, JsonObject condition, ParseState state) {
+        state.addLeaf(achievementId);
+        long atLeast = positiveLong(condition, "at_least");
+        JsonElement sourcesElement = condition.get("sources");
+        if (sourcesElement == null || !sourcesElement.isJsonArray() || sourcesElement.getAsJsonArray().isEmpty()) {
+            throw new JsonParseException("sum condition for " + achievementId + " must contain sources");
+        }
+        List<Requirement> requirements = new ArrayList<>();
+        StatisticUnit unit = null;
+        String firstCustomStat = null;
+        for (JsonElement sourceElement : sourcesElement.getAsJsonArray()) {
+            if (!sourceElement.isJsonObject()) {
+                throw new JsonParseException("sum source for " + achievementId + " must be an object");
+            }
+            JsonObject source = sourceElement.getAsJsonObject();
+            String stat = requiredString(source, "stat");
+            RequirementType type;
+            try {
+                type = RequirementType.parse(stat);
+            } catch (JsonParseException exception) {
+                throw new JsonParseException("Unsupported sum source stat: " + stat);
+            }
+            if (type == RequirementType.CUSTOM) {
+                if (source.has("targets")) {
+                    throw new JsonParseException("custom sum source must use custom_stat");
+                }
+                String customStat = requiredString(source, "custom_stat");
+                String sourceUnit = optionalString(source, "unit", "count");
+                customUnitMultiplier(customStat, sourceUnit); // validate the declared source unit
+                Requirement requirement = requirement(type, customStat, 1L,
+                        "custom sum source for achievement " + achievementId);
+                requirements.add(requirement);
+                if (requirements.size() > StatisticTargetResolver.MAX_TARGETS) {
+                    throw new JsonParseException("sum condition for " + achievementId + " exceeds "
+                            + StatisticTargetResolver.MAX_TARGETS + " targets");
+                }
+                StatisticUnit sourceCategory = unitFor(type, customStat);
+                if (unit != null && unit != sourceCategory) {
+                    throw new JsonParseException("sum condition for " + achievementId
+                            + " cannot combine different statistic units");
+                }
+                unit = sourceCategory;
+                if (firstCustomStat == null) {
+                    firstCustomStat = customStat;
+                }
+                continue;
+            }
+            JsonElement targetsElement = source.get("targets");
+            if (targetsElement == null || !targetsElement.isJsonArray()
+                    || targetsElement.getAsJsonArray().isEmpty()) {
+                throw new JsonParseException("sum source for " + achievementId + " must contain targets");
+            }
+            List<String> rawTargets = new ArrayList<>();
+            for (JsonElement target : targetsElement.getAsJsonArray()) {
+                if (!target.isJsonPrimitive() || !target.getAsJsonPrimitive().isString()) {
+                    throw new JsonParseException("sum source targets must contain strings");
+                }
+                rawTargets.add(target.getAsString().trim());
+            }
+            List<String> targets;
+            try {
+                targets = StatisticTargetResolver.resolve(type, rawTargets, state.targetGroups,
+                        "sum source for achievement " + achievementId);
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException(exception.getMessage());
+            }
+            for (String target : targets) {
+                requirements.add(requirement(type, target, 1L,
+                        "sum source target for achievement " + achievementId));
+                if (requirements.size() > StatisticTargetResolver.MAX_TARGETS) {
+                    throw new JsonParseException("sum condition for " + achievementId + " exceeds "
+                            + StatisticTargetResolver.MAX_TARGETS + " targets");
+                }
+            }
+            StatisticUnit sourceCategory = unitFor(type, targets.get(0));
+            if (unit != null && unit != sourceCategory) {
+                throw new JsonParseException("sum condition for " + achievementId
+                        + " cannot combine different statistic units");
+            }
+            unit = sourceCategory;
+        }
+        if (condition.has("unit")) {
+            String configuredUnit = optionalString(condition, "unit", "count");
+            if (firstCustomStat == null) {
+                if (!configuredUnit.equalsIgnoreCase("count")) {
+                    throw new JsonParseException("sum condition unit " + configuredUnit
+                            + " is only valid for custom statistics");
+                }
+            } else {
+                atLeast = convertCustomThreshold(firstCustomStat, atLeast, configuredUnit);
+            }
+        } else if (firstCustomStat != null && unit != StatisticUnit.COUNT) {
+            throw new JsonParseException("sum condition for " + achievementId
+                    + " must specify a unit for distance, time or damage sources");
+        }
+        return new ParsedNode(requirements, new SumCondition(requirements, atLeast, unit), true);
+    }
+
+    private static ParsedNode parseChildrenCondition(String achievementId, JsonObject condition,
+                                                     int depth, String type, ParseState state) {
+        JsonElement childrenElement = condition.get("children");
+        if (childrenElement == null || !childrenElement.isJsonArray()
+                || childrenElement.getAsJsonArray().isEmpty()) {
+            throw new JsonParseException(type + " condition for " + achievementId
+                    + " must contain at least one child");
+        }
+        List<AchievementCondition> children = new ArrayList<>();
+        List<Requirement> requirements = new ArrayList<>();
+        boolean hasPositiveStat = false;
+        for (JsonElement childElement : childrenElement.getAsJsonArray()) {
+            if (!childElement.isJsonObject()) {
+                throw new JsonParseException(type + " child for " + achievementId + " must be an object");
+            }
+            ParsedNode child = parseCondition(childElement.getAsJsonObject(), achievementId, depth + 1, state);
+            children.add(child.condition());
+            requirements.addAll(child.requirements());
+            hasPositiveStat |= child.hasPositiveStat();
+        }
+        AchievementCondition logical = type.equals("all")
+                ? new AllCondition(children) : new AnyCondition(children);
+        return new ParsedNode(requirements, logical, hasPositiveStat);
+    }
+
+    private static ParsedNode parseNotCondition(String achievementId, JsonObject condition, int depth, ParseState state) {
+        JsonElement childElement = condition.get("child");
+        if (childElement == null || !childElement.isJsonObject()) {
+            throw new JsonParseException("not condition for " + achievementId + " must contain one child object");
+        }
+        ParsedNode child = parseCondition(childElement.getAsJsonObject(), achievementId, depth + 1, state);
+        // A not-only tree cannot represent a bounded cumulative achievement; require a
+        // positive statistic sibling somewhere in the top-level tree.
+        return new ParsedNode(child.requirements(), new NotCondition(child.condition()), false);
+    }
+
+    private static Requirement requirement(RequirementType type, String targetId, long count, String context) {
+        Object target = switch (type.domain()) {
+            case BLOCK -> resolveBlock(targetId, context);
+            case ITEM -> resolveItem(targetId, context);
+            case ENTITY -> resolveEntityType(targetId, context);
+            case CUSTOM -> resolveCustomStat(targetId, context);
+        };
+        return new Requirement(type, targetId, count, target);
     }
 
     private static Reward parseReward(JsonElement element, String achievementId) {
@@ -184,8 +490,7 @@ public final class AchievementConfig {
                 }
                 String titleId = normalizeId(titleElement.getAsString());
                 if (!ID_PATTERN.matcher(titleId).matches()) {
-                    throw new JsonParseException("Title id " + titleId + " in achievement " + achievementId
-                            + " must match " + ID_PATTERN.pattern());
+                    throw new JsonParseException("Invalid title id " + titleId + " in achievement " + achievementId);
                 }
                 if (!titles.contains(titleId)) {
                     titles.add(titleId);
@@ -196,13 +501,13 @@ public final class AchievementConfig {
     }
 
     private static AchievementConfig defaults() {
-        Identifier stoneId = Identifier.withDefaultNamespace("stone");
         Item icon = resolveItem("minecraft:stone", "default achievement icon");
-        Block stone = resolveBlock("minecraft:stone", "default achievement target");
-        Requirement requirement = new Requirement(RequirementType.BLOCK_MINED, stoneId.toString(), 1000L, stone, null);
+        Requirement requirement = requirement(RequirementType.BLOCK_MINED, "minecraft:stone", 1000L,
+                "default achievement target");
         AchievementDefinition definition = new AchievementDefinition(
-                "stone_breaker", "\u77f3\u5320", "\u6316\u6398\u77f3\u5934 1000 \u4e2a", "minecraft:stone", icon,
-                List.of(requirement), new Reward(500L, List.of("geologist")));
+                "stone_breaker", "石匠", "挖掘石头 1000 个", "minecraft:stone", icon,
+                List.of(requirement), new StatCondition(List.of(requirement), 1000L),
+                new Reward(500L, List.of("geologist")));
         return new AchievementConfig(List.of(definition));
     }
 
@@ -210,7 +515,7 @@ public final class AchievementConfig {
         try {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
-            root.addProperty("format_version", 1);
+            root.addProperty("format_version", CURRENT_FORMAT_VERSION);
             JsonArray achievements = new JsonArray();
             for (AchievementDefinition definition : config.achievements) {
                 JsonObject achievement = new JsonObject();
@@ -218,15 +523,15 @@ public final class AchievementConfig {
                 achievement.addProperty("display", definition.display());
                 achievement.addProperty("description", definition.description());
                 achievement.addProperty("icon", definition.iconId());
-                JsonArray requirements = new JsonArray();
-                for (Requirement requirement : definition.requirements()) {
-                    JsonObject requirementObject = new JsonObject();
-                    requirementObject.addProperty("type", requirement.type().serializedName());
-                    requirementObject.addProperty("target", requirement.targetId());
-                    requirementObject.addProperty("count", requirement.count());
-                    requirements.add(requirementObject);
-                }
-                achievement.add("requirements", requirements);
+                JsonObject condition = new JsonObject();
+                condition.addProperty("type", "stat");
+                condition.addProperty("stat", definition.requirements().get(0).type().serializedName());
+                JsonArray targets = new JsonArray();
+                definition.requirements().forEach(requirement -> targets.add(requirement.targetId()));
+                condition.add("targets", targets);
+                condition.addProperty("match", "sum");
+                condition.addProperty("at_least", definition.conditionThreshold());
+                achievement.add("requirements", condition);
                 JsonObject rewards = new JsonObject();
                 rewards.addProperty("coins", definition.rewards().coins());
                 JsonArray titles = new JsonArray();
@@ -248,23 +553,73 @@ public final class AchievementConfig {
 
     private static Item resolveItem(String value, String context) {
         Identifier id = parseIdentifier(value, context);
-        return BuiltInRegistries.ITEM.get(id)
-                .map(holder -> holder.value())
+        return BuiltInRegistries.ITEM.get(id).map(holder -> holder.value())
                 .orElseThrow(() -> new JsonParseException("Unknown item " + id + " for " + context));
     }
 
     private static Block resolveBlock(String value, String context) {
         Identifier id = parseIdentifier(value, context);
-        return BuiltInRegistries.BLOCK.get(id)
-                .map(holder -> holder.value())
+        return BuiltInRegistries.BLOCK.get(id).map(holder -> holder.value())
                 .orElseThrow(() -> new JsonParseException("Unknown block " + id + " for " + context));
     }
 
     private static EntityType<?> resolveEntityType(String value, String context) {
         Identifier id = parseIdentifier(value, context);
-        return BuiltInRegistries.ENTITY_TYPE.get(id)
-                .map(holder -> holder.value())
+        return BuiltInRegistries.ENTITY_TYPE.get(id).map(holder -> holder.value())
                 .orElseThrow(() -> new JsonParseException("Unknown entity type " + id + " for " + context));
+    }
+
+    private static Identifier resolveCustomStat(String value, String context) {
+        Identifier id = parseIdentifier(value, context);
+        return BuiltInRegistries.CUSTOM_STAT.get(id)
+                .map(holder -> holder.value())
+                .orElseThrow(() -> new JsonParseException("Unknown custom statistic " + id + " for " + context));
+    }
+
+    private static long convertCustomThreshold(String customStat, long value, String unit) {
+        long multiplier = customUnitMultiplier(customStat, unit);
+        try {
+            return Math.multiplyExact(value, multiplier);
+        } catch (ArithmeticException exception) {
+            throw new JsonParseException("Custom statistic threshold is too large: " + value + " " + unit);
+        }
+    }
+
+    private static long customUnitMultiplier(String customStat, String unit) {
+        Identifier id = parseIdentifier(customStat, "custom_stat");
+        String normalized = unit.trim().toLowerCase(Locale.ROOT);
+        String path = id.getPath();
+        long multiplier;
+        if (path.endsWith("_one_cm")) {
+            multiplier = switch (normalized) {
+                case "cm" -> 1L;
+                case "meters", "blocks" -> 100L;
+                case "kilometers" -> 100_000L;
+                default -> throw new JsonParseException("Unit " + unit
+                        + " is not valid for distance statistic " + customStat);
+            };
+        } else if (path.equals("play_time") || path.equals("total_world_time")) {
+            multiplier = switch (normalized) {
+                case "ticks" -> 1L;
+                case "seconds" -> 20L;
+                case "minutes" -> 1_200L;
+                case "hours" -> 72_000L;
+                default -> throw new JsonParseException("Unit " + unit
+                        + " is not valid for time statistic " + customStat);
+            };
+        } else if (path.startsWith("damage_")) {
+            multiplier = switch (normalized) {
+                case "damage" -> 10L;
+                case "hearts" -> 20L;
+                default -> throw new JsonParseException("Unit " + unit
+                        + " is not valid for damage statistic " + customStat);
+            };
+        } else if (!normalized.equals("count")) {
+            throw new JsonParseException("Unit " + unit + " is only valid for distance, time or damage statistics");
+        } else {
+            multiplier = 1L;
+        }
+        return multiplier;
     }
 
     private static Identifier parseIdentifier(String value, String context) {
@@ -280,6 +635,17 @@ public final class AchievementConfig {
         if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
                 || element.getAsString().isBlank()) {
             throw new JsonParseException(key + " must be a non-empty string");
+        }
+        return element.getAsString().trim();
+    }
+
+    private static String optionalString(JsonObject object, String key, String fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException(key + " must be a string");
         }
         return element.getAsString().trim();
     }
@@ -314,20 +680,116 @@ public final class AchievementConfig {
         }
     }
 
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+    }
+
     private static String normalizeId(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
+    private static Map<String, List<String>> parseTargetGroups(JsonElement element) {
+        if (element == null) {
+            return Map.of();
+        }
+        if (!element.isJsonObject()) {
+            throw new JsonParseException("target_groups must be an object");
+        }
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            String name = normalizeId(entry.getKey());
+            if (!ID_PATTERN.matcher(name).matches()) {
+                throw new JsonParseException("Invalid target group name: " + entry.getKey());
+            }
+            if (!entry.getValue().isJsonArray() || entry.getValue().getAsJsonArray().isEmpty()) {
+                throw new JsonParseException("Target group $" + name + " must be a non-empty string array");
+            }
+            List<String> targets = new ArrayList<>();
+            for (JsonElement target : entry.getValue().getAsJsonArray()) {
+                if (!target.isJsonPrimitive() || !target.getAsJsonPrimitive().isString()
+                        || target.getAsString().isBlank()) {
+                    throw new JsonParseException("Target group $" + name + " must contain non-empty strings");
+                }
+                targets.add(target.getAsString().trim());
+            }
+            if (groups.put(name, List.copyOf(targets)) != null) {
+                throw new JsonParseException("Target group $" + name + " is configured more than once");
+            }
+        }
+        return Map.copyOf(groups);
+    }
+
+    private static void validateTargetGroupGraph(Map<String, List<String>> groups) {
+        for (String group : groups.keySet()) {
+            validateTargetGroup(group, groups, new java.util.HashSet<>());
+        }
+    }
+
+    private static void validateTargetGroup(String group, Map<String, List<String>> groups,
+                                            java.util.Set<String> visiting) {
+        if (!visiting.add(group)) {
+            throw new JsonParseException("Circular target group reference involving $" + group);
+        }
+        for (String target : groups.getOrDefault(group, List.of())) {
+            if (target.startsWith("$")) {
+                String nested = normalizeId(target.substring(1));
+                if (!groups.containsKey(nested)) {
+                    throw new JsonParseException("Unknown target group $" + nested + " referenced by $" + group);
+                }
+                validateTargetGroup(nested, groups, visiting);
+            }
+        }
+        visiting.remove(group);
+    }
+
+    private static StatisticUnit unitFor(RequirementType type, String targetId) {
+        if (type != RequirementType.CUSTOM) {
+            return StatisticUnit.COUNT;
+        }
+        Identifier id = parseIdentifier(targetId, "custom_stat");
+        String path = id.getPath();
+        if (path.endsWith("_one_cm")) {
+            return StatisticUnit.DISTANCE;
+        }
+        if (path.equals("play_time") || path.equals("total_world_time")) {
+            return StatisticUnit.TIME;
+        }
+        if (path.startsWith("damage_")) {
+            return StatisticUnit.DAMAGE;
+        }
+        return StatisticUnit.COUNT;
+    }
+
     public enum RequirementType {
-        BLOCK_MINED("block_mined", "gui.omnitools.achievement.requirement.block_mined"),
-        ENTITY_KILLED("entity_killed", "gui.omnitools.achievement.requirement.entity_killed");
+        BLOCK_MINED("block_mined", "gui.omnitools.achievement.requirement.block_mined", Domain.BLOCK),
+        ITEM_CRAFTED("item_crafted", "gui.omnitools.achievement.requirement.item_crafted", Domain.ITEM),
+        ITEM_USED("item_used", "gui.omnitools.achievement.requirement.item_used", Domain.ITEM),
+        ITEM_BROKEN("item_broken", "gui.omnitools.achievement.requirement.item_broken", Domain.ITEM),
+        ITEM_PICKED_UP("item_picked_up", "gui.omnitools.achievement.requirement.item_picked_up", Domain.ITEM),
+        ITEM_DROPPED("item_dropped", "gui.omnitools.achievement.requirement.item_dropped", Domain.ITEM),
+        ENTITY_KILLED("entity_killed", "gui.omnitools.achievement.requirement.entity_killed", Domain.ENTITY),
+        ENTITY_KILLED_BY("entity_killed_by", "gui.omnitools.achievement.requirement.entity_killed_by", Domain.ENTITY),
+        CUSTOM("custom", "gui.omnitools.achievement.requirement.custom", Domain.CUSTOM);
 
         private final String serializedName;
         private final String translationKey;
+        private final Domain domain;
 
-        RequirementType(String serializedName, String translationKey) {
+        RequirementType(String serializedName, String translationKey, Domain domain) {
             this.serializedName = serializedName;
             this.translationKey = translationKey;
+            this.domain = domain;
         }
 
         public String serializedName() {
@@ -336,6 +798,10 @@ public final class AchievementConfig {
 
         public String translationKey() {
             return translationKey;
+        }
+
+        public Domain domain() {
+            return domain;
         }
 
         static RequirementType parse(String value) {
@@ -349,12 +815,43 @@ public final class AchievementConfig {
         }
     }
 
-    public record Requirement(RequirementType type, String targetId, long count, Block blockTarget,
-                              EntityType<?> entityTarget) {
-        public long current(ServerPlayer player) {
+    public enum Domain {
+        BLOCK,
+        ITEM,
+        ENTITY,
+        CUSTOM
+    }
+
+    public record Requirement(RequirementType type, String targetId, long count, Object target,
+                              long multiplier) {
+        public Requirement(RequirementType type, String targetId, long count, Object target) {
+            this(type, targetId, count, target, 1L);
+        }
+
+        public Requirement {
+            if (multiplier < 1L) {
+                throw new IllegalArgumentException("Requirement multiplier must be positive");
+            }
+        }
+        public long current(net.minecraft.server.level.ServerPlayer player) {
+            return current(new StatisticEvaluationContext(player));
+        }
+
+        public long current(StatisticEvaluationContext context) {
+            return context.value(this);
+        }
+
+        public net.minecraft.stats.Stat<?> stat() {
             return switch (type) {
-                case BLOCK_MINED -> player.getStats().getValue(Stats.BLOCK_MINED.get(blockTarget));
-                case ENTITY_KILLED -> player.getStats().getValue(Stats.ENTITY_KILLED.get(entityTarget));
+                case BLOCK_MINED -> Stats.BLOCK_MINED.get((Block) target);
+                case ITEM_CRAFTED -> Stats.ITEM_CRAFTED.get((Item) target);
+                case ITEM_USED -> Stats.ITEM_USED.get((Item) target);
+                case ITEM_BROKEN -> Stats.ITEM_BROKEN.get((Item) target);
+                case ITEM_PICKED_UP -> Stats.ITEM_PICKED_UP.get((Item) target);
+                case ITEM_DROPPED -> Stats.ITEM_DROPPED.get((Item) target);
+                case ENTITY_KILLED -> Stats.ENTITY_KILLED.get((EntityType<?>) target);
+                case ENTITY_KILLED_BY -> Stats.ENTITY_KILLED_BY.get((EntityType<?>) target);
+                case CUSTOM -> Stats.CUSTOM.get((Identifier) target);
             };
         }
     }
@@ -366,13 +863,54 @@ public final class AchievementConfig {
     }
 
     public record AchievementDefinition(String id, String display, String description, String iconId, Item icon,
-                                        List<Requirement> requirements, Reward rewards) {
+                                        List<Requirement> requirements, AchievementCondition condition, Reward rewards) {
         public AchievementDefinition {
             requirements = List.copyOf(requirements);
+            if (condition == null) {
+                throw new IllegalArgumentException("Achievement condition cannot be null");
+            }
         }
 
-        public boolean complete(ServerPlayer player) {
-            return requirements.stream().allMatch(requirement -> requirement.current(player) >= requirement.count());
+        public boolean complete(StatisticEvaluationContext context) {
+            return condition.evaluate(context);
+        }
+
+        public dev.modmind.omnitools.achievement.ConditionProgress progress(StatisticEvaluationContext context) {
+            return condition.progress(context);
+        }
+
+        public long conditionThreshold() {
+            if (condition instanceof StatCondition stat) {
+                return stat.atLeast();
+            }
+            if (condition instanceof SumCondition sum) {
+                return sum.atLeast();
+            }
+            return requirements.stream().mapToLong(Requirement::count).sum();
+        }
+    }
+
+    private record ParsedCondition(List<Requirement> requirements, AchievementCondition condition,
+                                   boolean hasPositiveStat) {
+    }
+
+    private record ParsedNode(List<Requirement> requirements, AchievementCondition condition,
+                              boolean hasPositiveStat) {
+    }
+
+    private static final class ParseState {
+        private final Map<String, List<String>> targetGroups;
+        private int leaves;
+
+        private ParseState(Map<String, List<String>> targetGroups) {
+            this.targetGroups = targetGroups;
+        }
+
+        private void addLeaf(String achievementId) {
+            if (++leaves > MAX_CONDITION_LEAVES) {
+                throw new JsonParseException("Achievement " + achievementId
+                        + " contains more than " + MAX_CONDITION_LEAVES + " statistic conditions");
+            }
         }
     }
 }
