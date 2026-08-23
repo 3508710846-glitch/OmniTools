@@ -22,6 +22,7 @@ import java.util.UUID;
 public final class CloudStorageData extends SavedData {
     public static final int SLOTS_PER_PAGE = 45;
     private static final String DATA_ID = ModMindEntry.MOD_ID + "_cloud_storage";
+    private static final String LEGACY_DATA_ID = "qiandao_cloud_storage";
     private static final String PLAYERS_KEY = "players";
     private static final String UNLOCKED_PAGES_KEY = "unlocked_pages";
     private static final String PAGES_KEY = "pages";
@@ -31,6 +32,16 @@ public final class CloudStorageData extends SavedData {
             CloudStorageData::new,
             CompoundTag.CODEC.xmap(CloudStorageData::fromTag, CloudStorageData::toTag),
             DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    private static final SavedDataType<CloudStorageData> LEGACY_TYPE = new SavedDataType<>(
+            LEGACY_DATA_ID,
+            CloudStorageData::new,
+            CompoundTag.CODEC.xmap(CloudStorageData::fromTag, CloudStorageData::toTag),
+            DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    static SavedDataType<CloudStorageData> legacyType() {
+        return LEGACY_TYPE;
+    }
 
     private final Map<UUID, StorageRecord> players = new HashMap<>();
 

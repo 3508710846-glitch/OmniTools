@@ -13,23 +13,23 @@ import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Loads and publishes a complete configuration snapshot atomically. */
-public final class QiandaoConfigManager {
+public final class OmniToolsConfigManager {
     private final AtomicLong revisions = new AtomicLong();
-    private volatile QiandaoConfigSnapshot snapshot;
+    private volatile OmniToolsConfigSnapshot snapshot;
 
-    public QiandaoConfigManager() {
+    public OmniToolsConfigManager() {
         this.snapshot = emptySnapshot();
     }
 
-    public QiandaoConfigSnapshot snapshot() {
+    public OmniToolsConfigSnapshot snapshot() {
         return snapshot;
     }
 
-    public synchronized QiandaoConfigSnapshot load(MinecraftServer server) {
+    public synchronized OmniToolsConfigSnapshot load(MinecraftServer server) {
         ConfigMigration.migrate();
-        QiandaoRootConfig root;
+            OmniToolsRootConfig root;
         try {
-            root = QiandaoRootConfig.load(ConfigPaths.rootConfig());
+            root = OmniToolsRootConfig.load(ConfigPaths.rootConfig());
             CheckinRewardConfig dailyRewards = root.enabled(ModuleId.DAILY_CHECKIN)
                     ? CheckinRewardConfig.load() : CheckinRewardConfig.empty();
             OnlineRewardConfig onlineRewards = root.enabled(ModuleId.ONLINE_REWARD)
@@ -48,7 +48,7 @@ public final class QiandaoConfigManager {
             for (ModuleId module : ModuleId.values()) {
                 statuses.put(module, root.enabled(module) ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
             }
-            QiandaoConfigSnapshot candidate = new QiandaoConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
+            OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
                     storage, achievements, statuses, revisions.incrementAndGet());
             ConfigValidator.validate(candidate);
             snapshot = candidate;
@@ -60,13 +60,13 @@ public final class QiandaoConfigManager {
         }
     }
 
-    private static QiandaoConfigSnapshot emptySnapshot() {
-        QiandaoRootConfig root = QiandaoRootConfig.defaults();
+    private static OmniToolsConfigSnapshot emptySnapshot() {
+        OmniToolsRootConfig root = OmniToolsRootConfig.defaults();
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
             statuses.put(module, ModuleStatus.DISABLED);
         }
-        return new QiandaoConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
+        return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
                 AchievementConfig.empty(), statuses, 0L);
     }

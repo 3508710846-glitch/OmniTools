@@ -17,12 +17,12 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /** Versioned root configuration and module enablement flags. */
-public record QiandaoRootConfig(int formatVersion, boolean debug, String timezone,
+public record OmniToolsRootConfig(int formatVersion, boolean debug, String timezone,
                                 Map<ModuleId, Boolean> modules) {
     public static final int CURRENT_FORMAT_VERSION = 1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    public QiandaoRootConfig {
+    public OmniToolsRootConfig {
         if (formatVersion < 1) {
             throw new JsonParseException("format_version must be a positive integer");
         }
@@ -40,21 +40,21 @@ public record QiandaoRootConfig(int formatVersion, boolean debug, String timezon
         modules = Map.copyOf(copy);
     }
 
-    public static QiandaoRootConfig defaults() {
+    public static OmniToolsRootConfig defaults() {
         EnumMap<ModuleId, Boolean> modules = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
             modules.put(module, module != ModuleId.PERMISSIONS);
         }
-        return new QiandaoRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", modules);
+        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", modules);
     }
 
     public boolean enabled(ModuleId module) {
         return modules.getOrDefault(module, true);
     }
 
-    public static QiandaoRootConfig load(Path path) throws IOException {
+    public static OmniToolsRootConfig load(Path path) throws IOException {
         if (!Files.exists(path)) {
-            QiandaoRootConfig defaults = defaults();
+            OmniToolsRootConfig defaults = defaults();
             save(path, defaults);
             return defaults;
         }
@@ -73,12 +73,12 @@ public record QiandaoRootConfig(int formatVersion, boolean debug, String timezon
                 modules.put(module, value == null || !value.isJsonObject()
                         || bool(value.getAsJsonObject(), "enabled", true));
             }
-            return new QiandaoRootConfig(version, bool(global, "debug", false),
+            return new OmniToolsRootConfig(version, bool(global, "debug", false),
                     string(global, "timezone", "Asia/Shanghai"), modules);
         }
     }
 
-    public static void save(Path path, QiandaoRootConfig config) throws IOException {
+    public static void save(Path path, OmniToolsRootConfig config) throws IOException {
         Files.createDirectories(path.getParent());
         JsonObject root = new JsonObject();
         root.addProperty("format_version", config.formatVersion());

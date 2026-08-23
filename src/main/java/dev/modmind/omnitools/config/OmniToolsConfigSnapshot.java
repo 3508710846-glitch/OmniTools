@@ -13,12 +13,12 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /** Immutable bundle swapped atomically after a complete configuration load. */
-public record QiandaoConfigSnapshot(QiandaoRootConfig root, CheckinRewardConfig rewards,
+public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
                                     OnlineRewardConfig onlineRewards,
                                     ShopConfig shop, TitleConfig titles, TitleEffectConfig titleEffects,
                                     CloudStorageConfig cloudStorage, AchievementConfig achievements,
                                     Map<ModuleId, ModuleStatus> statuses, long revision) {
-    public QiandaoConfigSnapshot {
+    public OmniToolsConfigSnapshot {
         EnumMap<ModuleId, ModuleStatus> copy = new EnumMap<>(ModuleId.class);
         if (statuses != null) {
             copy.putAll(statuses);

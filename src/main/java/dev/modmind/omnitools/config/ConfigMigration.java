@@ -40,10 +40,10 @@ public final class ConfigMigration {
     }
 
     private static void migrateRewards() throws IOException {
-        Path source = ConfigPaths.oldConfig("omnitools-rewards.json");
+        Path source = findLegacyConfig("omnitools-rewards.json");
         Path daily = ConfigPaths.moduleConfig(ModuleId.DAILY_CHECKIN);
         Path online = ConfigPaths.moduleConfig(ModuleId.ONLINE_REWARD);
-        if (!Files.exists(source) || (Files.exists(daily) && Files.exists(online))) {
+        if (source == null || (Files.exists(daily) && Files.exists(online))) {
             return;
         }
         JsonObject old = readObject(source);
@@ -74,9 +74,9 @@ public final class ConfigMigration {
     }
 
     private static void copy(String oldName, ModuleId module, boolean stripPlayers) throws IOException {
-        Path source = ConfigPaths.oldConfig(oldName);
+        Path source = findLegacyConfig(oldName);
         Path target = ConfigPaths.moduleConfig(module);
-        if (!Files.exists(source) || Files.exists(target)) {
+        if (source == null || Files.exists(target)) {
             return;
         }
         JsonElement root = read(source);
@@ -101,6 +101,32 @@ public final class ConfigMigration {
         }
         writeIfMissing(target, root);
         archive(source);
+    }
+
+    /**
+     * Finds a root-level legacy configuration file, preferring the current
+     * {@code omnitools-*} name and falling back to the pre-rename
+     * {@code qiandao-*} name.  The returned path is the actual source so the
+     * archive manifest preserves which file was migrated.
+     */
+    private static Path findLegacyConfig(String currentName) {
+        Path current = ConfigPaths.oldConfig(currentName);
+        if (Files.exists(current)) {
+            return current;
+        }
+
+        String fallbackName = null;
+        if (currentName.startsWith("omnitools-")) {
+            fallbackName = "qiandao-" + currentName.substring("omnitools-".length());
+        } else if (currentName.startsWith("qiandao-")) {
+            fallbackName = "omnitools-" + currentName.substring("qiandao-".length());
+        }
+        if (fallbackName == null) {
+            return null;
+        }
+
+        Path fallback = ConfigPaths.oldConfig(fallbackName);
+        return Files.exists(fallback) ? fallback : null;
     }
 
     private static JsonElement read(Path path) throws IOException {

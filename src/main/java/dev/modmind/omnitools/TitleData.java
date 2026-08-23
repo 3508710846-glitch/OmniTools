@@ -28,6 +28,7 @@ import java.nio.file.Path;
 /** World-persistent player title state, kept separate from administrator definitions. */
 public final class TitleData extends SavedData {
     private static final String DATA_ID = ModMindEntry.MOD_ID + "_titles";
+    private static final String LEGACY_DATA_ID = "qiandao_titles";
     private static final String PLAYERS_KEY = "players";
     private static volatile MinecraftServer currentServer;
 
@@ -36,6 +37,16 @@ public final class TitleData extends SavedData {
             TitleData::new,
             CompoundTag.CODEC.xmap(TitleData::fromTag, TitleData::toTag),
             DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    private static final SavedDataType<TitleData> LEGACY_TYPE = new SavedDataType<>(
+            LEGACY_DATA_ID,
+            TitleData::new,
+            CompoundTag.CODEC.xmap(TitleData::fromTag, TitleData::toTag),
+            DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    static SavedDataType<TitleData> legacyType() {
+        return LEGACY_TYPE;
+    }
 
     private final Map<UUID, PlayerRecord> players = new HashMap<>();
 
@@ -68,11 +79,8 @@ public final class TitleData extends SavedData {
 
     /** Imports player state from the archived pre-SavedData title file once per player. */
     public static void importLegacy(MinecraftServer server) {
-        Path path = ConfigPaths.legacyDir().resolve("omnitools-titles.json");
-        if (!Files.exists(path)) {
-            path = ConfigPaths.oldConfig("omnitools-titles.json");
-        }
-        if (!Files.exists(path)) {
+        Path path = findLegacyTitleFile();
+        if (path == null) {
             return;
         }
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -118,6 +126,21 @@ public final class TitleData extends SavedData {
         } catch (Exception exception) {
             System.err.println("[omnitools] Could not import legacy title player state: " + exception.getMessage());
         }
+    }
+
+    private static Path findLegacyTitleFile() {
+        Path[] candidates = {
+                ConfigPaths.legacyDir().resolve("omnitools-titles.json"),
+                ConfigPaths.oldConfig("omnitools-titles.json"),
+                ConfigPaths.legacyDir().resolve("qiandao-titles.json"),
+                ConfigPaths.oldConfig("qiandao-titles.json")
+        };
+        for (Path candidate : candidates) {
+            if (Files.exists(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     public synchronized PlayerRecord record(UUID playerId, String playerName) {

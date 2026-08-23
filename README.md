@@ -33,6 +33,12 @@ config/omnitools/
 
 `legacy/` 保存迁移后的旧配置副本和 `manifest.json`。签到记录、余额、在线时长、称号拥有状态、成就状态和云存储物品不写入配置文件，而是写入世界 `SavedData`。
 
+### 升级兼容
+
+从旧版 `qiandao` 品牌升级时，启动迁移器会同时识别 `omnitools-*` 和 `qiandao-*` 两套根目录配置文件名，优先使用当前品牌文件；仅当目标模块文件不存在时才生成迁移文件。源文件会保留，并复制到 `legacy/`，迁移记录写入 `legacy/manifest.json`。旧的 `/checkin` 命令别名也会继续保留。
+
+世界数据同样会从旧的 `qiandao_data`、`qiandao_titles`、`qiandao_achievements` 和 `qiandao_cloud_storage` 数据 ID 导入到当前 `omnitools_*` 数据文件；迁移不会删除旧文件。升级前仍应完整备份世界目录和 `config/omnitools/`。
+
 ## 主配置与模块开关
 
 ### 工作原理
