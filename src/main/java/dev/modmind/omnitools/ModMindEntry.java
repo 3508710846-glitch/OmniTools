@@ -30,8 +30,8 @@ import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Optional;
 import dev.modmind.omnitools.config.ModuleId;
-import dev.modmind.omnitools.config.QiandaoConfigManager;
-import dev.modmind.omnitools.config.QiandaoConfigSnapshot;
+import dev.modmind.omnitools.config.OmniToolsConfigManager;
+import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -44,8 +44,8 @@ public final class ModMindEntry implements ModInitializer {
     private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
     private static AchievementService achievementService = AchievementService.empty();
-    private static final QiandaoConfigManager CONFIG_MANAGER = new QiandaoConfigManager();
-    private static volatile QiandaoConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
+    private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
+    private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
 
     @Override
     public void onInitialize() {
@@ -62,6 +62,7 @@ public final class ModMindEntry implements ModInitializer {
             achievementService = AchievementService.empty();
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            LegacySavedDataMigration.migrate(server);
             TitleData.bind(server);
             TitleData.importLegacy(server);
             applySnapshot(CONFIG_MANAGER.load(server));
@@ -206,7 +207,7 @@ public final class ModMindEntry implements ModInitializer {
         return achievementService;
     }
 
-    static QiandaoConfigSnapshot configSnapshot() {
+    static OmniToolsConfigSnapshot configSnapshot() {
         return configSnapshot;
     }
 
@@ -222,7 +223,7 @@ public final class ModMindEntry implements ModInitializer {
         return configSnapshot.zoneId();
     }
 
-    private static void applySnapshot(QiandaoConfigSnapshot snapshot) {
+    private static void applySnapshot(OmniToolsConfigSnapshot snapshot) {
         configSnapshot = snapshot;
         rewardService = CheckinRewardService.from(snapshot.rewards());
         shopConfig = snapshot.shop();
@@ -432,7 +433,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int reloadRewards(CommandSourceStack source) {
         long previousRevision = configSnapshot.revision();
-        QiandaoConfigSnapshot candidate = CONFIG_MANAGER.load(source.getServer());
+        OmniToolsConfigSnapshot candidate = CONFIG_MANAGER.load(source.getServer());
         if (candidate.revision() == previousRevision) {
             source.sendFailure(Component.translatable("command.omnitools.reload.failed"));
             return 0;
@@ -457,7 +458,7 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     private static void closeDisabledMenus(net.minecraft.server.MinecraftServer server,
-                                            QiandaoConfigSnapshot snapshot) {
+                                            OmniToolsConfigSnapshot snapshot) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             boolean close = (!snapshot.enabled(ModuleId.DAILY_CHECKIN)
                     && (player.containerMenu instanceof CheckinScreenHandler

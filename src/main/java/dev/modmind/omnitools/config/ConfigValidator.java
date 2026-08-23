@@ -12,7 +12,7 @@ public final class ConfigValidator {
     private ConfigValidator() {
     }
 
-    public static void validate(QiandaoConfigSnapshot snapshot) {
+    public static void validate(OmniToolsConfigSnapshot snapshot) {
         if (snapshot.root() == null || snapshot.rewards() == null || snapshot.shop() == null
                 || snapshot.titles() == null || snapshot.titleEffects() == null
                 || snapshot.cloudStorage() == null || snapshot.achievements() == null) {

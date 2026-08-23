@@ -24,6 +24,7 @@ import java.util.UUID;
 /** World-persistent sign-in records shared by every dimension in a server. */
 public final class CheckinData extends SavedData {
     private static final String DATA_ID = ModMindEntry.MOD_ID + "_data";
+    private static final String LEGACY_DATA_ID = "qiandao_data";
     private static final String PLAYERS_KEY = "players";
     private static final String DAILY_SIGNERS_KEY = "daily_signers";
     private static final String SIGN_IN_TIMES_KEY = "sign_in_times";
@@ -39,6 +40,16 @@ public final class CheckinData extends SavedData {
             CheckinData::new,
             CompoundTag.CODEC.xmap(CheckinData::fromTag, CheckinData::toTag),
             DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    private static final SavedDataType<CheckinData> LEGACY_TYPE = new SavedDataType<>(
+            LEGACY_DATA_ID,
+            CheckinData::new,
+            CompoundTag.CODEC.xmap(CheckinData::fromTag, CheckinData::toTag),
+            DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    static SavedDataType<CheckinData> legacyType() {
+        return LEGACY_TYPE;
+    }
 
     private final Map<UUID, PlayerRecord> players = new HashMap<>();
     private final Map<Long, Integer> dailySigners = new HashMap<>();

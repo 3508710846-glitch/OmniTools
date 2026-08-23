@@ -840,9 +840,9 @@ config/omnitools/
 
 ```text
 dev.modmind.omnitools.config/
-├── QiandaoConfigManager.java
-├── QiandaoConfigSnapshot.java
-├── QiandaoRootConfig.java
+├── OmniToolsConfigManager.java
+├── OmniToolsConfigSnapshot.java
+├── OmniToolsRootConfig.java
 ├── ModuleId.java
 ├── ModuleStatus.java
 ├── ConfigPaths.java
@@ -853,10 +853,10 @@ dev.modmind.omnitools.config/
 职责如下：
 
 - `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
-- `QiandaoRootConfig`：解析主配置。
+- `OmniToolsRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
-- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
-- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `OmniToolsConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `OmniToolsConfigManager`：启动加载、重载、默认文件生成和快照替换。
 - `ConfigMigration`：迁移旧版配置。
 - `ConfigValidator`：执行模块配置和跨模块引用校验。
 
@@ -873,7 +873,7 @@ TitleEffectConfig   -> 新路径
 CloudStorageConfig  -> 新路径
 ```
 
-`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `OmniToolsConfigSnapshot` 获取配置。
 
 ## 五、运行时数据策略
 
@@ -1159,9 +1159,9 @@ config/omnitools/
 
 ```text
 dev.modmind.omnitools.config/
-├── QiandaoConfigManager.java
-├── QiandaoConfigSnapshot.java
-├── QiandaoRootConfig.java
+├── OmniToolsConfigManager.java
+├── OmniToolsConfigSnapshot.java
+├── OmniToolsRootConfig.java
 ├── ModuleId.java
 ├── ModuleStatus.java
 ├── ConfigPaths.java
@@ -1172,10 +1172,10 @@ dev.modmind.omnitools.config/
 职责如下：
 
 - `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
-- `QiandaoRootConfig`：解析主配置。
+- `OmniToolsRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
-- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
-- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `OmniToolsConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `OmniToolsConfigManager`：启动加载、重载、默认文件生成和快照替换。
 - `ConfigMigration`：迁移旧版配置。
 - `ConfigValidator`：执行模块配置和跨模块引用校验。
 
@@ -1192,7 +1192,7 @@ TitleEffectConfig   -> 新路径
 CloudStorageConfig  -> 新路径
 ```
 
-`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `OmniToolsConfigSnapshot` 获取配置。
 
 ## 五、运行时数据策略
 
@@ -1478,9 +1478,9 @@ config/omnitools/
 
 ```text
 dev.modmind.omnitools.config/
-├── QiandaoConfigManager.java
-├── QiandaoConfigSnapshot.java
-├── QiandaoRootConfig.java
+├── OmniToolsConfigManager.java
+├── OmniToolsConfigSnapshot.java
+├── OmniToolsRootConfig.java
 ├── ModuleId.java
 ├── ModuleStatus.java
 ├── ConfigPaths.java
@@ -1491,10 +1491,10 @@ dev.modmind.omnitools.config/
 职责如下：
 
 - `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
-- `QiandaoRootConfig`：解析主配置。
+- `OmniToolsRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
-- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
-- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `OmniToolsConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `OmniToolsConfigManager`：启动加载、重载、默认文件生成和快照替换。
 - `ConfigMigration`：迁移旧版配置。
 - `ConfigValidator`：执行模块配置和跨模块引用校验。
 
@@ -1511,7 +1511,7 @@ TitleEffectConfig   -> 新路径
 CloudStorageConfig  -> 新路径
 ```
 
-`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `OmniToolsConfigSnapshot` 获取配置。
 
 ## 五、运行时数据策略
 
@@ -1797,9 +1797,9 @@ config/omnitools/
 
 ```text
 dev.modmind.omnitools.config/
-├── QiandaoConfigManager.java
-├── QiandaoConfigSnapshot.java
-├── QiandaoRootConfig.java
+├── OmniToolsConfigManager.java
+├── OmniToolsConfigSnapshot.java
+├── OmniToolsRootConfig.java
 ├── ModuleId.java
 ├── ModuleStatus.java
 ├── ConfigPaths.java
@@ -1810,10 +1810,10 @@ dev.modmind.omnitools.config/
 职责如下：
 
 - `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
-- `QiandaoRootConfig`：解析主配置。
+- `OmniToolsRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
-- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
-- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `OmniToolsConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `OmniToolsConfigManager`：启动加载、重载、默认文件生成和快照替换。
 - `ConfigMigration`：迁移旧版配置。
 - `ConfigValidator`：执行模块配置和跨模块引用校验。
 
@@ -1830,7 +1830,7 @@ TitleEffectConfig   -> 新路径
 CloudStorageConfig  -> 新路径
 ```
 
-`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `OmniToolsConfigSnapshot` 获取配置。
 
 ## 五、运行时数据策略
 
@@ -2116,9 +2116,9 @@ config/omnitools/
 
 ```text
 dev.modmind.omnitools.config/
-├── QiandaoConfigManager.java
-├── QiandaoConfigSnapshot.java
-├── QiandaoRootConfig.java
+├── OmniToolsConfigManager.java
+├── OmniToolsConfigSnapshot.java
+├── OmniToolsRootConfig.java
 ├── ModuleId.java
 ├── ModuleStatus.java
 ├── ConfigPaths.java
@@ -2129,10 +2129,10 @@ dev.modmind.omnitools.config/
 职责如下：
 
 - `ConfigPaths`：统一生成 `config/omnitools` 和模块文件路径。
-- `QiandaoRootConfig`：解析主配置。
+- `OmniToolsRootConfig`：解析主配置。
 - `ModuleId`：集中维护模块 ID，禁止在业务代码中散落字符串。
-- `QiandaoConfigSnapshot`：保存一次完整、不可变的配置快照。
-- `QiandaoConfigManager`：启动加载、重载、默认文件生成和快照替换。
+- `OmniToolsConfigSnapshot`：保存一次完整、不可变的配置快照。
+- `OmniToolsConfigManager`：启动加载、重载、默认文件生成和快照替换。
 - `ConfigMigration`：迁移旧版配置。
 - `ConfigValidator`：执行模块配置和跨模块引用校验。
 
@@ -2149,7 +2149,7 @@ TitleEffectConfig   -> 新路径
 CloudStorageConfig  -> 新路径
 ```
 
-`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `QiandaoConfigSnapshot` 获取配置。
+`CheckinRewardService` 和 `OnlineTimeRewardService` 不应自行读取文件，而应从 `OmniToolsConfigSnapshot` 获取配置。
 
 ## 五、运行时数据策略
 
@@ -3131,3 +3131,102 @@ Permission.Atom.create("omnitools:cloud_storage")
 ## Development request 2026/8/23 01:25:01
 
 继续
+
+---
+
+## Development request 2026/8/23 09:22:52
+
+## 品牌重命名与兼容迁移（已完成）
+
+| 位置 | 残留内容 | 建议 |
+|---|---|---|
+| `src/main/java/dev/modmind/omnitools/config/` | `OmniToolsConfigManager.java`、`OmniToolsConfigSnapshot.java`、`OmniToolsRootConfig.java` | 配置类品牌重命名已完成，并已同步更新入口和校验器 |
+| [docs/idea.md](/D:/mod/qiandao/docs/idea.md:843) | 旧版配置类名称 | 已统一为 `OmniToolsConfig*` |
+| [modmind.project.json](/D:/mod/qiandao/modmind.project.json:7) | 工作区路径仍是 `D:\mod\qiandao` | 如果目录实际已改名，应同步更新；如果只是项目品牌改名，可以保留 |
+| `docs/last-ai-response.txt`、`docs/last-ai-change.json` | 旧绝对路径 `D:/mod/qiandao` | 这是生成的审计记录，不影响运行，可在下一次工作台任务后重新生成 |
+
+配置基础类已经统一使用 OmniTools 品牌名称：
+
+```text
+src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java
+src/main/java/dev/modmind/omnitools/config/OmniToolsConfigSnapshot.java
+src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java
+```
+
+**应该保留的内容**
+
+以下不是品牌残留，而是现有功能名称或兼容接口：
+
+- `CheckinData`
+- `CheckinScreen`
+- `CheckinRewardConfig`
+- `DAILY_CHECKIN`
+- `/checkin` 命令别名
+- `gui.omnitools.next_checkin`
+- README 中“每日签到”功能说明
+
+`/checkin` 是旧命令兼容入口，建议保留一段时间，以 `/omnitools` 作为主命令。贸然删除会破坏已有服务器脚本和玩家习惯。
+
+**兼容迁移结果**
+
+1. [ConfigMigration.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java:32) 同时识别以下两组根目录文件名，并优先使用当前品牌：
+
+```text
+omnitools-rewards.json
+omnitools-shop.json
+omnitools-titles.json
+...
+```
+
+如果玩家升级前的文件仍叫：
+
+```text
+qiandao-rewards.json
+qiandao-shop.json
+qiandao-titles.json
+qiandao-title-effects.json
+qiandao-achievements.json
+qiandao-cloud-storage.json
+```
+
+迁移器优先读取 `omnitools-*`，缺失时回退到对应的 `qiandao-*` 文件。实际源文件会归档到 `config/omnitools/legacy/` 并写入 `legacy/manifest.json`，不会删除原文件。
+
+2. [TitleData.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java:71) 已同时尝试导入 `omnitools-titles.json` 和 `qiandao-titles.json`，并优先使用当前品牌文件。
+
+3. 多个 `SavedData` 的数据 ID 由 `ModMindEntry.MOD_ID` 拼接生成，例如 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:26)：
+
+```java
+private static final String DATA_ID = ModMindEntry.MOD_ID + "_data";
+```
+
+重命名后，旧数据 ID 会从：
+
+```text
+qiandao_data
+qiandao_titles
+qiandao_achievements
+qiandao_cloud_storage
+```
+
+变成：
+
+```text
+omnitools_data
+omnitools_titles
+omnitools_achievements
+omnitools_cloud_storage
+```
+
+服务器启动时会执行一次性的 `LegacySavedDataMigration`：先读取旧 ID，再写入新的 OmniTools ID，保留旧 `.dat` 文件作为备份。这样旧世界的余额、签到记录、称号、成就和云存储物品可以继续使用。
+
+**目前已经确认没有残留的部分**
+
+- Java 包路径已是 `dev.modmind.omnitools`
+- `fabric.mod.json` 的 ID 和入口已是 `omnitools`
+- Gradle 的 `mod_id`、`mod_name` 和产物名已是 `omnitools`
+- 资源目录已是 `assets/omnitools`
+- Mixin 文件已是 `omnitools.mixins.json`
+- 运行配置已迁移到 `config/omnitools/`
+- README 中的 `qiandao` 仅保留在兼容说明、旧命令和旧文件名示例中
+
+配置类重命名、文档清理以及 `qiandao-*` 配置文件和 `qiandao_*` 世界数据的兼容迁移均已实现。配置迁移会保留源文件并记录 manifest；SavedData 迁移只复制到新 ID，不删除旧数据文件。`D:\mod\qiandao` 是当前工作区实际路径，因此 `modmind.project.json` 中的路径保持不变。

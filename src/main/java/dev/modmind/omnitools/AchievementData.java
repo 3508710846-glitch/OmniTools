@@ -20,6 +20,7 @@ import java.util.UUID;
 /** World-persistent achievement unlock and reward-claim state. */
 public final class AchievementData extends SavedData {
     private static final String DATA_ID = ModMindEntry.MOD_ID + "_achievements";
+    private static final String LEGACY_DATA_ID = "qiandao_achievements";
     private static final String PLAYERS_KEY = "players";
     private static final String UNLOCKED_KEY = "unlocked";
     private static final String CLAIMED_KEY = "claimed";
@@ -29,6 +30,16 @@ public final class AchievementData extends SavedData {
             AchievementData::new,
             CompoundTag.CODEC.xmap(AchievementData::fromTag, AchievementData::toTag),
             DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    private static final SavedDataType<AchievementData> LEGACY_TYPE = new SavedDataType<>(
+            LEGACY_DATA_ID,
+            AchievementData::new,
+            CompoundTag.CODEC.xmap(AchievementData::fromTag, AchievementData::toTag),
+            DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
+
+    static SavedDataType<AchievementData> legacyType() {
+        return LEGACY_TYPE;
+    }
 
     private final Map<UUID, PlayerRecord> players = new HashMap<>();
 
