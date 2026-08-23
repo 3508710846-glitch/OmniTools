@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "dependencies": [
+    {
+      "projectId": "modrinth-eXts2L7r",
+      "versionId": "qxjzQ9xY",
+      "slug": "eXts2L7r",
+      "name": "文本占位符 API",
+      "versionNumber": "2.8.2+1.21.10",
+      "fileName": "placeholder-api-2.8.2+1.21.10.jar",
+      "relativePath": "libs/modmind/placeholder-api-2.8.2+1.21.10.jar",
+      "installedAt": "2026-08-23T05:55:41.652Z",
+      "environment": "both",
+      "source": "modrinth",
+      "sha512": "507ab10b7938dcd14d33121b8462649bdbe575cef248e917dfdf7566078ab5d0195ca1add95eae4863de3f652eb56db0a8669a67d5b5344e094d086f9dab5a08",
+      "relationshipId": "platform:modrinth:eXts2L7r",
+      "relationshipRole": "optional",
+      "provider": "modrinth"
+    }
+  ]
+}

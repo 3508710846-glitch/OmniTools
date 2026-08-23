@@ -40,4 +40,8 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
     public ZoneId zoneId() {
         return ZoneId.of(root.timezone());
     }
+
+    public boolean placeholderApiEnabled() {
+        return root.placeholderApiEnabled();
+    }
 }

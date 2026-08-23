@@ -20,6 +20,10 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
+
+// MODMIND DEPENDENCIES START
+    modImplementation files('libs/modmind/placeholder-api-2.8.2+1.21.10.jar')
+// MODMIND DEPENDENCIES END
 }
 
 tasks.withType(JavaCompile).configureEach {

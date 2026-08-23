@@ -66,10 +66,13 @@ config/omnitools/
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "global": {
     "debug": false,
     "timezone": "Asia/Shanghai"
+  },
+  "integrations": {
+    "placeholder_api": { "enabled": true }
   },
   "modules": {
     "daily_checkin": { "enabled": true },
@@ -88,10 +91,13 @@ config/omnitools/
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "global": {
     "debug": true,
     "timezone": "UTC"
+  },
+  "integrations": {
+    "placeholder_api": { "enabled": true }
   },
   "modules": {
     "daily_checkin": { "enabled": true },
@@ -106,11 +112,103 @@ config/omnitools/
 }
 ```
 
-- `format_version`：正整数格式版本，当前为 `1`。
+- `format_version`：正整数格式版本，当前为 `2`。旧版 `1` 且缺少 `integrations` 时，Placeholder API 集成默认视为启用；不会强制改写旧文件，补充节点后执行 `/omnitools reload` 即可。
 - `global.debug`：全局调试开关；不改变奖励规则。
 - `global.timezone`：服务端计算“今天”和在线时长归属日的时区。
 - `modules.<id>.enabled`：模块开关。模块 ID 必须使用 `daily_checkin`、`online_reward`、`shop`、`titles`、`title_effects`、`achievements`、`cloud_storage` 或 `permissions`。
 - `title_effects` 依赖 `titles`；成就称号奖励需要 `titles` 启用。`permissions.enabled` 仍是预留开关，但 `permissions/config.json` 始终有效，用于保护命令入口，不会因该开关为 `false` 而关闭安全校验。
+- `integrations.placeholder_api.enabled`：是否启用可选 Placeholder API 联动。它不是游戏功能模块，不加入 `ModuleId`；只有安装 `placeholder-api` 且该值为 `true` 时才注册占位符。
+
+## Placeholder API 集成
+
+### 工作原理
+
+OmniTools 使用稳定命名空间 `omnitools` 向 Fabric Placeholder API 注册只读占位符。注册器只在服务端启动或成功执行 `/omnitools reload` 后尝试一次；同一 JVM 内不会重复注册。Placeholder API 未安装时不会加载第三方 API 类，OmniTools 仍正常启动。
+
+每次解析都从当前 `PlaceholderContext` 获取 `ServerPlayer`，再读取当前配置快照、`CheckinData`、在线时长服务、称号状态和成就状态。不缓存玩家对象，不读写配置文件，不触发签到、领奖、扣币、称号授予或其他 SavedData 写入。缺少玩家上下文时直接返回安全默认值。
+
+### 如何使用
+
+安装与 Minecraft `1.21.11` 兼容的 Fabric Placeholder API（当前编译联动版本为 `2.8.2+1.21.10`），保持 `fabric.mod.json` 中的 `suggests`，不需要把它作为必需依赖。然后在主配置中启用：
+
+```json
+{
+  "format_version": 2,
+  "integrations": {
+    "placeholder_api": { "enabled": true }
+  }
+}
+```
+
+关闭集成后，已经注册的 ID 不会从 Placeholder API 注册表注销；回调会根据当前快照返回默认值，这是该 API 注册表的正常限制。重新开启并执行 `/omnitools reload` 时，如果此前尚未注册则会完成首次注册。
+
+### 玩家命令
+
+Placeholder API 没有 OmniTools 专用命令。第三方聊天、计分板、Tab 列表或 HUD 模组按照自身语法解析 `omnitools` 命名空间，例如使用本节表格中的 `omnitools:balance`。OmniTools 不接受按玩家名或 UUID 查询他人数据的参数。
+
+### 管理员命令
+
+修改 `integrations.placeholder_api.enabled` 或主配置后执行：
+
+```text
+/omnitools reload
+```
+
+默认需要 `config.reload` 动作（`ADMIN`，Minecraft 等级 `2`）。重载失败时保留旧快照和旧占位符行为。
+
+### 默认配置
+
+主配置首次生成时包含：
+
+```json
+{
+  "format_version": 2,
+  "integrations": {
+    "placeholder_api": {
+      "enabled": true
+    }
+  }
+}
+```
+
+### 示例配置与字段解析
+
+```json
+{
+  "format_version": 2,
+  "integrations": {
+    "placeholder_api": { "enabled": false }
+  }
+}
+```
+
+- `enabled: true`：若 Placeholder API 已安装，则注册全部公开 ID。
+- `enabled: false`：不注册新 ID；如果本次启动前已经注册过，后续解析只返回默认值。
+- 旧 `format_version: 1` 文件缺少 `integrations` 时按 `true` 处理，确保升级不改变联动行为。
+
+公开 ID 和返回值如下：
+
+| ID | 返回值 | 所属模块关闭、集成关闭或无玩家时 |
+| --- | --- | --- |
+| `omnitools:balance` | 原始货币余额 | `0` |
+| `omnitools:balance_formatted` | 带千分位的余额 | `0` |
+| `omnitools:checkin_today` | `true`/`false` | `false` |
+| `omnitools:checkin_today_rank` | 已签到后的实际今日名次；未签到不返回预计名次 | `0` |
+| `omnitools:checkin_total_days` | 累计签到天数 | `0` |
+| `omnitools:checkin_streak_days` | 当前连续签到天数 | `0` |
+| `omnitools:checkin_month_days` | 本月签到天数 | `0` |
+| `omnitools:online_today_seconds` | 今日在线秒数，向下取整 | `0` |
+| `omnitools:online_today_minutes` | 今日在线分钟数，向下取整 | `0` |
+| `omnitools:online_today_hms` | `HH:mm:ss`，如 `01:23:45` | `00:00:00` |
+| `omnitools:title_id` | 当前佩戴称号 ID | 空文本 |
+| `omnitools:title` | 保留颜色与样式的称号 | 空文本 |
+| `omnitools:title_plain` | 称号纯文本 | 空文本 |
+| `omnitools:title_effects_enabled` | 总模块和玩家开关都有效时为 `true` | `false` |
+| `omnitools:achievements_unlocked` | 已解锁成就数量 | `0` |
+| `omnitools:achievements_claimed` | 已领取成就数量 | `0` |
+| `omnitools:achievements_total` | 当前配置成就总数 | `0` |
+
+余额占位符不受 `daily_checkin` 开关限制，因为余额也被商店、成就奖励和 `/money` 使用。在线时长读取包含当前尚未周期落盘的会话时间；签到日期使用 `global.timezone`，与签到 GUI 保持一致；本月签到天数会遍历该玩家历史记录，适合普通显示场景，不建议在高频计分板中每 tick 重复解析。
 
 ## 每日签到模块（`daily_checkin`）
 

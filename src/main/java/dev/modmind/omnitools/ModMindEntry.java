@@ -67,6 +67,7 @@ public final class ModMindEntry implements ModInitializer {
             TitleData.bind(server);
             TitleData.importLegacy(server);
             applySnapshot(CONFIG_MANAGER.load(server));
+            PlaceholderBootstrap.registerIfAvailable();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             onlineTimeRewardService().flushAll(server);
@@ -499,6 +500,7 @@ public final class ModMindEntry implements ModInitializer {
             onlineTimeRewardService().flushAll(source.getServer());
         }
         applySnapshot(candidate);
+        PlaceholderBootstrap.registerIfAvailable();
         for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
             source.getServer().getCommands().sendCommands(player);
         }
