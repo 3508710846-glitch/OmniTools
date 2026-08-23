@@ -18,8 +18,8 @@ import java.util.Map;
 
 /** Versioned root configuration and module enablement flags. */
 public record OmniToolsRootConfig(int formatVersion, boolean debug, String timezone,
-                                Map<ModuleId, Boolean> modules) {
-    public static final int CURRENT_FORMAT_VERSION = 1;
+                                boolean placeholderApiEnabled, Map<ModuleId, Boolean> modules) {
+    public static final int CURRENT_FORMAT_VERSION = 2;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public OmniToolsRootConfig {
@@ -45,7 +45,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         for (ModuleId module : ModuleId.values()) {
             modules.put(module, module != ModuleId.PERMISSIONS);
         }
-        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", modules);
+        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", true, modules);
     }
 
     public boolean enabled(ModuleId module) {
@@ -66,6 +66,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             JsonObject root = element.getAsJsonObject();
             int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
             JsonObject global = object(root, "global");
+            JsonObject integrations = object(root, "integrations");
+            JsonObject placeholderApi = object(integrations, "placeholder_api");
             JsonObject moduleObject = object(root, "modules");
             EnumMap<ModuleId, Boolean> modules = new EnumMap<>(ModuleId.class);
             for (ModuleId module : ModuleId.values()) {
@@ -74,7 +76,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                         || bool(value.getAsJsonObject(), "enabled", true));
             }
             return new OmniToolsRootConfig(version, bool(global, "debug", false),
-                    string(global, "timezone", "Asia/Shanghai"), modules);
+                    string(global, "timezone", "Asia/Shanghai"),
+                    bool(placeholderApi, "enabled", true), modules);
         }
     }
 
@@ -86,6 +89,11 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         global.addProperty("debug", config.debug());
         global.addProperty("timezone", config.timezone());
         root.add("global", global);
+        JsonObject integrations = new JsonObject();
+        JsonObject placeholderApi = new JsonObject();
+        placeholderApi.addProperty("enabled", config.placeholderApiEnabled());
+        integrations.add("placeholder_api", placeholderApi);
+        root.add("integrations", integrations);
         JsonObject modules = new JsonObject();
         for (ModuleId module : ModuleId.values()) {
             JsonObject status = new JsonObject();

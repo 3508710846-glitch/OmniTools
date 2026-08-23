@@ -3732,3 +3732,140 @@ omnitools:cloud_storage
 - 称号默认不能获得管理命令；云存储原生节点行为保持可用。
 
 完成之后同步写入README.md中
+
+---
+
+## Development request 2026/8/23 14:06:27
+
+**目标**
+
+为 OmniTools 注册 Fabric Placeholder API 占位符，使用稳定命名空间 `omnitools`。Placeholder API 未安装时，OmniTools 必须照常启动；占位符解析只读，不触发签到、领奖、扣币或配置写入。
+
+当前工程已具备前提：[`build.gradle`](/D:/mod/qiandao/build.gradle) 已引入 Placeholder API，[`fabric.mod.json`](/D:/mod/qiandao/src/main/resources/fabric.mod.json) 已用 `suggests` 声明可选依赖。
+
+**配置设计**
+
+不要把 Placeholder API 加入 `ModuleId`，它是兼容集成，不是游戏功能模块。在 [`config/omnitools/config.json`](/D:/mod/qiandao/run/config/omnitools/config.json) 增加独立节点：
+
+```json
+{
+  "format_version": 2,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "integrations": {
+    "placeholder_api": {
+      "enabled": true
+    }
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false }
+  }
+}
+```
+
+兼容规则：
+
+- 旧版 `format_version: 1` 且缺少 `integrations` 时，`placeholder_api.enabled` 默认 `true`。
+- 新生成配置写入版本 `2`。
+- 不强制覆写旧配置；用户补充节点后执行 `/omnitools reload` 即可生效。
+- 禁用集成后，已注册的 ID 不能注销，但回调返回安全默认值；这是 Placeholder API 注册表的正常限制。
+
+**代码结构**
+
+新增 3 个类，建议仍放在 `dev.modmind.omnitools` 根包。当前 `ModMindEntry` 的服务访问器是包可见的，放根包可避免为第三方集成扩大内部 API 可见性。
+
+```text
+dev.modmind.omnitools/
+├── PlaceholderBootstrap.java
+├── FabricPlaceholderRegistrar.java
+└── OmniToolsPlaceholderResolver.java
+```
+
+职责：
+
+- `PlaceholderBootstrap`
+  - 不引用 Placeholder API 类型。
+  - 用 `FabricLoader.getInstance().isModLoaded("placeholder-api")` 判断是否安装。
+  - 判断总配置 `integrations.placeholder_api.enabled`。
+  - 仅在满足条件时加载注册器。
+
+- `FabricPlaceholderRegistrar`
+  - 唯一引用 Fabric Placeholder API 类型的类。
+  - 基于当前 `placeholder-api-2.8.2+1.21.10` 的 `PlaceholderAPI.register(...)` 回调注册所有 ID。
+  - 用静态布尔值保证每个 ID 在一个 JVM 中只注册一次。
+  - 不在 `ModMindEntry` 的字段、方法签名或静态初始化中暴露 Placeholder API 类型，避免未安装 API 时发生类加载错误。
+
+- `OmniToolsPlaceholderResolver`
+  - 所有数据查询和模块开关判断集中在这里。
+  - 每次解析从上下文取得当前 `ServerPlayer`；不缓存 `ServerPlayer`。
+  - 返回 `Component`：数值使用 `Component.literal(...)`，称号展示直接复用既有 `displayComponent()`。
+  - 不读写文件、不发奖、不修改 `SavedData`。
+
+注册时机：
+
+1. `SERVER_STARTED` 中，`applySnapshot(CONFIG_MANAGER.load(server))` 之后调用 `PlaceholderBootstrap.registerIfAvailable()`。
+2. `/omnitools reload` 成功应用新快照后再次调用该方法，以便“启动时关闭、重载后开启”的配置能完成首次注册。
+3. 已注册后再次调用直接跳过；关闭配置时，解析器读取当前快照并返回默认值。
+
+**首批公开占位符**
+
+以下是注册 ID，不在文档里硬编码第三方消费模组的文本写法；实际书写形式遵循 Fabric Placeholder API 及使用方模组的语法。
+
+| ID | 返回值 | 模块关闭或无玩家时 |
+|---|---|---|
+| `omnitools:balance` | 原始货币余额 | `0` |
+| `omnitools:balance_formatted` | 带千分位的余额 | `0` |
+| `omnitools:checkin_today` | 今日是否签到，`true/false` | `false` |
+| `omnitools:checkin_today_rank` | 已签到后的今日实际名次 | 未签到时 `0` |
+| `omnitools:checkin_total_days` | 累计签到天数 | `0` |
+| `omnitools:checkin_streak_days` | 当前连续签到天数 | `0` |
+| `omnitools:checkin_month_days` | 本月签到天数 | `0` |
+| `omnitools:online_today_seconds` | 今日在线秒数，向下取整 | `0` |
+| `omnitools:online_today_minutes` | 今日在线分钟数，向下取整 | `0` |
+| `omnitools:online_today_hms` | 今日在线时长，如 `01:23:45` | `00:00:00` |
+| `omnitools:title_id` | 当前佩戴称号 ID | 空文本 |
+| `omnitools:title` | 当前称号，保留颜色与样式 | 空文本 |
+| `omnitools:title_plain` | 当前称号纯文本 | 空文本 |
+| `omnitools:title_effects_enabled` | 称号效果总开关与玩家开关均有效时为 `true` | `false` |
+| `omnitools:achievements_unlocked` | 已解锁成就数 | `0` |
+| `omnitools:achievements_claimed` | 已领取成就数 | `0` |
+| `omnitools:achievements_total` | 当前配置的成就总数 | `0` |
+
+不要让 `checkin_today_rank` 在未签到时返回“预计名次”。当前 [`CheckinData.getStats`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:107) 会给未签到玩家计算下一个可能名次，语义容易误导；首版固定返回 `0`。
+
+**数据映射**
+
+- 签到数据来自 [`CheckinData`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:107)，日期必须使用 `CheckinData.today(server)`，确保与总配置的 `global.timezone` 一致。
+- 在线时长使用 [`OnlineTimeRewardService.getTodayOnlineTime`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OnlineTimeRewardService.java:48)，它会包含本次尚未落盘的在线时间。
+- 称号 ID 和展示使用 [`TitleConfig.selectedTitle`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:99)；纯文本使用既有 `TitleDefinition.plainDisplay()`，不能把 `§` 色码直接交给记分板等消费者。
+- 玩家称号效果开关读取 [`TitleData.PlayerRecord.effectsEnabled()`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java:280)。
+- 成就计数使用 [`AchievementService.unlockedCount`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:138)、`claimedCount` 和当前配置列表大小。
+- `balance` 不受 `daily_checkin` 开关限制。余额虽保存在 `CheckinData`，但商店、成就奖励和 `/money` 也在使用它。
+
+**解析规则与边界**
+
+- 所有玩家相关占位符只接受当前上下文玩家，不提供“按玩家名/UUID 查询他人数据”的参数，避免泄露余额、成就等数据。
+- `daily_checkin`、`online_reward`、`titles`、`title_effects`、`achievements` 各自关闭时，只影响所属占位符。
+- Placeholder API 集成整体关闭时，数值返回 `0`、布尔返回 `false`、普通文本返回空文本。
+- 不支持任意参数、动态奖励 ID、商店商品价格等可变语法；后续确有需求再定义稳定参数协议。
+- 不在每次解析中读取配置文件或扫描世界。当前 `checkin_month_days` 会遍历该玩家签到历史，首版可接受；若用于高频计分板，应再做“按玩家、按服务端 tick”的只读快照缓存。
+- 不在异步线程直接访问 `SavedData` 或 `ServerPlayer`；缺少服务端玩家上下文时直接返回默认值。
+
+**依赖与验收**
+
+- 保留 `fabric.mod.json` 的 `suggests`，不要改成 `depends`。
+- 不要对 Placeholder API 使用 `include` 或 Jar-in-Jar；成品服需自行安装 Placeholder API 才启用联动。
+- 确认 Placeholder API 的运行版本与 Minecraft `1.21.11` 兼容，且与当前编译 API 保持兼容。
+- 无 Placeholder API：服务器正常启动，无 `ClassNotFoundException`。
+- 有 Placeholder API：仅记录一次注册成功日志，所有 ID 可被下游模组解析。
+- 签到、货币增减、在线时长、称号切换、成就领取后，占位符在下一次解析时反映最新值。
+- 关闭对应模块或总集成后，结果符合上述默认值，不产生异常或日志刷屏。

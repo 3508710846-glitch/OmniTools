@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "minecraftVersion": "1.21.11",
+  "loader": "fabric",
+  "updatedAt": "2026-08-23T05:55:41.663Z",
+  "relationships": [
+    {
+      "id": "platform:modrinth:eXts2L7r",
+      "role": "optional",
+      "provider": "modrinth",
+      "projectId": "eXts2L7r",
+      "versionId": "qxjzQ9xY",
+      "slug": "eXts2L7r",
+      "name": "文本占位符 API",
+      "version": "2.8.2+1.21.10",
+      "primaryModId": "placeholder-api",
+      "modIds": [
+        "placeholder-api"
+      ],
+      "fileName": "placeholder-api-2.8.2+1.21.10.jar",
+      "relativePath": "libs/modmind/placeholder-api-2.8.2+1.21.10.jar",
+      "installedAt": "2026-08-23T05:55:41.652Z",
+      "environment": "unknown",
+      "sha256": "975c7e575c27bf6fa82baaf8cd7645051a298f74bf95cf58092b104dd21de5ed",
+      "platformLinks": {
+        "modrinth": {
+          "projectId": "eXts2L7r",
+          "slug": "placeholder-api"
+        }
+      },
+      "api": {
+        "primaryModId": "placeholder-api",
+        "modIds": [
+          "placeholder-api"
+        ],
+        "displayName": "Placeholder API",
+        "version": "2.8.2+1.21.10",
+        "loader": "fabric",
+        "classCount": 130,
+        "packages": [
+          "PatboxTextPlaceholderAPI3f4f4dd.docs.dev.code",
+          "eu.pb4.placeholderstest",
+          "eu.pb4.placeholders.api",
+          "eu.pb4.placeholders.impl",
+          "eu.pb4.placeholders.api.arguments",
+          "eu.pb4.placeholders.api.node",
+          "eu.pb4.placeholders.api.parsers",
+          "eu.pb4.placeholders.impl.color",
+          "eu.pb4.placeholders.impl.placeholder",
+          "eu.pb4.placeholders.impl.textparser",
+          "eu.pb4.placeholders.api.node.parent",
+          "eu.pb4.placeholders.api.parsers.format",
+          "eu.pb4.placeholders.api.parsers.tag",
+          "eu.pb4.placeholders.impl.placeholder.builtin",
+          "eu.pb4.placeholders.impl.textparser.providers",
+          "eu.pb4.placeholders.impl.textparser.tagreg"
+        ],
+        "sourceKind": "sources",
+        "sourcePath": "C:\\Users\\ad\\AppData\\Roaming\\modmind\\addon-references\\modrinth\\eXts2L7r\\qxjzQ9xY\\sources",
+        "sourceMatched": true,
+        "sourceLicense": "LGPL-3.0-only"
+      }
+    }
+  ]
+}
