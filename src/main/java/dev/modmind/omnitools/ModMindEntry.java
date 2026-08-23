@@ -19,9 +19,7 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.network.chat.ChatType;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
 
@@ -32,11 +30,12 @@ import java.util.Optional;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.config.OmniToolsConfigManager;
 import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
+import dev.modmind.omnitools.permissions.CommandAction;
+import dev.modmind.omnitools.permissions.CommandPermissionConfig;
+import dev.modmind.omnitools.permissions.CommandPermissionService;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
-    private static final Permission CLOUD_STORAGE_PERMISSION = Permission.Atom.create(
-            Identifier.fromNamespaceAndPath(MOD_ID, "cloud_storage"));
     private static CheckinRewardService rewardService;
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
@@ -46,6 +45,8 @@ public final class ModMindEntry implements ModInitializer {
     private static AchievementService achievementService = AchievementService.empty();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
+    private static final CommandPermissionService COMMAND_PERMISSIONS = new CommandPermissionService(
+            CommandPermissionConfig.defaults());
 
     @Override
     public void onInitialize() {
@@ -125,8 +126,15 @@ public final class ModMindEntry implements ModInitializer {
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var command = Commands.literal("omnitools")
+                    .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
+                            CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
+                            CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
+                            CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
+                            CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
+                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
                             .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException())))
                     .then(onlineTimeCommand())
                     .then(shopCommand())
@@ -136,19 +144,27 @@ public final class ModMindEntry implements ModInitializer {
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
+                            .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                                    CommandAction.CURRENCY_BALANCE_OTHER))
                             .executes(context -> queryOwnBalance(context.getSource()))
                             .then(targetBalanceArgument()))
                     .then(Commands.literal("add")
-                            .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_ADD))
                             .then(currencyChangeArgument(true)))
                     .then(Commands.literal("remove")
-                            .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_REMOVE))
                             .then(currencyChangeArgument(false)))
                     .then(Commands.literal("reload")
-                            .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
                             .executes(context -> reloadRewards(context.getSource())));
             dispatcher.register(command);
             dispatcher.register(Commands.literal("checkin")
+                    .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
+                            CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
+                            CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
+                            CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
+                            CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
+                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(onlineTimeCommand())
                     .then(shopCommand())
@@ -158,6 +174,8 @@ public final class ModMindEntry implements ModInitializer {
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
+                            .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                                    CommandAction.CURRENCY_BALANCE_OTHER))
                             .executes(context -> queryOwnBalance(context.getSource()))
                             .then(targetBalanceArgument())));
             dispatcher.register(walletCommand("money"));
@@ -165,9 +183,11 @@ public final class ModMindEntry implements ModInitializer {
             dispatcher.register(cloudStorageCommand("cloudstorage"));
             dispatcher.register(cloudStorageCommand("cstorage"));
             dispatcher.register(Commands.literal("balance")
+                    .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                            CommandAction.CURRENCY_BALANCE_OTHER))
                     .executes(context -> queryOwnBalance(context.getSource()))
                     .then(Commands.argument("player", GameProfileArgument.gameProfile())
-                            .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_BALANCE_OTHER))
                             .executes(context -> queryTargetBalance(context))));
         });
         System.out.println("[ModMind] omnitools initialized");
@@ -225,6 +245,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static void applySnapshot(OmniToolsConfigSnapshot snapshot) {
         configSnapshot = snapshot;
+        COMMAND_PERMISSIONS.update(snapshot.commandPermissions());
         rewardService = CheckinRewardService.from(snapshot.rewards());
         shopConfig = snapshot.shop();
         titleConfig = snapshot.titles();
@@ -235,7 +256,8 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
         return Commands.literal("online")
-                .requires(source -> isModuleEnabled(ModuleId.ONLINE_REWARD))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.ONLINE_OPEN)
+                        .and(source -> isModuleEnabled(ModuleId.ONLINE_REWARD)))
                 .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("rewards")
                         .executes(context -> openOnlineTimeRewardMenu(context.getSource().getPlayerOrException())));
@@ -243,7 +265,8 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> shopCommand() {
         return Commands.literal("shop")
-                .requires(source -> isModuleEnabled(ModuleId.SHOP))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SHOP_OPEN)
+                        .and(source -> isModuleEnabled(ModuleId.SHOP)))
                 .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
@@ -251,7 +274,8 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> cloudStorageCommand(String literal) {
         return Commands.literal(literal)
-                .requires(source -> isModuleEnabled(ModuleId.CLOUD_STORAGE) && hasCloudStoragePermission(source))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.STORAGE_OPEN)
+                        .and(source -> isModuleEnabled(ModuleId.CLOUD_STORAGE)))
                 .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
@@ -259,50 +283,59 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> achievementCommand() {
         return Commands.literal("achievements")
-                .requires(source -> isModuleEnabled(ModuleId.ACHIEVEMENTS))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.ACHIEVEMENTS_OPEN)
+                        .and(source -> isModuleEnabled(ModuleId.ACHIEVEMENTS)))
                 .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
     }
 
     private static boolean hasCloudStoragePermission(CommandSourceStack source) {
-        return source.permissions().hasPermission(CLOUD_STORAGE_PERMISSION)
-                || Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(source);
+        return COMMAND_PERMISSIONS.canUse(source, CommandAction.STORAGE_OPEN);
     }
 
     static boolean hasCloudStoragePermissionForPlayer(ServerPlayer player) {
         return hasCloudStoragePermission(player.createCommandSourceStack());
     }
 
+    static boolean hasCommandPermission(ServerPlayer player, CommandAction action) {
+        return COMMAND_PERMISSIONS.canUse(player, action);
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> titleCommand() {
         return Commands.literal("title")
-                .requires(source -> isModuleEnabled(ModuleId.TITLES))
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.TITLE_OPEN, CommandAction.TITLE_GRANT,
+                        CommandAction.TITLE_REVOKE).and(source -> isModuleEnabled(ModuleId.TITLES)))
                 .executes(context -> openTitleMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_OPEN))
                         .executes(context -> openTitleMenu(context.getSource().getPlayerOrException())))
                 .then(Commands.literal("give")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_GRANT))
                         .then(titleChangeArgument(true)))
                 .then(Commands.literal("add")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_GRANT))
                         .then(titleChangeArgument(true)))
                 .then(Commands.literal("remove")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_REVOKE))
                         .then(titleChangeArgument(false)))
                 .then(Commands.literal("take")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_REVOKE))
                         .then(titleChangeArgument(false)));
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
         return Commands.literal("clear")
-                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_CLEAR))
                 .executes(context -> clearToday(context.getSource()))
                 .then(Commands.literal("today")
                         .executes(context -> clearToday(context.getSource())));
     }
 
     private static int clearToday(CommandSourceStack source) {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CHECKIN_CLEAR)) {
+            return 0;
+        }
         int clearedPlayers = CheckinData.get(source.getServer()).clearToday();
         source.sendSuccess(() -> Component.translatable(
                 "command.omnitools.clear.success", clearedPlayers), true);
@@ -311,31 +344,38 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> walletCommand(String literal) {
         return Commands.literal(literal)
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                        CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
+                        CommandAction.CURRENCY_REMOVE))
                 .executes(context -> queryOwnBalance(context.getSource()))
                 .then(Commands.literal("balance")
+                        .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                                CommandAction.CURRENCY_BALANCE_OTHER))
                         .executes(context -> queryOwnBalance(context.getSource()))
                         .then(targetBalanceArgument()))
                 .then(Commands.literal("get")
+                        .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                                CommandAction.CURRENCY_BALANCE_OTHER))
                         .executes(context -> queryOwnBalance(context.getSource()))
                         .then(targetBalanceArgument()))
                 .then(Commands.literal("add")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_ADD))
                         .then(currencyChangeArgument(true)))
                 .then(Commands.literal("remove")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_REMOVE))
                         .then(currencyChangeArgument(false)))
                 .then(Commands.literal("deduct")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_REMOVE))
                         .then(currencyChangeArgument(false)))
                 .then(Commands.literal("take")
-                        .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_REMOVE))
                         .then(currencyChangeArgument(false)));
     }
 
     private static com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, ?>
     targetBalanceArgument() {
         return Commands.argument("player", GameProfileArgument.gameProfile())
-                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_BALANCE_OTHER))
                 .executes(ModMindEntry::queryTargetBalance);
     }
 
@@ -355,6 +395,9 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int queryOwnBalance(CommandSourceStack source)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CURRENCY_BALANCE_SELF)) {
+            return 0;
+        }
         ServerPlayer player = source.getPlayerOrException();
         long balance = CheckinData.get(player).getBalance(player.getUUID());
         source.sendSuccess(() -> Component.translatable(
@@ -364,6 +407,9 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int queryTargetBalance(CommandContext<CommandSourceStack> context)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(context.getSource(), CommandAction.CURRENCY_BALANCE_OTHER)) {
+            return 0;
+        }
         Collection<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player");
         CheckinData data = CheckinData.get(context.getSource().getServer());
         for (NameAndId profile : profiles) {
@@ -376,6 +422,10 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int changeCurrency(CommandContext<CommandSourceStack> context, boolean add)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(context.getSource(),
+                add ? CommandAction.CURRENCY_ADD : CommandAction.CURRENCY_REMOVE)) {
+            return 0;
+        }
         long amount = LongArgumentType.getLong(context, "amount");
         Collection<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player");
         CheckinData data = CheckinData.get(context.getSource().getServer());
@@ -399,6 +449,10 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int changeTitle(CommandContext<CommandSourceStack> context, boolean give)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(context.getSource(),
+                give ? CommandAction.TITLE_GRANT : CommandAction.TITLE_REVOKE)) {
+            return 0;
+        }
         String titleId = StringArgumentType.getString(context, "title");
         Optional<TitleConfig.TitleDefinition> title = titleConfig().definition(titleId);
         if (title.isEmpty()) {
@@ -432,6 +486,9 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     private static int reloadRewards(CommandSourceStack source) {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CONFIG_RELOAD)) {
+            return 0;
+        }
         long previousRevision = configSnapshot.revision();
         OmniToolsConfigSnapshot candidate = CONFIG_MANAGER.load(source.getServer());
         if (candidate.revision() == previousRevision) {
@@ -442,6 +499,9 @@ public final class ModMindEntry implements ModInitializer {
             onlineTimeRewardService().flushAll(source.getServer());
         }
         applySnapshot(candidate);
+        for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
+            source.getServer().getCommands().sendCommands(player);
+        }
         closeDisabledMenus(source.getServer(), candidate);
         TitleDisplayService.refreshAll(source.getServer());
         if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
@@ -463,13 +523,26 @@ public final class ModMindEntry implements ModInitializer {
             boolean close = (!snapshot.enabled(ModuleId.DAILY_CHECKIN)
                     && (player.containerMenu instanceof CheckinScreenHandler
                     || player.containerMenu instanceof CheckinRecordsScreenHandler))
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CHECKIN_OPEN)
+                    && (player.containerMenu instanceof CheckinScreenHandler
+                    || player.containerMenu instanceof CheckinRecordsScreenHandler))
                     || (!snapshot.enabled(ModuleId.ONLINE_REWARD)
                     && player.containerMenu instanceof OnlineTimeRewardScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ONLINE_OPEN)
+                    && player.containerMenu instanceof OnlineTimeRewardScreenHandler)
                     || (!snapshot.enabled(ModuleId.SHOP) && player.containerMenu instanceof ShopScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.SHOP_OPEN)
+                    && player.containerMenu instanceof ShopScreenHandler)
                     || (!snapshot.enabled(ModuleId.TITLES) && player.containerMenu instanceof TitleScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.TITLE_OPEN)
+                    && player.containerMenu instanceof TitleScreenHandler)
                     || (!snapshot.enabled(ModuleId.ACHIEVEMENTS)
                     && player.containerMenu instanceof AchievementScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ACHIEVEMENTS_OPEN)
+                    && player.containerMenu instanceof AchievementScreenHandler)
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
+                    && player.containerMenu instanceof CloudStorageScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
                     && player.containerMenu instanceof CloudStorageScreenHandler);
             if (close) {
                 player.closeContainer();
@@ -504,7 +577,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openCheckinMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CHECKIN_OPEN)
+                || !isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
@@ -515,7 +589,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openOnlineTimeRewardMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ONLINE_OPEN)
+                || !isModuleEnabled(ModuleId.ONLINE_REWARD)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
@@ -526,7 +601,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openShopMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.SHOP)) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.SHOP_OPEN)
+                || !isModuleEnabled(ModuleId.SHOP)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
@@ -538,7 +614,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openTitleMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.TITLES)) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.TITLE_OPEN)
+                || !isModuleEnabled(ModuleId.TITLES)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
@@ -549,7 +626,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openCloudStorageMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.CLOUD_STORAGE) || !hasCloudStoragePermission(player.createCommandSourceStack())) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
+                || !isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
@@ -561,7 +639,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     static int openAchievementMenu(ServerPlayer player) {
-        if (!isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ACHIEVEMENTS_OPEN)
+                || !isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
             player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }

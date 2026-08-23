@@ -3230,3 +3230,505 @@ omnitools_cloud_storage
 - README 中的 `qiandao` 仅保留在兼容说明、旧命令和旧文件名示例中
 
 配置类重命名、文档清理以及 `qiandao-*` 配置文件和 `qiandao_*` 世界数据的兼容迁移均已实现。配置迁移会保留源文件并记录 manifest；SavedData 迁移只复制到新 ID，不删除旧数据文件。`D:\mod\qiandao` 是当前工作区实际路径，因此 `modmind.project.json` 中的路径保持不变。
+
+---
+
+## Development request 2026/8/23 11:16:17
+
+# OmniTools 指令权限配置方案
+
+## 目标
+
+新增服务端配置文件：
+
+```text
+config/omnitools/permissions/config.json
+```
+
+服务器首次启动时自动生成默认配置。服主可为每个 OmniTools 指令动作配置最低权限角色：
+
+- `PLAYER`：玩家，Minecraft 权限等级 `0`
+- `MODERATOR`：协管，等级 `1`
+- `ADMIN`：管理员，等级 `2`
+- `OWNER`：服主，等级 `4`
+- 控制台：始终允许
+
+默认值必须保持当前行为，避免升级后普通玩家或管理员的权限发生变化。
+
+## 当前命令现状
+
+权限判断集中在 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:127)。
+
+目前以下命令硬编码为等级 `2`：
+
+```text
+/omnitools add
+/omnitools remove
+/omnitools reload
+/balance <玩家>
+/omnitools title give|add
+/omnitools title remove|take
+/omnitools clear [today]
+/omnitools currency add|remove|deduct|take
+/money add|remove|deduct|take
+```
+
+以下默认对玩家开放，仅受功能模块开关限制：
+
+```text
+/omnitools
+/omnitools open
+/omnitools online [rewards]
+/omnitools shop [open]
+/omnitools title [open]
+/omnitools achievements [open]
+/omnitools balance
+/omnitools currency [balance|get]
+/checkin 及对应子命令
+/money [balance|get]
+```
+
+云存储当前需要 `omnitools:cloud_storage` 节点或权限等级 `2`。
+
+## 配置格式
+
+```json
+{
+  "format_version": 1,
+  "commands": {
+    "checkin.open": "PLAYER",
+    "online.open": "PLAYER",
+    "shop.open": "PLAYER",
+    "title.open": "PLAYER",
+    "achievements.open": "PLAYER",
+    "currency.balance.self": "PLAYER",
+
+    "storage.open": {
+      "role": "ADMIN",
+      "allow_native_node": true
+    },
+
+    "currency.balance.other": "ADMIN",
+    "currency.add": "ADMIN",
+    "currency.remove": "ADMIN",
+    "checkin.clear": "ADMIN",
+    "title.grant": "ADMIN",
+    "title.revoke": "ADMIN",
+    "config.reload": "ADMIN"
+  }
+}
+```
+
+`storage.open.allow_native_node: true` 保持现有行为：等级 `2` 管理员或拥有 `omnitools:cloud_storage` 节点的玩家都可使用。
+
+角色名称大小写不敏感。配置解析后统一转换为枚举。
+
+## 规范动作 ID
+
+不要按每条命令别名分别配置。所有别名共享一个规范动作，避免权限绕过。
+
+| 动作 ID | 覆盖命令 |
+|---|---|
+| `checkin.open` | `/omnitools`、`/omnitools open`、`/checkin` |
+| `online.open` | `/omnitools online`、`/checkin online` |
+| `shop.open` | `/omnitools shop`、`/checkin shop` |
+| `title.open` | `/omnitools title`、`/title`、`/checkin title` |
+| `achievements.open` | `/omnitools achievements`、`/checkin achievements` |
+| `storage.open` | `/omnitools storage`、`/checkin storage`、`/cloudstorage`、`/cstorage` |
+| `currency.balance.self` | `/omnitools balance`、`currency`、`/money`、`/balance` |
+| `currency.balance.other` | `/omnitools balance <玩家>`、`/balance <玩家>` |
+| `currency.add` | `/omnitools add`、`currency add`、`/money add` |
+| `currency.remove` | `/omnitools remove`、`currency remove|deduct|take`、`/money remove` |
+| `checkin.clear` | `/omnitools clear [today]`、`/checkin clear [today]` |
+| `title.grant` | `title give|add` 的所有入口 |
+| `title.revoke` | `title remove|take` 的所有入口 |
+| `config.reload` | `/omnitools reload` |
+
+## 新增类
+
+```text
+src/main/java/dev/modmind/omnitools/permissions/
+├── CommandAction.java
+├── CommandRole.java
+├── CommandPermissionConfig.java
+└── CommandPermissionService.java
+```
+
+职责：
+
+- `CommandAction`：所有规范动作 ID 的枚举及默认角色。
+- `CommandRole`：解析 `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER`，映射 Minecraft 权限等级。
+- `CommandPermissionConfig`：读取、校验和首次生成 JSON。
+- `CommandPermissionService`：提供统一权限判断。
+
+建议 API：
+
+```java
+boolean canUse(CommandSourceStack source, CommandAction action);
+
+boolean canUse(ServerPlayer player, CommandAction action);
+
+Predicate<CommandSourceStack> requirement(CommandAction action);
+
+boolean canUseAny(CommandSourceStack source, CommandAction... actions);
+```
+
+控制台必须始终通过。玩家权限判断使用 Fabric 1.21.11 的原生 `PermissionLevel` / `CommandSourceStack.permissions()`，不要自行维护玩家 UUID 白名单。
+
+## 配置快照接入
+
+当前 [OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:28) 已支持完整配置快照和失败保留旧快照。
+
+修改内容：
+
+- `ConfigPaths.moduleConfig(ModuleId.PERMISSIONS)` 作为文件路径。
+- `OmniToolsConfigSnapshot` 新增 `CommandPermissionConfig commandPermissions`。
+- `OmniToolsConfigManager.load(server)` 始终加载命令权限配置。
+- 不要让主配置 `permissions.enabled` 关闭命令安全；可保留该字段作为未来“玩家节点数据模块”预留，但命令权限配置始终有效。
+- 配置错误、未知动作、未知角色、重复动作时，拒绝新快照，继续使用旧权限规则。
+
+## 命令注册修改
+
+将所有硬编码：
+
+```java
+.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+```
+
+替换为：
+
+```java
+.requires(permissionService.requirement(CommandAction.CONFIG_RELOAD))
+```
+
+或对应动作。
+
+父节点需要特别处理。例如 `/omnitools title` 的根节点不能只校验 `title.open`，否则管理员在“仅允许管理员授予称号、玩家不可打开称号 GUI”的配置下看不到 `give` 子命令。
+
+```java
+.requires(permissionService.requirementAny(
+    CommandAction.TITLE_OPEN,
+    CommandAction.TITLE_GRANT,
+    CommandAction.TITLE_REVOKE
+))
+```
+
+叶子节点分别执行严格校验。
+
+所有 `.requires(...)` 只能引用运行时当前快照，不能捕获启动时的旧配置对象。这样 `/omnitools reload` 后权限会立即生效。
+
+## 服务端二次校验
+
+Brigadier `.requires(...)` 只影响命令树显示、补全和入口，不足以作为唯一防线。
+
+必须在以下位置再次调用 `canUse(...)`：
+
+- 所有命令实际执行方法。
+- `openCheckinMenu`、`openOnlineTimeRewardMenu`、`openShopMenu`、`openTitleMenu`、`openAchievementMenu`、`openCloudStorageMenu`。
+- 云存储 `ScreenHandler` 的存取、扩展和点击逻辑。
+- 称号授予、移除、余额修改、清除签到等状态变更方法。
+
+重载后还应关闭当前在线玩家已经不再有权限访问的 GUI。
+
+## 称号权限效果约束
+
+当前 [TitleEffectService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:252) 已支持称号效果授予：
+
+```text
+omnitools:command.moderator
+omnitools:command.gamemaster
+omnitools:command.admin
+omnitools:command.owner
+```
+
+这会影响原生命令等级判断。权限配置上线后，建议默认只允许称号效果授予：
+
+```text
+omnitools:cloud_storage
+```
+
+`omnitools:command.*` 应在 `ConfigValidator` 中默认拒绝，或增加总开关：
+
+```json
+{
+  "allow_title_command_grants": false
+}
+```
+
+否则玩家佩戴称号后可能获得配置要求的管理员或服主命令。
+
+## 重载规则
+
+`/omnitools reload` 的默认权限仍是 `ADMIN`，避免服主把它设成自己无法使用的角色后丢失配置控制权。
+
+重载流程：
+
+1. 读取和校验所有模块配置及权限配置。
+2. 全部成功后一次性替换配置快照。
+3. 刷新在线玩家命令树。
+4. 关闭因模块禁用或权限不足而无权继续操作的 GUI。
+5. 重载失败则保留旧快照、旧权限和旧命令行为。
+
+## 验收标准
+
+- 首次启动生成 `config/omnitools/permissions/config.json`，默认行为与当前版本完全一致。
+- 普通玩家、等级 1、等级 2、等级 4、控制台分别验证各类命令。
+- 修改某动作到 `OWNER` 后，等级 2 管理员不能执行也不能补全。
+- 所有别名遵循同一规范动作权限，不能绕过。
+- 重载后权限立即更新。
+- 权限被撤销后，已打开 GUI 无法继续进行服务端状态修改。
+- 损坏权限配置后仍使用上一次有效权限快照。
+- 称号默认不能获得管理命令；云存储原生节点行为保持可用。
+
+完成之后同步写入README.md中
+
+---
+
+## Development request 2026/8/23 11:37:00
+
+# OmniTools 指令权限配置方案
+
+## 目标
+
+新增服务端配置文件：
+
+```text
+config/omnitools/permissions/config.json
+```
+
+服务器首次启动时自动生成默认配置。服主可为每个 OmniTools 指令动作配置最低权限角色：
+
+- `PLAYER`：玩家，Minecraft 权限等级 `0`
+- `MODERATOR`：协管，等级 `1`
+- `ADMIN`：管理员，等级 `2`
+- `OWNER`：服主，等级 `4`
+- 控制台：始终允许
+
+默认值必须保持当前行为，避免升级后普通玩家或管理员的权限发生变化。
+
+## 当前命令现状
+
+权限判断集中在 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:127)。
+
+目前以下命令硬编码为等级 `2`：
+
+```text
+/omnitools add
+/omnitools remove
+/omnitools reload
+/balance <玩家>
+/omnitools title give|add
+/omnitools title remove|take
+/omnitools clear [today]
+/omnitools currency add|remove|deduct|take
+/money add|remove|deduct|take
+```
+
+以下默认对玩家开放，仅受功能模块开关限制：
+
+```text
+/omnitools
+/omnitools open
+/omnitools online [rewards]
+/omnitools shop [open]
+/omnitools title [open]
+/omnitools achievements [open]
+/omnitools balance
+/omnitools currency [balance|get]
+/checkin 及对应子命令
+/money [balance|get]
+```
+
+云存储当前需要 `omnitools:cloud_storage` 节点或权限等级 `2`。
+
+## 配置格式
+
+```json
+{
+  "format_version": 1,
+  "commands": {
+    "checkin.open": "PLAYER",
+    "online.open": "PLAYER",
+    "shop.open": "PLAYER",
+    "title.open": "PLAYER",
+    "achievements.open": "PLAYER",
+    "currency.balance.self": "PLAYER",
+
+    "storage.open": {
+      "role": "ADMIN",
+      "allow_native_node": true
+    },
+
+    "currency.balance.other": "ADMIN",
+    "currency.add": "ADMIN",
+    "currency.remove": "ADMIN",
+    "checkin.clear": "ADMIN",
+    "title.grant": "ADMIN",
+    "title.revoke": "ADMIN",
+    "config.reload": "ADMIN"
+  }
+}
+```
+
+`storage.open.allow_native_node: true` 保持现有行为：等级 `2` 管理员或拥有 `omnitools:cloud_storage` 节点的玩家都可使用。
+
+角色名称大小写不敏感。配置解析后统一转换为枚举。
+
+## 规范动作 ID
+
+不要按每条命令别名分别配置。所有别名共享一个规范动作，避免权限绕过。
+
+| 动作 ID | 覆盖命令 |
+|---|---|
+| `checkin.open` | `/omnitools`、`/omnitools open`、`/checkin` |
+| `online.open` | `/omnitools online`、`/checkin online` |
+| `shop.open` | `/omnitools shop`、`/checkin shop` |
+| `title.open` | `/omnitools title`、`/title`、`/checkin title` |
+| `achievements.open` | `/omnitools achievements`、`/checkin achievements` |
+| `storage.open` | `/omnitools storage`、`/checkin storage`、`/cloudstorage`、`/cstorage` |
+| `currency.balance.self` | `/omnitools balance`、`currency`、`/money`、`/balance` |
+| `currency.balance.other` | `/omnitools balance <玩家>`、`/balance <玩家>` |
+| `currency.add` | `/omnitools add`、`currency add`、`/money add` |
+| `currency.remove` | `/omnitools remove`、`currency remove|deduct|take`、`/money remove` |
+| `checkin.clear` | `/omnitools clear [today]`、`/checkin clear [today]` |
+| `title.grant` | `title give|add` 的所有入口 |
+| `title.revoke` | `title remove|take` 的所有入口 |
+| `config.reload` | `/omnitools reload` |
+
+## 新增类
+
+```text
+src/main/java/dev/modmind/omnitools/permissions/
+├── CommandAction.java
+├── CommandRole.java
+├── CommandPermissionConfig.java
+└── CommandPermissionService.java
+```
+
+职责：
+
+- `CommandAction`：所有规范动作 ID 的枚举及默认角色。
+- `CommandRole`：解析 `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER`，映射 Minecraft 权限等级。
+- `CommandPermissionConfig`：读取、校验和首次生成 JSON。
+- `CommandPermissionService`：提供统一权限判断。
+
+建议 API：
+
+```java
+boolean canUse(CommandSourceStack source, CommandAction action);
+
+boolean canUse(ServerPlayer player, CommandAction action);
+
+Predicate<CommandSourceStack> requirement(CommandAction action);
+
+boolean canUseAny(CommandSourceStack source, CommandAction... actions);
+```
+
+控制台必须始终通过。玩家权限判断使用 Fabric 1.21.11 的原生 `PermissionLevel` / `CommandSourceStack.permissions()`，不要自行维护玩家 UUID 白名单。
+
+## 配置快照接入
+
+当前 [OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:28) 已支持完整配置快照和失败保留旧快照。
+
+修改内容：
+
+- `ConfigPaths.moduleConfig(ModuleId.PERMISSIONS)` 作为文件路径。
+- `OmniToolsConfigSnapshot` 新增 `CommandPermissionConfig commandPermissions`。
+- `OmniToolsConfigManager.load(server)` 始终加载命令权限配置。
+- 不要让主配置 `permissions.enabled` 关闭命令安全；可保留该字段作为未来“玩家节点数据模块”预留，但命令权限配置始终有效。
+- 配置错误、未知动作、未知角色、重复动作时，拒绝新快照，继续使用旧权限规则。
+
+## 命令注册修改
+
+将所有硬编码：
+
+```java
+.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+```
+
+替换为：
+
+```java
+.requires(permissionService.requirement(CommandAction.CONFIG_RELOAD))
+```
+
+或对应动作。
+
+父节点需要特别处理。例如 `/omnitools title` 的根节点不能只校验 `title.open`，否则管理员在“仅允许管理员授予称号、玩家不可打开称号 GUI”的配置下看不到 `give` 子命令。
+
+```java
+.requires(permissionService.requirementAny(
+    CommandAction.TITLE_OPEN,
+    CommandAction.TITLE_GRANT,
+    CommandAction.TITLE_REVOKE
+))
+```
+
+叶子节点分别执行严格校验。
+
+所有 `.requires(...)` 只能引用运行时当前快照，不能捕获启动时的旧配置对象。这样 `/omnitools reload` 后权限会立即生效。
+
+## 服务端二次校验
+
+Brigadier `.requires(...)` 只影响命令树显示、补全和入口，不足以作为唯一防线。
+
+必须在以下位置再次调用 `canUse(...)`：
+
+- 所有命令实际执行方法。
+- `openCheckinMenu`、`openOnlineTimeRewardMenu`、`openShopMenu`、`openTitleMenu`、`openAchievementMenu`、`openCloudStorageMenu`。
+- 云存储 `ScreenHandler` 的存取、扩展和点击逻辑。
+- 称号授予、移除、余额修改、清除签到等状态变更方法。
+
+重载后还应关闭当前在线玩家已经不再有权限访问的 GUI。
+
+## 称号权限效果约束
+
+当前 [TitleEffectService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:252) 已支持称号效果授予：
+
+```text
+omnitools:command.moderator
+omnitools:command.gamemaster
+omnitools:command.admin
+omnitools:command.owner
+```
+
+这会影响原生命令等级判断。权限配置上线后，建议默认只允许称号效果授予：
+
+```text
+omnitools:cloud_storage
+```
+
+`omnitools:command.*` 应在 `ConfigValidator` 中默认拒绝，或增加总开关：
+
+```json
+{
+  "allow_title_command_grants": false
+}
+```
+
+否则玩家佩戴称号后可能获得配置要求的管理员或服主命令。
+
+## 重载规则
+
+`/omnitools reload` 的默认权限仍是 `ADMIN`，避免服主把它设成自己无法使用的角色后丢失配置控制权。
+
+重载流程：
+
+1. 读取和校验所有模块配置及权限配置。
+2. 全部成功后一次性替换配置快照。
+3. 刷新在线玩家命令树。
+4. 关闭因模块禁用或权限不足而无权继续操作的 GUI。
+5. 重载失败则保留旧快照、旧权限和旧命令行为。
+
+## 验收标准
+
+- 首次启动生成 `config/omnitools/permissions/config.json`，默认行为与当前版本完全一致。
+- 普通玩家、等级 1、等级 2、等级 4、控制台分别验证各类命令。
+- 修改某动作到 `OWNER` 后，等级 2 管理员不能执行也不能补全。
+- 所有别名遵循同一规范动作权限，不能绕过。
+- 重载后权限立即更新。
+- 权限被撤销后，已打开 GUI 无法继续进行服务端状态修改。
+- 损坏权限配置后仍使用上一次有效权限快照。
+- 称号默认不能获得管理命令；云存储原生节点行为保持可用。
+
+完成之后同步写入README.md中

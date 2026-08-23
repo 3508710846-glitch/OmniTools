@@ -79,6 +79,12 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer permissionPlayer
+                && !ModMindEntry.hasCommandPermission(permissionPlayer,
+                dev.modmind.omnitools.permissions.CommandAction.CHECKIN_OPEN)) {
+            permissionPlayer.closeContainer();
+            return;
+        }
         if (slotId < 0 || slotId >= CONTAINER_SIZE) {
             super.clicked(slotId, button, clickType, player);
             return;

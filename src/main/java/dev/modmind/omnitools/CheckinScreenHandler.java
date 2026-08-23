@@ -98,7 +98,10 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.DAILY_CHECKIN)) {
+        if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.DAILY_CHECKIN)
+                || (player instanceof ServerPlayer serverPlayerForPermission
+                && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,
+                dev.modmind.omnitools.permissions.CommandAction.CHECKIN_OPEN))) {
             if (player instanceof ServerPlayer serverPlayer) {
                 serverPlayer.closeContainer();
             }
@@ -274,6 +277,12 @@ public final class CheckinScreenHandler extends ChestMenu {
     }
 
     private static void openAchievementsMenu(ServerPlayer player) {
+        if (!ModMindEntry.hasCommandPermission(player,
+                dev.modmind.omnitools.permissions.CommandAction.ACHIEVEMENTS_OPEN)
+                || !ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.ACHIEVEMENTS)) {
+            player.displayClientMessage(Component.translatable("message.omnitools.permission_denied"), true);
+            return;
+        }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         ModMindEntry.achievementService(), 0),

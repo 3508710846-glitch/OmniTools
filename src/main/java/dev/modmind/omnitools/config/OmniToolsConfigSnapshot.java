@@ -7,6 +7,7 @@ import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.CheckinRewardConfig;
 import dev.modmind.omnitools.OnlineRewardConfig;
+import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -17,6 +18,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     OnlineRewardConfig onlineRewards,
                                     ShopConfig shop, TitleConfig titles, TitleEffectConfig titleEffects,
                                     CloudStorageConfig cloudStorage, AchievementConfig achievements,
+                                    CommandPermissionConfig commandPermissions,
                                     Map<ModuleId, ModuleStatus> statuses, long revision) {
     public OmniToolsConfigSnapshot {
         EnumMap<ModuleId, ModuleStatus> copy = new EnumMap<>(ModuleId.class);
@@ -28,6 +30,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                     ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
         }
         statuses = Map.copyOf(copy);
+        commandPermissions = commandPermissions == null ? CommandPermissionConfig.defaults() : commandPermissions;
     }
 
     public boolean enabled(ModuleId module) {

@@ -141,7 +141,14 @@ public final class TitleEffectService {
             case POTION -> applyPotion(player, definition, applied);
             case ATTRIBUTE -> applyAttribute(player, definition, applied);
             case PARTICLE -> applied.particles.add(definition);
-            case PERMISSION -> applied.permissions.add(definition.permission().trim().toLowerCase(Locale.ROOT));
+            case PERMISSION -> {
+                String permission = definition.permission().trim().toLowerCase(Locale.ROOT);
+                if (permission.startsWith("omnitools:command.")
+                        && !ModMindEntry.configSnapshot().commandPermissions().allowTitleCommandGrants()) {
+                    return;
+                }
+                applied.permissions.add(permission);
+            }
         }
     }
 

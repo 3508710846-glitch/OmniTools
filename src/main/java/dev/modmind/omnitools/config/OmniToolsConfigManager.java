@@ -8,6 +8,7 @@ import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.CheckinRewardConfig;
 import dev.modmind.omnitools.OnlineRewardConfig;
 import net.minecraft.server.MinecraftServer;
+import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
 import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -44,12 +45,13 @@ public final class OmniToolsConfigManager {
                     ? CloudStorageConfig.load() : CloudStorageConfig.defaultConfig();
             AchievementConfig achievements = root.enabled(ModuleId.ACHIEVEMENTS)
                     ? AchievementConfig.load() : AchievementConfig.empty();
+            CommandPermissionConfig commandPermissions = CommandPermissionConfig.load();
             EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
             for (ModuleId module : ModuleId.values()) {
                 statuses.put(module, root.enabled(module) ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
             }
             OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                    storage, achievements, statuses, revisions.incrementAndGet());
+                    storage, achievements, commandPermissions, statuses, revisions.incrementAndGet());
             ConfigValidator.validate(candidate);
             snapshot = candidate;
             return candidate;
@@ -68,6 +70,6 @@ public final class OmniToolsConfigManager {
         }
         return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
-                AchievementConfig.empty(), statuses, 0L);
+                AchievementConfig.empty(), CommandPermissionConfig.defaults(), statuses, 0L);
     }
 }

@@ -28,6 +28,7 @@ config/omnitools/
 ├── title_effects/config.json
 ├── achievements/config.json
 ├── cloud_storage/config.json
+├── permissions/config.json
 └── legacy/
 ```
 
@@ -109,7 +110,7 @@ config/omnitools/
 - `global.debug`：全局调试开关；不改变奖励规则。
 - `global.timezone`：服务端计算“今天”和在线时长归属日的时区。
 - `modules.<id>.enabled`：模块开关。模块 ID 必须使用 `daily_checkin`、`online_reward`、`shop`、`titles`、`title_effects`、`achievements`、`cloud_storage` 或 `permissions`。
-- `title_effects` 依赖 `titles`；成就称号奖励需要 `titles` 启用；`permissions` 当前没有独立后端，默认关闭。
+- `title_effects` 依赖 `titles`；成就称号奖励需要 `titles` 启用。`permissions.enabled` 仍是预留开关，但 `permissions/config.json` 始终有效，用于保护命令入口，不会因该开关为 `false` 而关闭安全校验。
 
 ## 每日签到模块（`daily_checkin`）
 
@@ -141,7 +142,7 @@ config/omnitools/
 /omnitools clear today
 ```
 
-这些命令需要权限等级 `2`。`add` 增加余额，`remove` 按实际可扣除数量减少余额；`clear` 和 `clear today` 等价，只清除当前配置时区的当天签到记录。
+这些管理动作默认需要 `ADMIN`（Minecraft 等级 `2`），也可在 `permissions/config.json` 中分别调整。`add` 增加余额，`remove` 按实际可扣除数量减少余额；`clear` 和 `clear today` 等价，只清除当前配置时区的当天签到记录。
 
 ### 默认配置
 
@@ -361,7 +362,7 @@ config/omnitools/
 /omnitools title take <玩家> <称号ID>
 ```
 
-均需要权限等级 `2`。`give`/`add` 授予称号但不会自动佩戴；`remove`/`take` 回收称号，若玩家正在佩戴则同时卸下。修改称号定义后使用 `/omnitools reload`。
+`title.grant` 和 `title.revoke` 默认需要 `ADMIN`（等级 `2`），可在权限配置中单独调整。`give`/`add` 授予称号但不会自动佩戴；`remove`/`take` 回收称号，若玩家正在佩戴则同时卸下。修改称号定义后使用 `/omnitools reload`。
 
 ### 默认配置
 
@@ -445,7 +446,7 @@ config/omnitools/
 /omnitools reload
 ```
 
-需要权限等级 `2`。重载时会刷新在线玩家效果；如果关闭 `title_effects`，会先移除在线玩家的称号效果，但保留称号文字显示。
+默认需要 `ADMIN`（等级 `2`），具体以 `config.reload` 权限动作配置为准。重载时会刷新在线玩家效果；如果关闭 `title_effects`，会先移除在线玩家的称号效果，但保留称号文字显示。
 
 ### 默认配置
 
@@ -545,7 +546,7 @@ config/omnitools/
 - 药水效果使用 `effect`、`amplifier` 和 `duration`；`duration: -1` 表示无限时长，`amplifier` 从 `0` 开始。
 - 属性效果使用 `attribute`、`operation` 和 `amount`；操作支持 `ADDITION`、`ADD_MULTIPLIED_BASE`、`ADD_MULTIPLIED_TOTAL`。
 - 粒子效果使用 `particle` 和正整数 `frequency`，表示每多少 Tick 生成一次。
-- 权限效果使用 `permission`。只允许 `omnitools:cloud_storage` 或 `omnitools:command.*`，其他节点会被配置校验拒绝。
+- 权限效果使用 `permission`。只允许 `omnitools:cloud_storage` 或 `omnitools:command.*`，其他节点会被配置校验拒绝；`omnitools:command.*` 还必须在权限配置中显式打开 `allow_title_command_grants`。
 - `name` 和 `display` 用于 GUI 提示；效果 ID就是称号配置中引用的键。
 
 ## 自定义成就模块（`achievements`）
@@ -711,58 +712,134 @@ player.getStats().getValue(Stats.ENTITY_KILLED.get(entityType));
 - `maxPages`：玩家最多可解锁的页数，当前只能是 `1` 或 `2`；每个玩家初始为 `1` 页。
 - `format_version`：当前为 `1`。
 - 状态文件：`<世界>/data/omnitools_cloud_storage.dat`，保存每个 UUID 的页数和物品堆。
-- 权限节点：`omnitools:cloud_storage`。称号权限效果也只能授予这一节点或 `omnitools:command.*`。
+- 权限节点：`omnitools:cloud_storage`。称号权限效果默认只能授予这一节点；只有 `allow_title_command_grants` 为 `true` 时才允许 `omnitools:command.*`。
 
-## 权限预留模块（`permissions`）
+## 指令权限模块（`permissions`）
 
 ### 工作原理
 
-`permissions` 目前只有主配置中的预留开关，没有独立权限数据服务、权限配置文件或权限管理命令。当前实际权限来自 Minecraft 原生权限等级、云存储权限节点，以及称号效果的白名单权限注入。
+权限规则保存在服务端的 `config/omnitools/permissions/config.json`。模组把命令和所有别名归一为固定动作 ID，再将动作映射到最低角色：`PLAYER`（等级 0）、`MODERATOR`（等级 1）、`ADMIN`（等级 2）或 `OWNER`（等级 4）。控制台命令源始终允许。判断使用 Minecraft 原生 `CommandSourceStack.permissions()` 和权限等级，不维护 UUID 白名单。
+
+Brigadier 的 `.requires(...)` 只负责命令树显示、补全和入口过滤；执行方法、打开 GUI、GUI 点击、云存储快捷移动和称号/货币等状态变更还会再次调用服务端权限服务。权限重载后会重新发送在线玩家命令树，并关闭已无权访问的 GUI。
 
 ### 如何使用
 
-不要把该模块当作完整权限插件使用。普通权限后端需要自行授予 `omnitools:cloud_storage`；管理员等级 `2` 及以上自动拥有云存储访问权。称号效果配置中的 `PERMISSION` 节点会在重载时校验白名单。
+服务器首次启动会生成权限文件。编辑文件后执行 `/omnitools reload`，所有规则在一次成功重载后原子替换；JSON 损坏、未知动作、未知角色或错误字段会拒绝新快照并继续使用上一份有效规则。
+
+动作 ID 不按命令别名拆分，以下入口共享同一权限：
+
+| 动作 ID | 覆盖入口 |
+| --- | --- |
+| `checkin.open` | `/omnitools`、`/omnitools open`、`/checkin` |
+| `online.open` | `/omnitools online`、`/checkin online` |
+| `shop.open` | `/omnitools shop`、`/checkin shop` |
+| `title.open` | `/omnitools title`、`/title`、`/checkin title` |
+| `achievements.open` | `/omnitools achievements`、`/checkin achievements` |
+| `storage.open` | `/omnitools storage`、`/checkin storage`、`/cloudstorage`、`/cstorage` |
+| `currency.balance.self` | `/omnitools balance`、`/omnitools currency`、`/money`、`/balance` |
+| `currency.balance.other` | `/omnitools balance <玩家>`、`/balance <玩家>` |
+| `currency.add` | `/omnitools add`、`currency add`、`/money add` |
+| `currency.remove` | `/omnitools remove`、`currency remove|deduct|take`、`/money remove` |
+| `checkin.clear` | `/omnitools clear [today]`、`/checkin clear [today]` |
+| `title.grant` | `title give|add` 的所有入口 |
+| `title.revoke` | `title remove|take` 的所有入口 |
+| `config.reload` | `/omnitools reload` |
 
 ### 玩家命令
 
-没有权限管理命令。玩家只需使用各功能模块的命令；最终权限始终由服务端再次判断。
+权限模块没有单独的玩家命令。玩家直接使用每日签到、在线奖励、商店、称号、成就和余额命令；每条命令都会按当前动作规则检查。默认情况下，功能打开命令和查询自己的余额都是 `PLAYER`，因此普通玩家可以使用：
+
+```text
+/omnitools
+/omnitools online
+/omnitools shop
+/omnitools title
+/omnitools achievements
+/omnitools balance
+/money
+```
+
+云存储默认要求 `ADMIN`，但 `storage.open.allow_native_node: true` 时，拥有 `omnitools:cloud_storage` 原生节点的普通玩家也可以打开和操作云存储。
 
 ### 管理员命令
 
-当前没有独立命令。模块开关可通过以下命令重载：
+权限模块没有独立的授予/撤销命令，规则通过文件编辑并使用以下命令加载：
 
 ```text
 /omnitools reload
 ```
 
-该命令本身需要权限等级 `2`。
+`config.reload` 默认是 `ADMIN`。修改它时建议至少保留一名拥有新角色的管理员，否则无法通过命令重新加载错误配置；启动时读取失败仍会保留上一份有效快照。
 
 ### 默认配置
 
-主配置中的默认值为：
-
-```json
-{
-  "permissions": { "enabled": false }
-}
-```
-
-### 示例配置与字段解析
+主配置中的 `permissions.enabled` 默认仍为 `false`，它只是未来权限数据后端的预留开关，不会关闭下面这份命令安全配置。首次生成的 `config/omnitools/permissions/config.json` 等价于：
 
 ```json
 {
   "format_version": 1,
-  "global": {
-    "debug": false,
-    "timezone": "Asia/Shanghai"
-  },
-  "modules": {
-    "permissions": { "enabled": false }
+  "allow_title_command_grants": false,
+  "commands": {
+    "checkin.open": "PLAYER",
+    "online.open": "PLAYER",
+    "shop.open": "PLAYER",
+    "title.open": "PLAYER",
+    "achievements.open": "PLAYER",
+    "storage.open": {
+      "role": "ADMIN",
+      "allow_native_node": true
+    },
+    "currency.balance.self": "PLAYER",
+    "currency.balance.other": "ADMIN",
+    "currency.add": "ADMIN",
+    "currency.remove": "ADMIN",
+    "checkin.clear": "ADMIN",
+    "title.grant": "ADMIN",
+    "title.revoke": "ADMIN",
+    "config.reload": "ADMIN"
   }
 }
 ```
 
-启用该开关不会凭空创建权限后端；请保持关闭，除非未来版本增加独立实现。配置文件禁止授予任意管理员级别权限。
+这组默认值与旧版本行为一致：等级 0 玩家可以打开功能和查询自己的余额，等级 2 管理员可以修改余额、清除签到、管理称号和重载配置，控制台全部允许。
+
+### 示例配置与字段解析
+
+下面的示例把商店限制为协管以上、称号 GUI 限制为管理员以上，并要求只有服主可以重载配置；余额查询自己的动作仍保持对玩家开放：
+
+```json
+{
+  "format_version": 1,
+  "allow_title_command_grants": false,
+  "commands": {
+    "checkin.open": "PLAYER",
+    "online.open": "PLAYER",
+    "shop.open": "MODERATOR",
+    "title.open": "ADMIN",
+    "achievements.open": "PLAYER",
+    "storage.open": {
+      "role": "ADMIN",
+      "allow_native_node": true
+    },
+    "currency.balance.self": "PLAYER",
+    "currency.balance.other": "ADMIN",
+    "currency.add": "ADMIN",
+    "currency.remove": "ADMIN",
+    "checkin.clear": "ADMIN",
+    "title.grant": "ADMIN",
+    "title.revoke": "ADMIN",
+    "config.reload": "OWNER"
+  }
+}
+```
+
+- `format_version`：当前为整数 `1`。
+- `commands`：动作到角色的映射。未填写的动作使用代码内默认值；未知动作或未知角色会使整次重载失败。
+- `role`：角色名大小写不敏感，解析后转换为枚举。`PLAYER`、`MODERATOR`、`ADMIN`、`OWNER` 分别对应原生等级 0、1、2、4。
+- `storage.open.allow_native_node`：为 `true` 时保留 `omnitools:cloud_storage` 节点绕过最低角色的行为；为 `false` 时只有达到配置角色的玩家可用，控制台仍始终允许。
+- `allow_title_command_grants`：默认 `false`。称号效果只能授予 `omnitools:cloud_storage`；若设为 `true`，才允许标题效果配置中的 `omnitools:command.*` 节点参与原生命令权限扩展。该开关不会自动授予任何节点。
+
+称号权限效果默认禁止 `omnitools:command.moderator`、`omnitools:command.gamemaster`、`omnitools:command.admin` 和 `omnitools:command.owner`，避免玩家佩戴称号后意外获得管理命令；云存储原生节点行为不受影响。
 
 ## 共享货币命令
 
