@@ -6850,3 +6850,255 @@ omnitools:achievements_unlocked
 ```
 
 最终工作台应附一份简短变更说明：移除了哪些过期/过长内容、README 保留了哪些入口信息、详细文档放到了哪些 `docs/` 文件。
+
+---
+
+## Development request 2026/8/24 14:30:47
+
+### 1. 管理入口
+
+新增命令：
+
+```text
+/omnitools modules
+```
+
+- 仅允许游戏内玩家执行，打开“模块管理”箱子 GUI。
+- 复用现有 `CommandAction.CONFIG_RELOAD` 权限，默认管理员。
+- 控制台仍可使用 `/omnitools reload`，但不能打开 GUI。
+- 暂不新增独立权限节点；未来需要委派管理时，再增加 `modules.manage`。
+
+当前总配置路径必须通过 `ConfigPaths.rootConfig()` 获取，即 `config/omnitools/config.json`，不能硬编码开发环境的 `run/config` 路径。
+
+### 2. GUI 设计
+
+新增：
+
+```text
+ModuleManagerScreenHandler.java   // 服务端菜单与点击处理
+ModuleManagerScreen.java          // 客户端界面
+ModuleControlService.java         // 模块切换事务与运行时应用
+```
+
+使用现有成就菜单的服务端容器模式。3 行箱子 GUI 足够，固定展示 8 个模块：
+
+| 模块 | 图标 |
+|---|---|
+| `daily_checkin` | 时钟 |
+| `online_reward` | 时钟 |
+| `shop` | 绿宝石 |
+| `titles` | 命名牌 |
+| `title_effects` | 烈焰粉 |
+| `achievements` | 知识之书 |
+| `cloud_storage` | 末影箱 |
+| `permissions` | 绊线钩 |
+
+每个格子显示：
+
+```text
+模块中文名
+状态：已启用 / 已禁用
+模块 ID：daily_checkin
+点击切换状态
+```
+
+- 启用：绿色名称、附魔光效。
+- 禁用：红色名称。
+- 被依赖关系阻止：黄色提示具体原因。
+- GUI 打开后和每次点击时都重新检查权限。
+- 只接受菜单拥有者的普通点击；拒绝 Shift 点击、拖拽、快速移动及非拥有者操作。
+- 切换成功后立即刷新全部格子；失败时保留原状态并向管理员显示错误原因。
+- 可在底部放一个“重新读取磁盘配置”按钮，功能等价于 `/omnitools reload`。
+
+### 3. 关键：事务式热切换
+
+不要实现成“GUI 直接改 `config.json`，再调用普通 reload”。
+
+原因是：若管理员启用一个模块后，其子配置无效，普通重载会保留旧运行时快照，但根配置已写成启用，造成磁盘配置和运行状态不一致。
+
+应在 `OmniToolsConfigManager` 增加类似接口：
+
+```java
+ModuleUpdateResult updateModuleEnabled(
+    MinecraftServer server,
+    ModuleId module,
+    boolean enabled
+)
+```
+
+执行顺序：
+
+1. 读取当前有效 `snapshot.root()`，生成仅修改目标模块开关的候选根配置。
+2. 基于候选根配置加载所有相关子配置，构造候选 `OmniToolsConfigSnapshot`。
+3. 执行现有 `ConfigValidator.validate(candidate)`。
+4. 校验成功后，将根配置写入同目录临时文件，再原子移动到 `config.json`。
+5. 发布候选快照。
+6. 统一执行运行时补偿逻辑。
+7. 任一步失败则不写正式配置、不替换快照，并返回可显示的失败原因。
+
+普通 `/omnitools reload` 与 GUI 切换后，都应调用同一个 `applyRuntimeConfigChange(server, oldSnapshot, newSnapshot)`，避免两套热重载行为逐渐不一致。
+
+### 4. 运行时补偿
+
+切换成功后：
+
+- 刷新所有在线玩家命令树，使已禁用模块命令立即隐藏或拒绝。
+- 关闭被禁用模块当前打开的 GUI。
+- 在线奖励从启用切为禁用时，先 `flushAll` 再停止计时；重新启用后由下一次 tick 自动接管在线玩家。
+- 称号模块变更后刷新所有玩家的称号显示。
+- 称号效果禁用时 `removeAll`，启用时 `refreshAll`。
+- 成就模块启用时立即 `checkAll`；禁用后不再执行周期检查。
+- 签到、商店、云存储禁用后，已有菜单关闭，后续命令和新打开请求被模块状态拦截。
+
+`permissions` 模块需要明确语义：禁用时应回退到每个 `CommandAction` 的默认角色，不能变成无条件放行；启用时才读取并应用权限配置覆盖项。
+
+Placeholder API 是独立集成项 `integrations.placeholder_api.enabled`，不属于 `ModuleId`，不应放入模块开关 GUI。
+
+### 5. 依赖规则
+
+保持显式拒绝，不做静默级联开关：
+
+- `title_effects` 启用而 `titles` 禁用：拒绝。
+- 禁用 `titles` 时 `title_effects` 仍启用且效果配置非空：拒绝，并提示先关闭称号效果。
+
+这与现有 `ConfigValidator` 的规则一致，避免一次点击隐式关闭多个功能。
+
+### 6. 验收标准
+
+1. GUI 初始状态与 `config/omnitools/config.json` 的 `modules` 一致。
+2. 逐项禁用、重新启用 8 个模块，全程无需重启服务器。
+3. 命令、菜单、周期任务、称号显示和效果会立即反映新状态。
+4. 无权限玩家、控制台和非 GUI 所有者均不能切换。
+5. 启用模块时若子配置无效，GUI 显示失败，磁盘配置和运行时状态都保持不变。
+6. 称号与称号效果的依赖冲突会被正确拒绝。
+7. 重启服务器后，GUI 状态与切换结果保持一致。
+8. 补充中英文语言键，并编译、启动隔离服务端后进行手动 GUI 验证。
+
+---
+
+## Development request 2026/8/24 15:29:47
+
+### 1. 管理入口
+
+新增命令：
+
+```text
+/omnitools modules
+```
+
+- 仅允许游戏内玩家执行，打开“模块管理”箱子 GUI。
+- 复用现有 `CommandAction.CONFIG_RELOAD` 权限，默认管理员。
+- 控制台仍可使用 `/omnitools reload`，但不能打开 GUI。
+- 暂不新增独立权限节点；未来需要委派管理时，再增加 `modules.manage`。
+
+当前总配置路径必须通过 `ConfigPaths.rootConfig()` 获取，即 `config/omnitools/config.json`，不能硬编码开发环境的 `run/config` 路径。
+
+### 2. GUI 设计
+
+新增：
+
+```text
+ModuleManagerScreenHandler.java   // 服务端菜单与点击处理
+ModuleManagerScreen.java          // 客户端界面
+ModuleControlService.java         // 模块切换事务与运行时应用
+```
+
+使用现有成就菜单的服务端容器模式。3 行箱子 GUI 足够，固定展示 8 个模块：
+
+| 模块 | 图标 |
+|---|---|
+| `daily_checkin` | 时钟 |
+| `online_reward` | 时钟 |
+| `shop` | 绿宝石 |
+| `titles` | 命名牌 |
+| `title_effects` | 烈焰粉 |
+| `achievements` | 知识之书 |
+| `cloud_storage` | 末影箱 |
+| `permissions` | 绊线钩 |
+
+每个格子显示：
+
+```text
+模块中文名
+状态：已启用 / 已禁用
+模块 ID：daily_checkin
+点击切换状态
+```
+
+- 启用：绿色名称、附魔光效。
+- 禁用：红色名称。
+- 被依赖关系阻止：黄色提示具体原因。
+- GUI 打开后和每次点击时都重新检查权限。
+- 只接受菜单拥有者的普通点击；拒绝 Shift 点击、拖拽、快速移动及非拥有者操作。
+- 切换成功后立即刷新全部格子；失败时保留原状态并向管理员显示错误原因。
+- 可在底部放一个“重新读取磁盘配置”按钮，功能等价于 `/omnitools reload`。
+
+### 3. 关键：事务式热切换
+
+不要实现成“GUI 直接改 `config.json`，再调用普通 reload”。
+
+原因是：若管理员启用一个模块后，其子配置无效，普通重载会保留旧运行时快照，但根配置已写成启用，造成磁盘配置和运行状态不一致。
+
+应在 `OmniToolsConfigManager` 增加类似接口：
+
+```java
+ModuleUpdateResult updateModuleEnabled(
+    MinecraftServer server,
+    ModuleId module,
+    boolean enabled
+)
+```
+
+执行顺序：
+
+1. 读取当前有效 `snapshot.root()`，生成仅修改目标模块开关的候选根配置。
+2. 基于候选根配置加载所有相关子配置，构造候选 `OmniToolsConfigSnapshot`。
+3. 执行现有 `ConfigValidator.validate(candidate)`。
+4. 校验成功后，将根配置写入同目录临时文件，再原子移动到 `config.json`。
+5. 发布候选快照。
+6. 统一执行运行时补偿逻辑。
+7. 任一步失败则不写正式配置、不替换快照，并返回可显示的失败原因。
+
+普通 `/omnitools reload` 与 GUI 切换后，都应调用同一个 `applyRuntimeConfigChange(server, oldSnapshot, newSnapshot)`，避免两套热重载行为逐渐不一致。
+
+### 4. 运行时补偿
+
+切换成功后：
+
+- 刷新所有在线玩家命令树，使已禁用模块命令立即隐藏或拒绝。
+- 关闭被禁用模块当前打开的 GUI。
+- 在线奖励从启用切为禁用时，先 `flushAll` 再停止计时；重新启用后由下一次 tick 自动接管在线玩家。
+- 称号模块变更后刷新所有玩家的称号显示。
+- 称号效果禁用时 `removeAll`，启用时 `refreshAll`。
+- 成就模块启用时立即 `checkAll`；禁用后不再执行周期检查。
+- 签到、商店、云存储禁用后，已有菜单关闭，后续命令和新打开请求被模块状态拦截。
+
+`permissions` 模块需要明确语义：禁用时应回退到每个 `CommandAction` 的默认角色，不能变成无条件放行；启用时才读取并应用权限配置覆盖项。
+
+Placeholder API 是独立集成项 `integrations.placeholder_api.enabled`，不属于 `ModuleId`，不应放入模块开关 GUI。
+
+### 5. 依赖规则
+
+保持显式拒绝，不做静默级联开关：
+
+- `title_effects` 启用而 `titles` 禁用：拒绝。
+- 禁用 `titles` 时 `title_effects` 仍启用且效果配置非空：拒绝，并提示先关闭称号效果。
+
+这与现有 `ConfigValidator` 的规则一致，避免一次点击隐式关闭多个功能。
+
+### 6. 验收标准
+
+1. GUI 初始状态与 `config/omnitools/config.json` 的 `modules` 一致。
+2. 逐项禁用、重新启用 8 个模块，全程无需重启服务器。
+3. 命令、菜单、周期任务、称号显示和效果会立即反映新状态。
+4. 无权限玩家、控制台和非 GUI 所有者均不能切换。
+5. 启用模块时若子配置无效，GUI 显示失败，磁盘配置和运行时状态都保持不变。
+6. 称号与称号效果的依赖冲突会被正确拒绝。
+7. 重启服务器后，GUI 状态与切换结果保持一致。
+8. 补充中英文语言键，并编译、启动隔离服务端后进行手动 GUI 验证。
+
+---
+
+## Development request 2026/8/24 15:31:03
+
+检查模块GUI是否做完，把指令等写入到相关文档

@@ -1,0 +1,83 @@
+
+> Configure project :
+Fabric Loom: 1.17.17
+
+> Task :compileJava UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :generateLog4jConfig UP-TO-DATE
+> Task :generateRemapClasspath
+> Task :generateDLIConfig
+> Task :configureLaunch
+
+> Task :runServer
+[14:48:15] [main/INFO] (FabricLoader/GameProvider) Loading Minecraft 1.21.11 with Fabric Loader 0.19.3
+[14:48:15] [main/INFO] (FabricLoader) Loading 44 mods:
+	- fabric-api 0.141.6+1.21.11
+	- fabric-api-base 1.0.5+4ebb5c083e
+	- fabric-api-lookup-api-v1 1.6.114+20dc27073e
+	- fabric-biome-api-v1 17.1.1+4fc5413f3e
+	- fabric-block-api-v1 1.1.10+4ebb5c083e
+	- fabric-block-view-api-v2 1.0.39+4ebb5c083e
+	- fabric-command-api-v2 2.4.7+6b42a6003e
+	- fabric-content-registries-v0 10.2.14+4fc5413f3e
+	- fabric-convention-tags-v1 2.1.55+7f945d5b3e
+	- fabric-convention-tags-v2 2.17.3+8ef948ba3e
+	- fabric-crash-report-info-v1 0.3.23+4ebb5c083e
+	- fabric-data-attachment-api-v1 1.8.48+eed0806f3e
+	- fabric-data-generation-api-v1 23.5.0+88d7da613e
+	- fabric-dimensions-v1 4.0.28+4fc5413f3e
+	- fabric-entity-events-v1 3.1.1+1d0ab4303e
+	- fabric-events-interaction-v0 4.1.1+3b89ecf63e
+	- fabric-game-rule-api-v1 2.0.3+4fc5413f3e
+	- fabric-gametest-api-v1 3.1.27+4fc5413f3e
+	- fabric-item-api-v1 11.6.0+67f17bb43e
+	- fabric-item-group-api-v1 4.2.36+4fc5413f3e
+	- fabric-lifecycle-events-v1 2.6.15+4ebb5c083e
+	- fabric-loot-api-v2 3.0.73+3f89f5a53e
+	- fabric-loot-api-v3 2.0.20+78c8b4663e
+	- fabric-message-api-v1 6.1.12+4ebb5c083e
+	- fabric-networking-api-v1 5.1.6+6b6d71a53e
+	- fabric-object-builder-api-v1 21.1.40+4fc5413f3e
+	- fabric-particles-v1 4.2.12+4fc5413f3e
+	- fabric-recipe-api-v1 8.2.4+4ebb5c083e
+	- fabric-registry-sync-v0 6.2.6+1718722b3e
+	- fabric-rendering-fluids-v1 3.1.43+4ebb5c083e
+	- fabric-resource-conditions-api-v1 5.0.35+4fc5413f3e
+	- fabric-resource-loader-v0 3.3.4+4fc5413f3e
+	- fabric-resource-loader-v1 1.0.10+78c8b4663e
+	- fabric-screen-handler-api-v1 1.3.162+4fc5413f3e
+	- fabric-serialization-api-v1 1.0.5+4ebb5c083e
+	- fabric-tag-api-v1 1.3.0+88d7da613e
+	- fabric-transfer-api-v1 6.0.25+4fc5413f3e
+	- fabric-transitive-access-wideners-v1 7.1.0+014c8cec3e
+	- fabricloader 0.19.3
+	- java 21
+	- minecraft 1.21.11
+	- mixinextras 0.5.4
+	- omnitools 0.1.0
+	- placeholder-api 2.8.2+1.21.10
+[14:48:16] [main/INFO] (FabricLoader/Mixin) SpongePowered MIXIN Subsystem Version=0.8.7 Source=file:/C:/Users/ad/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.3+mixin.0.8.7/41c4a3984a80f4679e759fb9f495587acc5cdac7/sponge-mixin-0.17.3+mixin.0.8.7.jar Service=Knot/Fabric Env=SERVER
+[14:48:16] [main/INFO] (FabricLoader/Mixin) Loaded Fabric development mappings for mixin remapper!
+[14:48:16] [main/INFO] (FabricLoader/Mixin) Compatibility level set to JAVA_21
+[14:48:16] [main/INFO] (FabricLoader/MixinExtras|Service) Initializing MixinExtras via com.llamalad7.mixinextras.service.MixinExtrasServiceImpl(version=0.5.4).
+[14:48:26] [main/INFO] (Minecraft) [STDOUT]: [ModMind] omnitools initialized
+[14:48:27] [main/INFO] (Minecraft) Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, profilesHost=https://api.mojang.com, name=PROD]
+[14:48:29] [main/INFO] (Minecraft) Loaded 1470 recipes
+[14:48:29] [main/INFO] (Minecraft) Loaded 1584 advancements
+[14:48:29] [main/INFO] (BiomeModificationImpl) Applied 0 biome modifications to 0 of 65 new biomes in 1.852 ms
+[14:48:29] [Server thread/INFO] (Minecraft) Starting minecraft server version 1.21.11
+[14:48:29] [Server thread/INFO] (Minecraft) Loading properties
+[14:48:29] [Server thread/INFO] (Minecraft) Default game type: SURVIVAL
+[14:48:29] [Server thread/INFO] (Minecraft) Generating keypair
+[14:48:29] [Server thread/INFO] (Minecraft) Starting Minecraft server on *:25565
+[14:48:30] [Server thread/INFO] (Minecraft) Preparing level "world"
+[14:48:30] [Server thread/INFO] (Minecraft) Loading 0 persistent chunks...
+[14:48:30] [Server thread/INFO] (Minecraft) Preparing spawn area: 100%
+[14:48:30] [Server thread/INFO] (Minecraft) Time elapsed: 106 ms
+[14:48:30] [Server thread/INFO] (Minecraft) Done (0.633s)! For help, type "help"
+[14:48:30] [Server thread/INFO] (Minecraft) [STDOUT]: [omnitools] Registered 17 Placeholder API placeholders
+[14:49:30] [Server thread/INFO] (Minecraft) Server empty for 60 seconds, pausing
+
+> Task :runServer FAILED
+6 actionable tasks: 3 executed, 3 up-to-date

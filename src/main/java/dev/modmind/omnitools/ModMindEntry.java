@@ -44,6 +44,7 @@ public final class ModMindEntry implements ModInitializer {
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
     private static AchievementService achievementService = AchievementService.empty();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
+    private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
     private static final CommandPermissionService COMMAND_PERMISSIONS = new CommandPermissionService(
             CommandPermissionConfig.defaults());
@@ -57,6 +58,7 @@ public final class ModMindEntry implements ModInitializer {
         TitleScreenHandler.register();
         CloudStorageScreenHandler.register();
         AchievementScreenHandler.register();
+        ModuleManagerScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
             onlineTimeRewardService = new OnlineTimeRewardService();
@@ -66,7 +68,7 @@ public final class ModMindEntry implements ModInitializer {
             LegacySavedDataMigration.migrate(server);
             TitleData.bind(server);
             TitleData.importLegacy(server);
-            applySnapshot(CONFIG_MANAGER.load(server));
+            MODULE_CONTROL.reload(server);
             PlaceholderBootstrap.registerIfAvailable();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -158,7 +160,8 @@ public final class ModMindEntry implements ModInitializer {
                             .then(currencyChangeArgument(false)))
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
-                            .executes(context -> reloadRewards(context.getSource())));
+                            .executes(context -> reloadRewards(context.getSource())))
+                    .then(moduleManagerCommand());
             dispatcher.register(command);
             dispatcher.register(Commands.literal("checkin")
                     .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
@@ -229,6 +232,10 @@ public final class ModMindEntry implements ModInitializer {
         return achievementService;
     }
 
+    static ModuleControlService moduleControlService() {
+        return MODULE_CONTROL;
+    }
+
     static OmniToolsConfigSnapshot configSnapshot() {
         return configSnapshot;
     }
@@ -256,6 +263,29 @@ public final class ModMindEntry implements ModInitializer {
         // Keep existing achievement menus bound to the live service. Its revision
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
+    }
+
+    /** Applies one already-validated snapshot for both command reloads and module GUI changes. */
+    static void applyRuntimeConfigChange(net.minecraft.server.MinecraftServer server,
+                                         OmniToolsConfigSnapshot previous, OmniToolsConfigSnapshot current) {
+        if (previous.enabled(ModuleId.ONLINE_REWARD) && !current.enabled(ModuleId.ONLINE_REWARD)) {
+            onlineTimeRewardService().flushAll(server);
+        }
+        applySnapshot(current);
+        PlaceholderBootstrap.registerIfAvailable();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            server.getCommands().sendCommands(player);
+        }
+        closeDisabledMenus(server, current);
+        TitleDisplayService.refreshAll(server);
+        if (current.enabled(ModuleId.TITLE_EFFECTS)) {
+            TitleEffectService.refreshAll(server);
+        } else {
+            TitleEffectService.removeAll(server);
+        }
+        if (current.enabled(ModuleId.ACHIEVEMENTS)) {
+            achievementService().checkAll(server);
+        }
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
@@ -292,6 +322,12 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> moduleManagerCommand() {
+        return Commands.literal("modules")
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
+                .executes(context -> openModuleManagerMenu(context.getSource()));
     }
 
     private static boolean hasCloudStoragePermission(CommandSourceStack source) {
@@ -493,29 +529,10 @@ public final class ModMindEntry implements ModInitializer {
         if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CONFIG_RELOAD)) {
             return 0;
         }
-        long previousRevision = configSnapshot.revision();
-        OmniToolsConfigSnapshot candidate = CONFIG_MANAGER.load(source.getServer());
-        if (candidate.revision() == previousRevision) {
+        OmniToolsConfigManager.ReloadResult result = MODULE_CONTROL.reload(source.getServer());
+        if (!result.success()) {
             source.sendFailure(Component.translatable("command.omnitools.reload.failed"));
             return 0;
-        }
-        if (isModuleEnabled(ModuleId.ONLINE_REWARD) && !candidate.enabled(ModuleId.ONLINE_REWARD)) {
-            onlineTimeRewardService().flushAll(source.getServer());
-        }
-        applySnapshot(candidate);
-        PlaceholderBootstrap.registerIfAvailable();
-        for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
-            source.getServer().getCommands().sendCommands(player);
-        }
-        closeDisabledMenus(source.getServer(), candidate);
-        TitleDisplayService.refreshAll(source.getServer());
-        if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-            TitleEffectService.refreshAll(source.getServer());
-        } else {
-            TitleEffectService.removeAll(source.getServer());
-        }
-        if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
-            achievementService().checkAll(source.getServer());
         }
         source.sendSuccess(() -> Component.translatable("command.omnitools.reload.success",
                 configSnapshot.revision()), true);
@@ -548,7 +565,9 @@ public final class ModMindEntry implements ModInitializer {
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
-                    && player.containerMenu instanceof CloudStorageScreenHandler);
+                    && player.containerMenu instanceof CloudStorageScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CONFIG_RELOAD)
+                    && player.containerMenu instanceof ModuleManagerScreenHandler);
             if (close) {
                 player.closeContainer();
             }
@@ -653,6 +672,20 @@ public final class ModMindEntry implements ModInitializer {
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         achievementService(), 0),
                 Component.translatable("gui.omnitools.achievement.title")));
+        return 1;
+    }
+
+    private static int openModuleManagerMenu(CommandSourceStack source) {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CONFIG_RELOAD)) {
+            return 0;
+        }
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("message.omnitools.modules.player_only"));
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> ModuleManagerScreenHandler.createServer(syncId, inventory, player),
+                Component.translatable("gui.omnitools.modules.title")));
         return 1;
     }
 }

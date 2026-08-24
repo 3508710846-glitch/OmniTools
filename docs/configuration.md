@@ -30,7 +30,7 @@ config/omnitools/
 | `title_effects/config.json` | 称号关联的效果定义 |
 | `achievements/config.json` | 成就条件和奖励；详见[成就配置指南](achievements.md) |
 | `cloud_storage/config.json` | 云端存储的容量和页面配置 |
-| `permissions/config.json` | 指令动作的最低角色与安全开关 |
+| `permissions/config.json` | 指令动作的最低角色与安全开关；仅在权限模块启用时生效 |
 | `legacy/` | 识别到的历史根目录配置副本与迁移清单 |
 
 世界中的签到、货币、称号、成就和存储内容由 `SavedData` 保存，不在这些 JSON 配置中。不要手动编辑世界 `SavedData`；迁移或升级前应备份完整世界目录和 `config/omnitools/`。
@@ -71,7 +71,7 @@ config/omnitools/
 | `integrations.placeholder_api.enabled` | Placeholder API 集成总开关，默认 `true` |
 | `modules.*.enabled` | 对应功能模块是否启用 |
 
-关闭功能模块不会删除玩家已有数据。依赖其他模块的功能仍需满足其引用关系；例如 `title_effects` 已启用且其中定义了效果时，`titles` 也必须启用。`permissions` 保留在模块状态中；指令入口始终按照 `permissions/config.json` 的当前动作配置进行权限检查。
+关闭功能模块不会删除玩家已有数据。依赖其他模块的功能仍需满足其引用关系；例如 `title_effects` 已启用且其中定义了效果时，`titles` 也必须启用。`permissions` 关闭时，所有指令动作回退到源码默认角色；启用后才读取并应用 `permissions/config.json` 的角色覆盖项，不会变成无条件放行。
 
 旧根配置中 `format_version: 1` 且没有 `integrations.placeholder_api` 节点时，占位符集成默认视为启用。加载旧配置不会强制写回新字段；新建根配置才会写入 v2 格式。
 
@@ -103,7 +103,7 @@ config/omnitools/
 | `checkin.clear` | `ADMIN` | 清除当日签到数据 |
 | `title.grant` | `ADMIN` | 授予称号 |
 | `title.revoke` | `ADMIN` | 回收称号 |
-| `config.reload` | `ADMIN` | 重载配置 |
+| `config.reload` | `ADMIN` | 重载配置，并打开模块管理界面 |
 
 一个可编辑的最小示例：
 
@@ -127,6 +127,29 @@ config/omnitools/
 
 `allow_title_command_grants` 默认 `false`。称号效果配置中的 `omnitools:command.*` 权限效果在此开关关闭时不会被授予；`omnitools:cloud_storage` 是允许的独立原生节点。
 
+## 模块管理
+
+管理员可使用 `/omnitools modules` 打开模块管理界面。该入口复用 `config.reload` 动作权限，默认角色为 `ADMIN`，并且只能由游戏内玩家执行；控制台仍可使用 `/omnitools reload`，但不能打开箱子 GUI。菜单打开和每次点击时都会再次验证该权限。
+
+界面展示根配置 `config/omnitools/config.json` 中的八个 `modules.*.enabled` 开关：
+
+| 模块 ID | 管理的功能 |
+| --- | --- |
+| `daily_checkin` | 每日签到与签到记录 |
+| `online_reward` | 在线时长累计与在线奖励 |
+| `shop` | 商店入口与购买 |
+| `titles` | 称号界面、聊天、Tab 和头顶显示 |
+| `title_effects` | 称号关联的效果 |
+| `achievements` | 成就检查、界面与领奖 |
+| `cloud_storage` | 云端存储入口 |
+| `permissions` | `permissions/config.json` 中的动作角色覆盖项 |
+
+左键点击图标可切换对应模块。成功后服务器会刷新在线玩家的命令树、关闭已失效的模块菜单，并应用对应的运行时处理：停止在线奖励前会先保存在线时长；禁用称号效果会移除其管理的效果；重新启用成就会立即进行一次检查。模块关闭不会删除已有 `SavedData`。
+
+每次切换都按事务处理：服务端以当前有效快照为基础构造候选根配置，加载相关子配置并完成校验，校验成功后才原子写入根配置并发布新快照。因此启用模块时若子配置无效，或配置引用不合法，菜单会显示失败原因，磁盘与运行状态都会保留在切换前。菜单中的“重新读取磁盘配置”按钮与 `/omnitools reload` 完全等价。
+
+依赖关系不会静默级联切换：启用 `title_effects` 时 `titles` 必须已启用；当 `title_effects` 已启用且存在效果定义时，不能关闭 `titles`，应先关闭称号效果或清空其效果配置。`permissions` 禁用时所有动作回退到源码默认角色，不会变成无条件放行；启用时才读取并应用 `permissions/config.json`。`integrations.placeholder_api.enabled` 是独立集成选项，不属于模块开关，也不会出现在此菜单中。
+
 ## 模块配置的使用方式
 
 各模块 JSON 的具体字段由其功能决定。建议先让服务器生成默认文件，在副本中修改并进行 JSON 校验，再替换生产配置。以下是常见用途：
@@ -142,7 +165,7 @@ config/omnitools/
 
 ## 重载、迁移与备份
 
-`/omnitools reload` 会触发历史配置迁移检查，然后尝试构造并校验完整的新配置快照。成功时所有相关服务一起切换；失败时日志会记录原因，旧快照继续运行。
+`/omnitools reload` 会触发历史配置迁移检查，然后尝试构造并校验完整的新配置快照。成功时所有相关服务一起切换；失败时日志会记录原因，旧快照继续运行。管理员还可在游戏内使用 `/omnitools modules` 打开模块管理界面；单项切换会先校验候选配置，再原子写入根配置并应用同一套运行时补偿逻辑。
 
 历史根目录配置文件可能使用 `omnitools-*.json` 或更早的 `qiandao-*.json` 命名。迁移只会在目标模块配置尚不存在时复制内容；原文件不会被删除，副本会归档到 `config/omnitools/legacy/`，并在 `legacy/manifest.json` 记录来源和时间。
 

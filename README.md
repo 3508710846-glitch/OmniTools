@@ -65,12 +65,21 @@
 | `/omnitools title [open]`、`/title` | 打开称号界面 | 玩家 |
 | `/omnitools achievements [open]` | 打开成就界面 | 玩家 |
 | `/omnitools storage [open]`、`/cloudstorage`、`/cstorage` | 打开云端存储 | 管理员 |
+| `/omnitools modules` | 打开模块管理界面并热切换模块 | 管理员 |
 | `/money`、`/omnitools currency` | 查询自己的货币余额 | 玩家 |
 | `/balance [player]` | 查询余额；指定玩家需额外权限 | 玩家 / 管理员 |
 | `/money add|remove|deduct|take` | 增减货币 | 管理员 |
 | `/omnitools title give|add|remove|take` | 授予或回收称号 | 管理员 |
 | `/omnitools clear [today]` | 清除当天签到数据 | 管理员 |
 | `/omnitools reload` | 重载全部配置 | 管理员 |
+
+### 模块管理
+
+`/omnitools modules` 使用 `config.reload` 动作权限，默认仅管理员可用。该命令只能由游戏内玩家执行，用于打开三行箱子式模块管理界面；控制台可继续执行 `/omnitools reload`，但不能打开 GUI。
+
+界面可切换每日签到、在线奖励、商店、称号、称号效果、成就、云端存储和指令权限八个模块。左键点击模块图标会立即尝试切换，底部的“重新读取磁盘配置”按钮等价于 `/omnitools reload`。切换成功后，命令、已打开的菜单和相关定时服务会立即按新状态更新。
+
+切换前会加载并校验候选配置。启用模块时若其子配置无效，或称号与称号效果的依赖不满足，界面会显示原因，磁盘和运行中的模块状态均保持不变。Placeholder API 属于独立集成开关，不在此界面中管理。完整规则见[配置指南的模块管理章节](docs/configuration.md#模块管理)。
 
 角色与 Minecraft 权限等级的对应关系如下：
 
@@ -81,7 +90,7 @@
 | `ADMIN` | `2` |
 | `OWNER` | `4` |
 
-控制台命令源始终允许。云端存储默认还允许具有原生 `omnitools:cloud_storage` 节点的玩家访问；可在权限配置中关闭该兼容行为。
+控制台命令源可使用非 GUI 命令；`/omnitools modules` 例外，它必须由游戏内玩家打开。云端存储默认还允许具有原生 `omnitools:cloud_storage` 节点的玩家访问；可在权限配置中关闭该兼容行为。
 
 当前规范动作 ID：
 

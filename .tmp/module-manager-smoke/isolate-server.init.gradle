@@ -1,0 +1,11 @@
+def isolatedRunDirectory = System.getProperty('omnitools.isolatedRunDir')
+if (isolatedRunDirectory == null || isolatedRunDirectory.isBlank()) {
+    throw new GradleException('Set -Domnitools.isolatedRunDir for the isolated server smoke test.')
+}
+
+gradle.afterProject { project ->
+    project.tasks.named('runServer') {
+        workingDir = project.file(isolatedRunDirectory)
+        args 'nogui'
+    }
+}

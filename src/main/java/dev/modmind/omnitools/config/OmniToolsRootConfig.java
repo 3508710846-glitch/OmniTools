@@ -52,6 +52,17 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         return modules.getOrDefault(module, true);
     }
 
+    /** Returns a copy with one module switch changed without touching disk. */
+    public OmniToolsRootConfig withModuleEnabled(ModuleId module, boolean enabled) {
+        if (module == null) {
+            throw new IllegalArgumentException("module cannot be null");
+        }
+        EnumMap<ModuleId, Boolean> updated = new EnumMap<>(ModuleId.class);
+        updated.putAll(modules);
+        updated.put(module, enabled);
+        return new OmniToolsRootConfig(formatVersion, debug, timezone, placeholderApiEnabled, updated);
+    }
+
     public static OmniToolsRootConfig load(Path path) throws IOException {
         if (!Files.exists(path)) {
             OmniToolsRootConfig defaults = defaults();

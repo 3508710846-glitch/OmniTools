@@ -13,5 +13,6 @@ public final class ModMindClient implements ClientModInitializer {
         MenuScreens.register(TitleScreenHandler.TYPE, TitleScreen::new);
         MenuScreens.register(CloudStorageScreenHandler.TYPE, CloudStorageScreen::new);
         MenuScreens.register(AchievementScreenHandler.TYPE, AchievementScreen::new);
+        MenuScreens.register(ModuleManagerScreenHandler.TYPE, ModuleManagerScreen::new);
     }
 }
