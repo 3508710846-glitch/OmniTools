@@ -7,7 +7,7 @@
 | Minecraft | `1.21.11` |
 | Fabric Loader | `>= 0.19.3` |
 | Java | `21` |
-| 当前版本 | `0.1.0` |
+| 当前版本 | `1.2.2` |
 | 必需依赖 | Fabric API |
 | 可选依赖 | Fabric Placeholder API |
 
