@@ -18,6 +18,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +29,7 @@ import dev.modmind.omnitools.config.ModuleId;
 public final class TitleEffectService {
     private static final String MODIFIER_NAMESPACE = ModMindEntry.MOD_ID;
     private static final Map<UUID, AppliedEffects> APPLIED = new HashMap<>();
+    private static final Set<UUID> PARTICLE_PLAYERS = new HashSet<>();
     private static long lastParticleTick = Long.MIN_VALUE;
 
     private TitleEffectService() {
@@ -49,6 +51,7 @@ public final class TitleEffectService {
     }
 
     public static void remove(ServerPlayer player) {
+        PARTICLE_PLAYERS.remove(player.getUUID());
         AppliedEffects applied = APPLIED.remove(player.getUUID());
         if (applied == null) {
             return;
@@ -71,6 +74,7 @@ public final class TitleEffectService {
 
     public static void forget(ServerPlayer player) {
         APPLIED.remove(player.getUUID());
+        PARTICLE_PLAYERS.remove(player.getUUID());
     }
 
     public static void refreshAll(MinecraftServer server) {
@@ -83,6 +87,8 @@ public final class TitleEffectService {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             remove(player);
         }
+        APPLIED.clear();
+        PARTICLE_PLAYERS.clear();
     }
 
     public static void tick(MinecraftServer server) {
@@ -90,24 +96,31 @@ public final class TitleEffectService {
             return;
         }
         lastParticleTick = server.getTickCount();
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            AppliedEffects applied = APPLIED.get(player.getUUID());
+        Iterator<UUID> iterator = PARTICLE_PLAYERS.iterator();
+        while (iterator.hasNext()) {
+            UUID playerId = iterator.next();
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+            if (player == null) {
+                iterator.remove();
+                APPLIED.remove(playerId);
+                continue;
+            }
+            AppliedEffects applied = APPLIED.get(playerId);
             if (applied == null || applied.particles.isEmpty()) {
+                iterator.remove();
                 continue;
             }
             if (!applied.hasMoved(player)) {
                 continue;
             }
-            for (TitleEffectConfig.EffectDefinition definition : applied.particles) {
+            for (ParticleEffect particle : applied.particles) {
+                TitleEffectConfig.EffectDefinition definition = particle.definition();
                 if (player.tickCount % definition.frequency() != 0 || !player.onGround()) {
                     continue;
                 }
-                ParticleOptions options = particle(definition.particle());
-                if (options != null) {
-                    ServerLevel level = player.level();
-                    level.sendParticles(options, player.getX(), player.getY() + 0.1D, player.getZ(), 1,
-                            0.18D, 0.02D, 0.18D, 0.01D);
-                }
+                ServerLevel level = player.level();
+                level.sendParticles(particle.options(), player.getX(), player.getY() + 0.1D, player.getZ(), 1,
+                        0.18D, 0.02D, 0.18D, 0.01D);
             }
         }
     }
@@ -132,7 +145,12 @@ public final class TitleEffectService {
         for (String effectId : title.effects()) {
             ModMindEntry.titleEffectConfig().definition(effectId).ifPresent(definition -> apply(player, definition, applied));
         }
-        APPLIED.put(player.getUUID(), applied);
+        if (!applied.isEmpty()) {
+            APPLIED.put(player.getUUID(), applied);
+            if (!applied.particles.isEmpty()) {
+                PARTICLE_PLAYERS.add(player.getUUID());
+            }
+        }
     }
 
     private static void apply(ServerPlayer player, TitleEffectConfig.EffectDefinition definition,
@@ -140,7 +158,12 @@ public final class TitleEffectService {
         switch (definition.type()) {
             case POTION -> applyPotion(player, definition, applied);
             case ATTRIBUTE -> applyAttribute(player, definition, applied);
-            case PARTICLE -> applied.particles.add(definition);
+            case PARTICLE -> {
+                ParticleOptions options = particle(definition.particle());
+                if (options != null) {
+                    applied.particles.add(new ParticleEffect(definition, options));
+                }
+            }
             case PERMISSION -> {
                 String permission = definition.permission().trim().toLowerCase(Locale.ROOT);
                 if (permission.startsWith("omnitools:command.")
@@ -274,7 +297,7 @@ public final class TitleEffectService {
         private final Map<Holder<MobEffect>, AppliedPotion> potions = new HashMap<>();
         private final Set<AttributeModifierRef> attributeModifiers = new HashSet<>();
         private final Set<String> permissions = new HashSet<>();
-        private final Set<TitleEffectConfig.EffectDefinition> particles = new HashSet<>();
+        private final Set<ParticleEffect> particles = new HashSet<>();
         private boolean particlePositionKnown;
         private double lastParticleX;
         private double lastParticleZ;
@@ -294,11 +317,19 @@ public final class TitleEffectService {
             lastParticleZ = currentZ;
             return deltaX * deltaX + deltaZ * deltaZ > 0.0001D;
         }
+
+        private boolean isEmpty() {
+            return potions.isEmpty() && attributeModifiers.isEmpty()
+                    && permissions.isEmpty() && particles.isEmpty();
+        }
     }
 
     private record AppliedPotion(MobEffectInstance original, int amplifier, boolean infinite, int duration) {
     }
 
     private record AttributeModifierRef(AttributeInstance instance, Identifier id) {
+    }
+
+    private record ParticleEffect(TitleEffectConfig.EffectDefinition definition, ParticleOptions options) {
     }
 }

@@ -108,6 +108,7 @@ public final class ModMindEntry implements ModInitializer {
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            achievementService().forgetMenuSnapshot(handler.getPlayer());
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
                 TitleEffectService.remove(handler.getPlayer());
             }
@@ -252,7 +253,9 @@ public final class ModMindEntry implements ModInitializer {
         titleConfig = snapshot.titles();
         titleEffectConfig = snapshot.titleEffects();
         cloudStorageConfig = snapshot.cloudStorage();
-        achievementService = AchievementService.from(snapshot.achievements());
+        // Keep existing achievement menus bound to the live service. Its revision
+        // invalidates their cached progress on the next menu refresh after reload.
+        achievementService.replace(snapshot.achievements());
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {

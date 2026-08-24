@@ -12,9 +12,9 @@ import java.util.UUID;
 
 /** Tracks connected time on the server thread and credits it to the appropriate server-local day. */
 public final class OnlineTimeRewardService {
-    private static final long FLUSH_INTERVAL_MILLIS = 1_000L;
+    private static final long FLUSH_INTERVAL_TICKS = 20L;
     private final Map<UUID, Session> sessions = new HashMap<>();
-    private long lastPeriodicFlushMillis;
+    private long nextPeriodicFlushTick = Long.MIN_VALUE;
 
     public void onJoin(ServerPlayer player) {
         sessions.put(player.getUUID(), new Session(System.currentTimeMillis()));
@@ -26,11 +26,12 @@ public final class OnlineTimeRewardService {
     }
 
     public void tick(MinecraftServer server) {
-        long now = System.currentTimeMillis();
-        if (now - lastPeriodicFlushMillis < FLUSH_INTERVAL_MILLIS) {
+        long tick = server.getTickCount();
+        if (nextPeriodicFlushTick != Long.MIN_VALUE && tick < nextPeriodicFlushTick) {
             return;
         }
-        lastPeriodicFlushMillis = now;
+        nextPeriodicFlushTick = tick + FLUSH_INTERVAL_TICKS;
+        long now = System.currentTimeMillis();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             sessions.computeIfAbsent(player.getUUID(), ignored -> new Session(now));
             flush(player, now);

@@ -53,6 +53,8 @@ public final class CheckinData extends SavedData {
 
     private final Map<UUID, PlayerRecord> players = new HashMap<>();
     private final Map<Long, Integer> dailySigners = new HashMap<>();
+    /** One current-day view per player; invalidated on every sign-in roster change. */
+    private final Map<UUID, CachedPlayerStats> statsCache = new HashMap<>();
 
     public static CheckinData get(MinecraftServer server) {
         ServerLevel overworld = server.getLevel(Level.OVERWORLD);
@@ -99,23 +101,32 @@ public final class CheckinData extends SavedData {
         record.totalDays++;
         record.streakDays = record.lastSignedDay == day - 1 ? record.streakDays + 1 : 1;
         record.lastSignedDay = day;
+        statsCache.clear();
         setDirty();
         return new SignInResult(true, day, new PlayerStats(true, ordinal, record.totalDays, record.streakDays,
                 monthDayCount(record, LocalDate.ofEpochDay(day))));
     }
 
     public synchronized PlayerStats getStats(UUID playerId, long day) {
-        PlayerRecord record = players.get(playerId);
-        if (record == null) {
-            return new PlayerStats(false, dailySigners.getOrDefault(day, 0) + 1, 0, 0, 0);
+        CachedPlayerStats cached = statsCache.get(playerId);
+        if (cached != null && cached.day() == day) {
+            return cached.stats();
         }
-        boolean signed = record.signedDays.contains(day);
-        int ordinal = signed
-                ? record.signInOrdinals.getOrDefault(day, dailySigners.getOrDefault(day, 1))
-                : dailySigners.getOrDefault(day, 0) + 1;
-        int visibleStreak = signed || record.lastSignedDay == day - 1 ? record.streakDays : 0;
-        return new PlayerStats(signed, Math.max(ordinal, 1), record.totalDays, visibleStreak,
-                monthDayCount(record, LocalDate.ofEpochDay(day)));
+        PlayerRecord record = players.get(playerId);
+        PlayerStats stats;
+        if (record == null) {
+            stats = new PlayerStats(false, dailySigners.getOrDefault(day, 0) + 1, 0, 0, 0);
+        } else {
+            boolean signed = record.signedDays.contains(day);
+            int ordinal = signed
+                    ? record.signInOrdinals.getOrDefault(day, dailySigners.getOrDefault(day, 1))
+                    : dailySigners.getOrDefault(day, 0) + 1;
+            int visibleStreak = signed || record.lastSignedDay == day - 1 ? record.streakDays : 0;
+            stats = new PlayerStats(signed, Math.max(ordinal, 1), record.totalDays, visibleStreak,
+                    monthDayCount(record, LocalDate.ofEpochDay(day)));
+        }
+        statsCache.put(playerId, new CachedPlayerStats(day, stats));
+        return stats;
     }
 
     public synchronized long getBalance(UUID playerId) {
@@ -313,6 +324,7 @@ public final class CheckinData extends SavedData {
         }
         boolean hadDailyCount = dailySigners.remove(day) != null;
         if (clearedPlayers > 0 || hadDailyCount) {
+            statsCache.clear();
             setDirty();
         }
         return clearedPlayers;
@@ -470,6 +482,9 @@ public final class CheckinData extends SavedData {
     }
 
     public record DailySignInRecord(UUID playerId, String playerName, int ordinal, long signedAt) {
+    }
+
+    private record CachedPlayerStats(long day, PlayerStats stats) {
     }
 
     private static final class PlayerRecord {

@@ -43,6 +43,7 @@ public final class ShopScreenHandler extends ChestMenu {
     private int page;
     private int pageCount;
     private long displayedBalance = Long.MIN_VALUE;
+    private long lastBalanceCheckTick = Long.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -117,9 +118,13 @@ public final class ShopScreenHandler extends ChestMenu {
     @Override
     public void broadcastChanges() {
         if (owner != null) {
-            long balance = CheckinData.get(owner).getBalance(ownerId);
-            if (balance != displayedBalance) {
-                refreshContents(owner);
+            long tick = owner.level().getServer().getTickCount();
+            if (lastBalanceCheckTick == Long.MIN_VALUE || tick - lastBalanceCheckTick >= 10L) {
+                lastBalanceCheckTick = tick;
+                long balance = CheckinData.get(owner).getBalance(ownerId);
+                if (balance != displayedBalance) {
+                    refreshContents(owner);
+                }
             }
         }
         super.broadcastChanges();

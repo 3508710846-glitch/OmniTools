@@ -5,9 +5,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Optional;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.achievement.ConditionProgress;
 import dev.modmind.omnitools.achievement.AchievementCondition;
@@ -24,6 +26,12 @@ public final class AchievementService {
 
     private AchievementConfig config;
     private int revision;
+    /**
+     * Progress is expensive only when an achievement menu is open. Keep one
+     * server-authoritative snapshot per open menu and refresh it from the
+     * normal periodic achievement check instead of evaluating statistics twice.
+     */
+    private final Map<UUID, MenuSnapshot> openMenuSnapshots = new HashMap<>();
 
     private AchievementService(AchievementConfig config) {
         this.config = config;
@@ -44,6 +52,7 @@ public final class AchievementService {
     public synchronized void replace(AchievementConfig config) {
         this.config = config;
         revision++;
+        openMenuSnapshots.clear();
     }
 
     public synchronized AchievementConfig config() {
@@ -58,11 +67,15 @@ public final class AchievementService {
         synchronized (this) {
             config = ModMindEntry.configSnapshot().achievements();
             revision++;
+            openMenuSnapshots.clear();
         }
         checkAll(server);
     }
 
     public void checkAll(MinecraftServer server) {
+        if (config().achievements().isEmpty()) {
+            return;
+        }
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             check(player);
         }
@@ -80,21 +93,18 @@ public final class AchievementService {
 
     /** Builds one server-authoritative menu snapshot from one shared statistic context. */
     public MenuSnapshot menuSnapshot(ServerPlayer player) {
-        AchievementConfig snapshot = config();
-        AchievementData data = AchievementData.get(player);
-        StatisticEvaluationContext context = new StatisticEvaluationContext(player);
-        Map<String, Evaluation> evaluations = new LinkedHashMap<>();
-        for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements()) {
-            boolean unlocked = data.isUnlocked(player.getUUID(), achievement.id());
-            ConditionProgress progress = unlocked
-                    ? completedProgress(achievement.condition()) : achievement.progress(context);
-            if (!unlocked && progress.completed() && data.unlock(player.getUUID(), achievement.id())) {
-                player.displayClientMessage(Component.translatable(
-                        "message.omnitools.achievement.unlocked", achievement.display()), true);
-            }
-            evaluations.put(achievement.id(), evaluation(player, achievement, progress));
+        int currentRevision = revision();
+        MenuSnapshot cached = openMenuSnapshots.get(player.getUUID());
+        if (cached != null && cached.revision() == currentRevision) {
+            return cached;
         }
-        return new MenuSnapshot(Map.copyOf(evaluations), revision());
+        checkInternal(player, true, new StatisticEvaluationContext(player), true);
+        return openMenuSnapshots.getOrDefault(player.getUUID(), new MenuSnapshot(Map.of(), currentRevision));
+    }
+
+    /** Drops cached menu-only progress as soon as a player leaves the achievement screen. */
+    public void forgetMenuSnapshot(ServerPlayer player) {
+        openMenuSnapshots.remove(player.getUUID());
     }
 
     private static ConditionProgress completedProgress(AchievementCondition condition) {
@@ -138,24 +148,42 @@ public final class AchievementService {
     }
 
     private int checkInternal(ServerPlayer player, boolean announce) {
-        return checkInternal(player, announce, new StatisticEvaluationContext(player));
+        return checkInternal(player, announce, new StatisticEvaluationContext(player),
+                openMenuSnapshots.containsKey(player.getUUID()));
     }
 
     private int checkInternal(ServerPlayer player, boolean announce, StatisticEvaluationContext context) {
+        return checkInternal(player, announce, context, openMenuSnapshots.containsKey(player.getUUID()));
+    }
+
+    private int checkInternal(ServerPlayer player, boolean announce, StatisticEvaluationContext context,
+                              boolean captureMenuProgress) {
         AchievementConfig snapshot = config();
+        int currentRevision = revision();
         AchievementData data = AchievementData.get(player);
+        UUID playerId = player.getUUID();
+        Map<String, Evaluation> evaluations = captureMenuProgress ? new LinkedHashMap<>() : null;
         int newlyUnlocked = 0;
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements()) {
-            if (data.isUnlocked(player.getUUID(), achievement.id()) || !achievement.complete(context)) {
-                continue;
-            }
-            if (data.unlock(player.getUUID(), achievement.id())) {
+            boolean unlocked = data.isUnlocked(playerId, achievement.id());
+            ConditionProgress progress = unlocked
+                    ? completedProgress(achievement.condition()) : achievement.progress(context);
+            if (!unlocked && progress.completed() && data.unlock(playerId, achievement.id())) {
+                unlocked = true;
                 newlyUnlocked++;
                 if (announce) {
                     player.displayClientMessage(Component.translatable(
                             "message.omnitools.achievement.unlocked", achievement.display()), true);
                 }
             }
+            if (evaluations != null) {
+                State state = data.isClaimed(playerId, achievement.id())
+                        ? State.CLAIMED : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS);
+                evaluations.put(achievement.id(), new Evaluation(state, progress));
+            }
+        }
+        if (evaluations != null) {
+            openMenuSnapshots.put(playerId, new MenuSnapshot(Map.copyOf(evaluations), currentRevision));
         }
         return newlyUnlocked;
     }
@@ -197,7 +225,22 @@ public final class AchievementService {
             }
         }
         data.markClaimed(player.getUUID(), achievement.id());
+        updateCachedClaimState(player.getUUID(), achievement.id());
         return new ClaimResult(ClaimStatus.CLAIMED, balance, grantedTitles);
+    }
+
+    private void updateCachedClaimState(UUID playerId, String achievementId) {
+        MenuSnapshot cached = openMenuSnapshots.get(playerId);
+        if (cached == null || cached.revision() != revision()) {
+            return;
+        }
+        Evaluation previous = cached.evaluation(achievementId);
+        if (previous == null) {
+            return;
+        }
+        Map<String, Evaluation> updated = new LinkedHashMap<>(cached.evaluations());
+        updated.put(achievementId, new Evaluation(State.CLAIMED, previous.progress()));
+        openMenuSnapshots.put(playerId, new MenuSnapshot(Map.copyOf(updated), cached.revision()));
     }
 
     public State state(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {

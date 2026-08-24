@@ -25,8 +25,7 @@ public final class OmniToolsPlaceholderResolver {
         }
         return switch (id) {
             case "balance" -> value(Long.toString(CheckinData.get(player).getBalance(player.getUUID())));
-            case "balance_formatted" -> value(String.format(Locale.ROOT, "%,d",
-                    CheckinData.get(player).getBalance(player.getUUID())));
+            case "balance_formatted" -> value(formatGrouped(CheckinData.get(player).getBalance(player.getUUID())));
             case "checkin_today", "checkin_today_rank", "checkin_total_days", "checkin_streak_days",
                     "checkin_month_days" -> checkinValue(player, id);
             case "online_today_seconds", "online_today_minutes", "online_today_hms" -> onlineValue(player, id);
@@ -60,8 +59,7 @@ public final class OmniToolsPlaceholderResolver {
         return switch (id) {
             case "online_today_seconds" -> value(Long.toString(seconds));
             case "online_today_minutes" -> value(Long.toString(seconds / 60L));
-            case "online_today_hms" -> value(String.format(Locale.ROOT, "%02d:%02d:%02d",
-                    seconds / 3600L, (seconds % 3600L) / 60L, seconds % 60L));
+            case "online_today_hms" -> value(formatHms(seconds));
             default -> fallback(id);
         };
     }
@@ -70,14 +68,20 @@ public final class OmniToolsPlaceholderResolver {
         if (!ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
             return fallback(id);
         }
+        return switch (id) {
+            case "title_effects_enabled" -> value(Boolean.toString(
+                    ModMindEntry.isModuleEnabled(ModuleId.TITLE_EFFECTS)
+                            && ModMindEntry.titleConfig().effectsEnabled(player.getUUID())));
+            default -> selectedTitleValue(player, id);
+        };
+    }
+
+    private static Component selectedTitleValue(ServerPlayer player, String id) {
         var selected = ModMindEntry.titleConfig().selectedTitle(player.getUUID());
         return switch (id) {
             case "title_id" -> value(selected.map(TitleConfig.TitleDefinition::id).orElse(""));
             case "title" -> selected.map(TitleConfig.TitleDefinition::displayComponent).orElseGet(() -> value(""));
             case "title_plain" -> value(selected.map(TitleConfig.TitleDefinition::plainDisplay).orElse(""));
-            case "title_effects_enabled" -> value(Boolean.toString(
-                    ModMindEntry.isModuleEnabled(ModuleId.TITLE_EFFECTS)
-                            && ModMindEntry.titleConfig().effectsEnabled(player.getUUID())));
             default -> fallback(id);
         };
     }
@@ -106,5 +110,36 @@ public final class OmniToolsPlaceholderResolver {
 
     private static Component value(String value) {
         return Component.literal(value);
+    }
+
+    private static String formatGrouped(long value) {
+        String digits = Long.toString(Math.max(0L, value));
+        int firstGroup = digits.length() % 3;
+        StringBuilder result = new StringBuilder(digits.length() + (digits.length() - 1) / 3);
+        for (int index = 0; index < digits.length(); index++) {
+            if (index > 0 && (index - firstGroup) % 3 == 0) {
+                result.append(',');
+            }
+            result.append(digits.charAt(index));
+        }
+        return result.toString();
+    }
+
+    private static String formatHms(long seconds) {
+        long hours = seconds / 3_600L;
+        long minutes = (seconds % 3_600L) / 60L;
+        long remainingSeconds = seconds % 60L;
+        StringBuilder result = new StringBuilder(8);
+        appendPadded(result, hours).append(':');
+        appendPadded(result, minutes).append(':');
+        appendPadded(result, remainingSeconds);
+        return result.toString();
+    }
+
+    private static StringBuilder appendPadded(StringBuilder builder, long value) {
+        if (value < 10L) {
+            builder.append('0');
+        }
+        return builder.append(value);
     }
 }

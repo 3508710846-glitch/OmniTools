@@ -35,6 +35,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
     private final UUID ownerId;
     private final ServerPlayer owner;
     private int displayedOnlineMinutes = -1;
+    private long lastRefreshCheckTick = Long.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -116,8 +117,10 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
 
     @Override
     public void broadcastChanges() {
-        if (ownerId != null) {
-            if (owner != null) {
+        if (ownerId != null && owner != null) {
+            long tick = owner.level().getServer().getTickCount();
+            if (lastRefreshCheckTick == Long.MIN_VALUE || tick - lastRefreshCheckTick >= 20L) {
+                lastRefreshCheckTick = tick;
                 int onlineMinutes = getOnlineMinutes(owner);
                 if (onlineMinutes != displayedOnlineMinutes) {
                     refreshContents(owner, onlineMinutes);

@@ -144,6 +144,15 @@ public final class AchievementScreenHandler extends ChestMenu {
     }
 
     @Override
+    public void removed(Player player) {
+        super.removed(player);
+        if (service != null && player instanceof ServerPlayer serverPlayer
+                && ownerId != null && ownerId.equals(serverPlayer.getUUID())) {
+            service.forgetMenuSnapshot(serverPlayer);
+        }
+    }
+
+    @Override
     public void broadcastChanges() {
         if (owner != null && service != null) {
             long tick = owner.level().getServer().getTickCount();

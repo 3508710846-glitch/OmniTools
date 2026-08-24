@@ -33,8 +33,12 @@ public record SumCondition(List<AchievementConfig.Requirement> requirements,
     public ConditionProgress progress(StatisticEvaluationContext context) {
         long total = 0L;
         for (AchievementConfig.Requirement requirement : requirements) {
-            total = Math.addExact(total, context.value(requirement));
+            total = saturatingAdd(total, context.value(requirement));
         }
         return ConditionProgress.leaf(total, atLeast, total >= atLeast);
+    }
+
+    private static long saturatingAdd(long left, long right) {
+        return right > Long.MAX_VALUE - left ? Long.MAX_VALUE : left + right;
     }
 }

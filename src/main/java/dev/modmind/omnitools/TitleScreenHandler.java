@@ -44,6 +44,7 @@ public final class TitleScreenHandler extends ChestMenu {
     private final TitleConfig config;
     private int page;
     private int stateHash = Integer.MIN_VALUE;
+    private long lastStateCheckTick = Long.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -147,8 +148,14 @@ public final class TitleScreenHandler extends ChestMenu {
 
     @Override
     public void broadcastChanges() {
-        if (owner != null && currentStateHash() != stateHash) {
-            refreshContents();
+        if (owner != null) {
+            long tick = owner.level().getServer().getTickCount();
+            if (lastStateCheckTick == Long.MIN_VALUE || tick - lastStateCheckTick >= 10L) {
+                lastStateCheckTick = tick;
+                if (currentStateHash() != stateHash) {
+                    refreshContents();
+                }
+            }
         }
         super.broadcastChanges();
     }

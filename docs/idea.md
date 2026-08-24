@@ -6503,3 +6503,350 @@ GUI | PASS/PARTIAL/FAIL | 截图或日志
 
 将成就的进度显示出来，例如走10公里，就显示（当前进度/10000）单位米
 挖1000石头，显示（当前进度/1000）
+
+---
+
+## Development request 2026/8/24 11:51:26
+
+可将下面方案直接转交工作台。
+
+```text
+目标：对 OmniTools 全项目进行“先评估、后优化、逐项验收”的工程审计。
+平台：Fabric 1.21.11、Java 21。
+规则：第一阶段只读评估；未获确认前不得大规模重构、改依赖、删除文件或修改 run/world、正式 run/config 数据。
+```
+
+## 第一阶段：建立基线
+
+1. 编译项目、检查产物 JAR、记录 Git 状态。
+2. 在隔离运行目录启动服务端，收集启动日志、关闭日志和异常。
+3. 记录以下基线：
+   - 编译警告和错误
+   - 启动耗时、平均 MSPT、内存
+   - 模块开关、配置重载、数据迁移行为
+   - 依赖与最终 JAR 内容
+4. 若没有 `src/test`，明确标记为测试覆盖缺口，不得写成“测试通过”。
+
+## 第二阶段：静态架构评估
+
+按模块审查职责、耦合与边界：
+
+- `ModMindEntry`：生命周期、命令注册、菜单开启、重载编排是否过度集中。
+- `config/`：总配置、模块配置、校验、迁移、失败回滚是否一致。
+- `SavedData`：签到、称号、成就、云存储的数据完整性、线程安全和迁移策略。
+- GUI：客户端只负责显示，奖励、扣费、称号授予等必须由服务端最终判定。
+- `mixin/`：权限、TabList、头顶显示是否只改必要目标，且模块关闭时无残留。
+- Placeholder API：未安装时是否正常启动；确认可选依赖未被错误打包或变成强制运行时依赖。
+- 命令权限：服主、管理员、玩家的权限配置是否对每个命令入口一致生效。
+
+当前应重点检查：
+
+- [`ModMindEntry.java`](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java) 职责较多，评估是否拆分为命令、生命周期、菜单协调器。
+- [`fabric.mod.json`](/D:/mod/qiandao/src/main/resources/fabric.mod.json) 的描述仍是“每日签到 GUI”，与 OmniTools 的多模块定位不一致。
+- 配置、迁移和数据类仍使用较多 `System.out/err`，评估统一为 Fabric/SLF4J 日志的收益。
+- 成就系统刚完成条件树升级，应作为高风险模块重点回归，而非立即再次重构。
+
+## 第三阶段：功能回归矩阵
+
+在隔离世界中，分别验证：
+
+| 功能 | 必测场景 |
+|---|---|
+| 每日签到 | 时区重置、重复签到、连续天数、月奖励 |
+| 在线奖励 | 加入、断开、停服刷盘、跨天、重复领取 |
+| 商店与货币 | 余额不足、扣费、物品发放、重登持久化 |
+| 称号与效果 | 授予/回收、佩戴、聊天、Tab、头顶、模块关闭 |
+| 云存储 | 存取、扩容、物品序列化、异常物品、持久化 |
+| 权限 | 服主/管理员/玩家、控制台、重载后命令树刷新 |
+| 成就 v2 | v1 迁移、逻辑树、统计、奖励仅一次、GUI 一致性 |
+| Placeholder API | 安装与未安装、模块禁用、空上下文、重载后值更新 |
+| 配置重载 | 合法配置生效，非法配置保留旧快照 |
+| 旧数据迁移 | `qiandao` 历史配置和世界数据不丢失、不重复迁移 |
+
+## 第四阶段：性能与稳定性
+
+只基于测量提出优化，不做猜测性优化。
+
+1. 观察每 10 tick 的在线奖励、称号效果、成就检查。
+2. 用多玩家和大量成就配置压测：
+   - 成就统计缓存是否生效。
+   - 标签、目标组、`*` 是否仅在配置加载时展开。
+   - GUI 刷新是否重复计算成就。
+3. 检查 `SavedData` 写入频率：
+   - 在线时间刷盘
+   - 云存储变更
+   - 玩家统计变化
+4. 检查大配置、损坏 JSON、未知注册表 ID、旧数据缺失时的失败行为。
+5. 输出优化前后指标：MSPT、最大 tick 耗时、堆内存、GC、日志异常数量。
+
+## 第五阶段：优化实施规则
+
+按优先级分批处理，每批只处理一个主题：
+
+- `P0`：崩溃、数据丢失、重复领奖、越权、货币复制/扣错。
+- `P1`：错误配置导致模块不可用、重载不一致、服务端卡顿、可选依赖失效。
+- `P2`：重复代码、入口类职责过大、日志与可观测性不足。
+- `P3`：命名、文档、配置示例、本地化、UI 细节。
+
+每项优化必须包含：
+
+```text
+问题编号：
+严重级别：
+证据：文件/行号、日志、复现步骤或性能数据
+根因：
+最小修复范围：
+兼容性影响：
+验证方式：
+回滚方式：
+```
+
+禁止把格式化、重命名、架构重构和功能改动混入同一个提交或同一轮工作。
+
+## 第六阶段：最终交付
+
+工作台最终提交一份报告：
+
+```text
+项目健康度：PASS / PARTIAL / FAIL
+
+P0 问题：
+P1 问题：
+P2/P3 建议：
+
+已实施优化：
+未实施项及原因：
+编译与产物检查结果：
+隔离服务端启动结果：
+功能回归结果：
+性能前后对比：
+配置与旧数据兼容结论：
+剩余风险：
+```
+
+验收门槛：
+
+- 可编译、可启动、可正常关闭。
+- 配置错误不破坏上一次有效快照。
+- 模块关闭后无后台奖励、效果或权限残留。
+- 货币、奖励、云存储和成就领取不能重复执行。
+- Placeholder API 缺失时服务器正常运行。
+- 旧 `qiandao` 配置与数据迁移可追踪且不重复。
+- 所有优化均有实际验证证据，而非仅代码审阅结论。
+
+---
+
+## Development request 2026/8/24 12:45:37
+
+对项目整体进行优化，在不严重影响使用体验的前提下适当降低性能占用
+
+---
+
+## Development request 2026/8/24 13:27:16
+
+当前 `README.md` 已偏向成就系统的超长技术手册，且项目已经扩展为 OmniTools 多模块模组。建议将 README 重构为“玩家与服主入口”，把成就条件树等长篇协议移到 `docs/`。
+
+可直接交给工作台：
+
+```text
+任务：重构并优化 OmniTools 的 README.md。
+
+范围：
+- 主改 README.md。
+- 允许新增 docs/achievements.md、docs/configuration.md 以承接详细配置规范。
+- 不修改 Java 功能、构建文件、run/world 或正式配置。
+- 所有中文文件使用 UTF-8（建议 UTF-8 无 BOM），修复乱码显示问题。
+- 不虚构下载链接、截图、兼容模组、性能结论或未验证功能。
+```
+
+## 文档目标
+
+README 面向三类读者：
+
+1. 玩家：模组能做什么、常用命令是什么。
+2. 服主：如何安装、配置、重载、权限、数据备份。
+3. 开发者：运行环境、构建方式、项目许可。
+
+README 只保留“足够开始使用”的信息。成就 v2 的条件树、统计类型、单位、分组、标签和通配符等详细规则，移入 `docs/achievements.md` 并从 README 链接过去。
+
+## README 推荐结构
+
+```md
+# OmniTools
+
+一句话说明：面向 Fabric 服务器的模块化实用工具模组。
+
+## 功能概览
+## 环境要求
+## 安装
+## 快速开始
+## 命令与权限
+## 配置结构
+## Placeholder API 联动
+## 数据、重载与迁移
+## 常见问题
+## 开发与构建
+## 许可证
+```
+
+## 内容要求
+
+### 1. 顶部简介
+
+明确当前真实信息：
+
+```text
+- Minecraft 1.21.11
+- Fabric Loader >= 0.19.3
+- Fabric API
+- Java 21
+- 当前版本 0.1.0
+- Placeholder API 为可选依赖
+```
+
+不要继续使用“仅每日签到 GUI”之类过期描述。README 与 `fabric.mod.json` 的描述也应纳入后续一致性检查，但本任务只修改 README。
+
+### 2. 功能概览
+
+用简短表格列出已实现模块：
+
+| 模块 | 功能 |
+|---|---|
+| 每日签到 | 签到、连续天数、月度奖励、签到记录 |
+| 在线奖励 | 按每日在线时长领取货币 |
+| 商店与货币 | 货币余额、商品购买 |
+| 称号 | 称号授予、佩戴、聊天、Tab 与头顶显示 |
+| 称号效果 | 称号关联的游戏效果或权限效果 |
+| 成就 | 基于原版统计的条件树成就与奖励 |
+| 云端存储 | 可扩容的玩家存储空间 |
+| 指令权限 | 按服主、管理员、玩家配置指令权限 |
+| Placeholder API | 可选的文本占位符联动 |
+
+不要在概览解释成就条件树细节，只链接到 `docs/achievements.md`。
+
+### 3. 安装与快速开始
+
+说明：
+
+1. 将 OmniTools 与 Fabric API 放入服务器 `mods/`。
+2. 若使用占位符，再安装兼容版本的 Fabric Placeholder API。
+3. 首次启动后编辑 `config/omnitools/`。
+4. 修改配置后执行 `/omnitools reload`。
+5. 生产服修改配置和升级模组前备份世界与 `config/omnitools/`。
+
+不要给出未经确认的客户端必装、下载地址或版本兼容承诺。
+
+### 4. 命令与权限
+
+由工作台从 `ModMindEntry` 与 `CommandAction` 实际注册逻辑提取，避免手写猜测。按功能分组展示：
+
+| 命令 | 用途 | 默认角色 |
+|---|---|---|
+| `/omnitools` | 打开默认界面 | 玩家 |
+| `/omnitools online` | 在线奖励 | 玩家 |
+| `/omnitools shop` | 商店 | 玩家 |
+| `/omnitools title` | 称号 | 玩家 |
+| `/omnitools achievements` | 成就 | 玩家 |
+| `/omnitools storage` | 云端存储 | 管理员 |
+| `/money ...`、`/balance ...` | 货币查询与管理 | 按具体动作 |
+| `/omnitools reload` | 重载配置 | 管理员 |
+
+明确：命令是否可用还受对应模块开关控制。完整动作 ID 列表放在权限配置小节中，例如 `currency.add`、`title.grant`、`config.reload`。
+
+### 5. 配置结构
+
+给出真实目录树：
+
+```text
+config/omnitools/
+├── config.json
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── cloud_storage/config.json
+├── permissions/config.json
+└── legacy/
+```
+
+展示根配置中实际字段：
+
+- `global.debug`
+- `global.timezone`
+- `integrations.placeholder_api.enabled`
+- `modules.*.enabled`
+
+解释模块关闭不会删除既有玩家数据。只放最小 JSON 示例，不复制全部默认配置。
+
+### 6. 成就文档拆分
+
+创建或更新 `docs/achievements.md`，承接现有 README 中关于：
+
+- `format_version: 1/2` 兼容
+- `stat`、`sum`、`all`、`any`、`not`
+- `match: sum/each/any`
+- 原版统计类型与单位
+- `target_groups`、标签、`*`
+- 性能限制与配置错误处理
+- 完整配置示例
+
+README 只保留：
+
+```md
+成就支持原版统计、目标分组、标签、逻辑条件树和一次性奖励。
+详细配置说明见 [成就配置指南](docs/achievements.md)。
+```
+
+### 7. Placeholder API
+
+说明它是可选依赖，并列出当前已实现占位符的 ID，不编造消费端格式。按分类展示：
+
+```text
+omnitools:balance
+omnitools:balance_formatted
+omnitools:checkin_today
+omnitools:checkin_total_days
+omnitools:online_today_hms
+omnitools:title_plain
+omnitools:achievements_unlocked
+...
+```
+
+注明：具体文本写法由使用 Placeholder API 的下游模组决定；未安装或配置关闭时 OmniTools 仍可正常运行。
+
+### 8. 重载、迁移与备份
+
+必须说明：
+
+- `/omnitools reload` 仅在全部配置通过校验后发布新快照。
+- 新配置错误时保留上一份有效运行配置。
+- 历史 `qiandao` 配置会归档到 `config/omnitools/legacy/`。
+- 世界数据与配置都需备份；不要手动编辑世界 `SavedData`。
+
+### 9. 开发与许可证
+
+最小内容：
+
+```powershell
+.\gradlew.bat build
+```
+
+并写明 Java 21、Fabric 1.21.11、MIT License。没有测试说明或贡献规范时，不要伪造 CI 徽章、覆盖率和贡献流程。
+
+## 验收要求
+
+```text
+- README 首屏能在 30 秒内说明模组定位、版本、安装依赖和主要功能。
+- 根 README 不超过约 250~350 行。
+- 成就协议不再占据 README 主体，已链接到 docs/achievements.md。
+- 所有命令、权限动作、配置路径都与源码一致。
+- Placeholder API 明确为可选依赖。
+- 所有中文在 GitHub/Gitee、VS Code 和 PowerShell UTF-8 环境中正常显示。
+- 所有相对链接有效。
+- 不包含 run/、本地日志、测试路径、历史 AI 审计记录或环境专用信息。
+- 最后执行 Markdown 链接检查、JSON 示例语法检查与 `git diff --check`。
+```
+
+最终工作台应附一份简短变更说明：移除了哪些过期/过长内容、README 保留了哪些入口信息、详细文档放到了哪些 `docs/` 文件。

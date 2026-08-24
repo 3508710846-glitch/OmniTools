@@ -47,6 +47,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     private int page;
     private long displayedBalance = Long.MIN_VALUE;
     private int displayedUnlockedPages = Integer.MIN_VALUE;
+    private long lastControlCheckTick = Long.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -155,10 +156,14 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     @Override
     public void broadcastChanges() {
         if (owner != null && config != null) {
-            long balance = CheckinData.get(owner).getBalance(ownerId);
-            int unlockedPages = availablePages();
-            if (balance != displayedBalance || unlockedPages != displayedUnlockedPages) {
-                refreshControls();
+            long tick = owner.level().getServer().getTickCount();
+            if (lastControlCheckTick == Long.MIN_VALUE || tick - lastControlCheckTick >= 10L) {
+                lastControlCheckTick = tick;
+                long balance = CheckinData.get(owner).getBalance(ownerId);
+                int unlockedPages = availablePages();
+                if (balance != displayedBalance || unlockedPages != displayedUnlockedPages) {
+                    refreshControls();
+                }
             }
         }
         super.broadcastChanges();

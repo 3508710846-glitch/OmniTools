@@ -82,6 +82,9 @@ public final class CloudStorageData extends SavedData {
         if (page >= record.unlockedPages) {
             throw new IllegalStateException("Cannot write to a locked cloud storage page");
         }
+        if (ItemStack.listMatches(record.pages.get(page), items)) {
+            return;
+        }
         record.pages.set(page, copyPage(items));
         setDirty();
     }

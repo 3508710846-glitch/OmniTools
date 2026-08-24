@@ -44,11 +44,13 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     private final SimpleContainer checkinContainer;
     private final UUID ownerId;
+    private final ServerPlayer owner;
     private final DataSlot openedDayData = addDataSlot(DataSlot.standalone());
     private final DataSlot nextCheckinSeconds = addDataSlot(DataSlot.standalone());
     private LocalDate openedDate;
     private long nextCheckinDeadlineMillis;
     private long clientCountdownDeadlineNanos;
+    private long lastCountdownUpdateTick = Long.MIN_VALUE;
 
     public static void register() {
         // Loading this class registers TYPE before the client creates its screen.
@@ -63,6 +65,7 @@ public final class CheckinScreenHandler extends ChestMenu {
         super(TYPE, syncId, inventory, container, ROWS);
         this.checkinContainer = container;
         this.ownerId = owner == null ? null : owner.getUUID();
+        this.owner = owner;
         this.openedDate = openedDate;
         if (owner != null) {
             refreshContents(owner, openedDate);
@@ -178,8 +181,12 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     @Override
     public void broadcastChanges() {
-        if (ownerId != null) {
-            updateCountdown();
+        if (owner != null) {
+            long tick = owner.level().getServer().getTickCount();
+            if (lastCountdownUpdateTick == Long.MIN_VALUE || tick - lastCountdownUpdateTick >= 20L) {
+                updateCountdown();
+                lastCountdownUpdateTick = tick;
+            }
         }
         super.broadcastChanges();
     }

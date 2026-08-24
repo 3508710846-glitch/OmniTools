@@ -40,7 +40,7 @@ public record StatCondition(List<AchievementConfig.Requirement> requirements, lo
         if (match == TargetMatch.SUM) {
             long total = 0L;
             for (AchievementConfig.Requirement requirement : requirements) {
-                total = Math.addExact(total, context.value(requirement));
+                total = saturatingAdd(total, context.value(requirement));
             }
             return ConditionProgress.leaf(total, atLeast, total >= atLeast);
         }
@@ -58,5 +58,9 @@ public record StatCondition(List<AchievementConfig.Requirement> requirements, lo
                 : (completed ? 1L : 0L);
         long target = match == TargetMatch.EACH ? children.size() : 1L;
         return ConditionProgress.group(completed, current, target, children);
+    }
+
+    private static long saturatingAdd(long left, long right) {
+        return right > Long.MAX_VALUE - left ? Long.MAX_VALUE : left + right;
     }
 }
