@@ -293,11 +293,13 @@ public final class AchievementConfig {
             }
             String customStat = requiredString(condition, "custom_stat");
             String unit = optionalString(condition, "unit", "count");
+            long progressDivisor = progressDisplayDivisor(customStat, unit);
             atLeast = convertCustomThreshold(customStat, atLeast, unit);
             requirements.add(requirement(requirementType, customStat, atLeast,
                     "custom stat target for achievement " + achievementId));
             return new ParsedNode(requirements, new StatCondition(requirements, atLeast, match,
-                    unitFor(requirementType, customStat)), true);
+                    unitFor(requirementType, customStat), progressDivisor,
+                    progressDisplayUnit(customStat, unit)), true);
         }
         JsonElement targetsElement = condition.get("targets");
         if (targetsElement == null || !targetsElement.isJsonArray() || targetsElement.getAsJsonArray().isEmpty()) {
@@ -335,6 +337,8 @@ public final class AchievementConfig {
         List<Requirement> requirements = new ArrayList<>();
         StatisticUnit unit = null;
         String firstCustomStat = null;
+        long progressDivisor = 1L;
+        String progressUnit = "";
         for (JsonElement sourceElement : sourcesElement.getAsJsonArray()) {
             if (!sourceElement.isJsonObject()) {
                 throw new JsonParseException("sum source for " + achievementId + " must be an object");
@@ -414,13 +418,16 @@ public final class AchievementConfig {
                             + " is only valid for custom statistics");
                 }
             } else {
+                progressDivisor = progressDisplayDivisor(firstCustomStat, configuredUnit);
+                progressUnit = progressDisplayUnit(firstCustomStat, configuredUnit);
                 atLeast = convertCustomThreshold(firstCustomStat, atLeast, configuredUnit);
             }
         } else if (firstCustomStat != null && unit != StatisticUnit.COUNT) {
             throw new JsonParseException("sum condition for " + achievementId
                     + " must specify a unit for distance, time or damage sources");
         }
-        return new ParsedNode(requirements, new SumCondition(requirements, atLeast, unit), true);
+        return new ParsedNode(requirements, new SumCondition(requirements, atLeast, unit,
+                progressDivisor, progressUnit), true);
     }
 
     private static ParsedNode parseChildrenCondition(String achievementId, JsonObject condition,
@@ -620,6 +627,22 @@ public final class AchievementConfig {
             multiplier = 1L;
         }
         return multiplier;
+    }
+
+    private static String displayUnit(String unit) {
+        String normalized = unit.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("count") ? "" : normalized;
+    }
+
+    /** Distance requirements are always shown in meters, while their configured unit still controls the threshold. */
+    private static long progressDisplayDivisor(String customStat, String configuredUnit) {
+        return unitFor(RequirementType.CUSTOM, customStat) == StatisticUnit.DISTANCE
+                ? 100L : customUnitMultiplier(customStat, configuredUnit);
+    }
+
+    private static String progressDisplayUnit(String customStat, String configuredUnit) {
+        return unitFor(RequirementType.CUSTOM, customStat) == StatisticUnit.DISTANCE
+                ? "meters" : displayUnit(configuredUnit);
     }
 
     private static Identifier parseIdentifier(String value, String context) {

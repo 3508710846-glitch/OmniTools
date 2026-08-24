@@ -31,6 +31,7 @@ import dev.modmind.omnitools.achievement.TargetMatch;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Server-authoritative paged achievement list and one-time reward claim menu. */
@@ -216,8 +217,7 @@ public final class AchievementScreenHandler extends ChestMenu {
                     .withStyle(ChatFormatting.GOLD));
         }
         if (!reward.titles().isEmpty()) {
-            lore.add(Component.translatable("gui.omnitools.achievement.reward_titles",
-                    String.join(", ", reward.titles())).withStyle(ChatFormatting.LIGHT_PURPLE));
+            appendTitleRewards(reward.titles(), lore);
         }
         lore.add(Component.translatable(stateTranslationKey(state)).withStyle(color));
         lore.add(Component.literal(achievement.id()).withStyle(ChatFormatting.DARK_GRAY));
@@ -265,6 +265,11 @@ public final class AchievementScreenHandler extends ChestMenu {
                                      List<Component> lore, ChatFormatting color, int indent) {
         Component prefix = Component.literal("  ".repeat(Math.max(0, indent)));
         if (condition instanceof StatCondition stat) {
+            if (isCustomOnly(stat.requirements())) {
+                lore.add(prefix.copy().append(customProgressLine(progress.current(), stat.atLeast(),
+                        stat.progressDivisor(), stat.progressUnit())).withStyle(color));
+                return;
+            }
             if (stat.match() == TargetMatch.SUM) {
                 if (stat.requirements().size() == 1) {
                     lore.add(prefix.copy().append(statLine(stat.requirements().get(0), progress.current(),
@@ -292,6 +297,11 @@ public final class AchievementScreenHandler extends ChestMenu {
             return;
         }
         if (condition instanceof SumCondition sum) {
+            if (containsCustom(sum.requirements())) {
+                lore.add(prefix.copy().append(customProgressLine(progress.current(), sum.atLeast(),
+                        sum.progressDivisor(), sum.progressUnit())).withStyle(color));
+                return;
+            }
             lore.add(prefix.copy().append(Component.translatable(
                     "gui.omnitools.achievement.condition.sum", joinTargetNames(sum.requirements()),
                     progress.current(), sum.atLeast())).withStyle(color));
@@ -317,6 +327,75 @@ public final class AchievementScreenHandler extends ChestMenu {
                     .withStyle(color));
             appendChildren(List.of(not.child()), progress, lore, color, indent + 1);
         }
+    }
+
+    private void appendTitleRewards(List<String> titleIds, List<Component> lore) {
+        List<TitleConfig.TitleDefinition> definitions = titleIds.stream()
+                .map(ModMindEntry.titleConfig()::definition)
+                .flatMap(Optional::stream)
+                .toList();
+        if (definitions.isEmpty()) {
+            return;
+        }
+
+        MutableComponent displays = Component.empty();
+        for (int index = 0; index < definitions.size(); index++) {
+            if (index > 0) {
+                displays.append(Component.literal(", "));
+            }
+            displays.append(definitions.get(index).displayComponent());
+        }
+        lore.add(Component.translatable("gui.omnitools.achievement.reward_titles", displays)
+                .withStyle(ChatFormatting.LIGHT_PURPLE));
+        for (TitleConfig.TitleDefinition definition : definitions) {
+            for (String tooltip : definition.tooltip()) {
+                lore.add(Component.literal("  ")
+                        .append(LegacyTitleText.parse(tooltip))
+                        .withStyle(ChatFormatting.GRAY));
+            }
+            for (String effectId : definition.effects()) {
+                ModMindEntry.titleEffectConfig().definition(effectId)
+                        .map(TitleEffectConfig.EffectDefinition::display)
+                        .map(LegacyTitleText::parse)
+                        .ifPresent(effect -> lore.add(Component.literal("  ").append(effect)));
+            }
+        }
+    }
+
+    private static boolean isCustomOnly(List<AchievementConfig.Requirement> requirements) {
+        return !requirements.isEmpty()
+                && requirements.stream().allMatch(requirement ->
+                requirement.type() == AchievementConfig.RequirementType.CUSTOM);
+    }
+
+    private static boolean containsCustom(List<AchievementConfig.Requirement> requirements) {
+        return requirements.stream().anyMatch(requirement ->
+                requirement.type() == AchievementConfig.RequirementType.CUSTOM);
+    }
+
+    private static Component customProgressLine(long current, long target, long divisor, String unit) {
+        MutableComponent progress = Component.translatable("gui.omnitools.achievement.progress",
+                formatProgressValue(current, divisor), formatProgressValue(target, divisor));
+        if (unit == null || unit.isBlank()) {
+            return progress;
+        }
+        return progress.append(Component.literal(" "))
+                .append(Component.translatable("gui.omnitools.achievement.unit." + unit));
+    }
+
+    private static String formatProgressValue(long value, long divisor) {
+        if (divisor <= 1L) {
+            return Long.toString(value);
+        }
+        long whole = value / divisor;
+        long hundredths = (value % divisor) * 100L / divisor;
+        if (hundredths == 0L) {
+            return Long.toString(whole);
+        }
+        if (hundredths % 10L == 0L) {
+            return whole + "." + (hundredths / 10L);
+        }
+        return whole + "." + String.format(java.util.Locale.ROOT, "%02d", hundredths);
     }
 
     private void appendChildren(List<AchievementCondition> children, ConditionProgress progress,

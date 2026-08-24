@@ -6,19 +6,26 @@ import java.util.List;
 
 /** A v2 stat leaf backed by resolved vanilla statistic targets. */
 public record StatCondition(List<AchievementConfig.Requirement> requirements, long atLeast,
-                            TargetMatch match, StatisticUnit unit) implements AchievementCondition {
+                            TargetMatch match, StatisticUnit unit, long progressDivisor,
+                            String progressUnit) implements AchievementCondition {
     /** Backwards-compatible constructor for legacy callers: all targets are summed. */
     public StatCondition(List<AchievementConfig.Requirement> requirements, long atLeast) {
-        this(requirements, atLeast, TargetMatch.SUM, StatisticUnit.COUNT);
+        this(requirements, atLeast, TargetMatch.SUM, StatisticUnit.COUNT, 1L, "");
     }
 
     public StatCondition(List<AchievementConfig.Requirement> requirements, long atLeast, TargetMatch match) {
-        this(requirements, atLeast, match, StatisticUnit.COUNT);
+        this(requirements, atLeast, match, StatisticUnit.COUNT, 1L, "");
+    }
+
+    public StatCondition(List<AchievementConfig.Requirement> requirements, long atLeast, TargetMatch match,
+                         StatisticUnit unit) {
+        this(requirements, atLeast, match, unit, 1L, "");
     }
 
     public StatCondition {
         requirements = List.copyOf(requirements);
-        if (requirements.isEmpty() || atLeast < 1L || match == null || unit == null) {
+        progressUnit = progressUnit == null ? "" : progressUnit;
+        if (requirements.isEmpty() || atLeast < 1L || match == null || unit == null || progressDivisor < 1L) {
             throw new IllegalArgumentException("A stat condition needs targets, a positive threshold, match and unit");
         }
     }
