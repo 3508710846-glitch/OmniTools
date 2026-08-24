@@ -7102,3 +7102,519 @@ Placeholder API 是独立集成项 `integrations.placeholder_api.enabled`，不�
 ## Development request 2026/8/24 15:31:03
 
 检查模块GUI是否做完，把指令等写入到相关文档
+
+---
+
+## Development request 2026/8/24 19:39:21
+
+## 一、目标
+
+新增一个高度可配置的命令菜单模块：
+
+- 主配置只负责注册有哪些菜单。
+- 每个菜单使用独立 JSON 文件。
+- 未配置菜单时，模块为空，不生成示例按钮。
+- 支持 27 格和 54 格菜单。
+- 每个格子可配置物品、名称、Lore、附魔光效。
+- 左键和右键可以执行不同动作。
+- 支持打开子菜单、返回主菜单、关闭菜单和执行命令。
+- 支持热重载。
+- 使用原版箱子菜单，兼容纯服务端模式。
+
+## 二、目录结构
+
+建议固定使用 `menus` 作为菜单文件夹名称：
+
+```text
+config/omnitools/
+└── command_menu/
+    ├── config.json
+    └── menus/
+        ├── 1.json
+        ├── 2.json
+        └── 3.json
+```
+
+根配置中的模块开关仍然放在：
+
+```text
+config/omnitools/config.json
+```
+
+增加：
+
+```json
+"modules": {
+  "command_menu": {
+    "enabled": true
+  }
+}
+```
+
+## 三、主注册文件
+
+文件：
+
+```text
+config/omnitools/command_menu/config.json
+```
+
+该文件只负责注册菜单，不保存格子内容。
+
+```json
+{
+  "format_version": 1,
+  "menus": [
+    {
+      "id": "main",
+      "file": "1.json",
+      "permission": "PLAYER"
+    },
+    {
+      "id": "server",
+      "file": "2.json",
+      "permission": "PLAYER"
+    },
+    {
+      "id": "admin",
+      "file": "3.json",
+      "permission": "ADMIN"
+    }
+  ],
+  "allow_console_commands": false
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 菜单唯一 ID，用于跳转 |
+| `file` | `menus` 文件夹中的 JSON 文件名 |
+| `permission` | 打开菜单所需角色 |
+| `allow_console_commands` | 是否允许菜单执行控制台命令，默认 `false` |
+
+文件名只允许单层文件名，例如：
+
+```text
+1.json
+main.json
+admin.json
+```
+
+禁止：
+
+```text
+../server.json
+sub/menu.json
+C:\server.json
+```
+
+## 四、默认行为
+
+首次启动时：
+
+1. 如果 `command_menu/config.json` 不存在，创建空注册表。
+2. 如果 `menus` 文件夹不存在，创建空文件夹。
+3. 如果注册了菜单但对应文件不存在，生成空菜单文件。
+4. 如果没有注册任何菜单，不生成任何菜单按钮，也不注册快捷菜单命令。
+5. 如果已有配置文件格式错误，不能覆盖原文件，重载失败并继续使用旧配置。
+
+空注册表示：
+
+```json
+{
+  "format_version": 1,
+  "menus": []
+}
+```
+
+注册了菜单但文件不存在时，生成：
+
+```json
+{
+  "format_version": 1,
+  "title": "空菜单",
+  "size": 27,
+  "items": []
+}
+```
+
+## 五、菜单文件格式
+
+例如：
+
+```text
+config/omnitools/command_menu/menus/1.json
+```
+
+```json
+{
+  "format_version": 1,
+  "title": "&6服务器主菜单",
+  "size": 27,
+  "filler": {
+    "item": "minecraft:gray_stained_glass_pane",
+    "name": " "
+  },
+  "items": [
+    {
+      "slot": 11,
+      "item": "minecraft:clock",
+      "amount": 1,
+      "name": "&e每日签到",
+      "lore": [
+        "&7领取每日签到奖励",
+        "",
+        "&a左键：打开签到界面"
+      ],
+      "glow": true,
+      "left_click": [
+        {
+          "type": "command",
+          "run_as": "player",
+          "command": "omnitools open"
+        },
+        {
+          "type": "close_menu"
+        }
+      ]
+    },
+    {
+      "slot": 13,
+      "item": "minecraft:emerald",
+      "name": "&a服务器功能",
+      "lore": [
+        "&7进入服务器功能菜单",
+        "&a左键：打开子菜单"
+      ],
+      "left_click": [
+        {
+          "type": "open_menu",
+          "menu": "server"
+        }
+      ]
+    },
+    {
+      "slot": 15,
+      "item": "minecraft:barrier",
+      "name": "&c关闭菜单",
+      "lore": [
+        "&7关闭当前菜单"
+      ],
+      "left_click": [
+        {
+          "type": "close_menu"
+        }
+      ]
+    }
+  ]
+}
+```
+
+字段规则：
+
+- `size` 只能是 `27` 或 `54`。
+- `slot` 从 `0` 开始。
+- 27 格菜单允许 `0-26`。
+- 54 格菜单允许 `0-53`。
+- `item` 必须是有效物品 ID。
+- `amount` 范围为 `1-64`。
+- `items` 可以为空。
+- 同一个菜单内不能出现重复槽位。
+- `filler` 可选，用于填充空槽位。
+
+## 六、点击动作
+
+每个格子可以分别配置：
+
+```json
+"left_click": [],
+"right_click": []
+```
+
+支持以下动作。
+
+### 1. 打开菜单
+
+```json
+{
+  "type": "open_menu",
+  "menu": "server"
+}
+```
+
+直接打开目标菜单，不通过执行命令实现跳转。
+
+### 2. 关闭菜单
+
+```json
+{
+  "type": "close_menu"
+}
+```
+
+这是玩家关闭菜单的核心动作。
+
+### 3. 执行玩家命令
+
+```json
+{
+  "type": "command",
+  "run_as": "player",
+  "command": "omnitools balance"
+}
+```
+
+命令由点击者执行，仍然受到目标命令权限限制。
+
+### 4. 执行控制台命令
+
+```json
+{
+  "type": "command",
+  "run_as": "console",
+  "command": "say {player_name} 打开了菜单"
+}
+```
+
+只有当主配置中：
+
+```json
+"allow_console_commands": true
+```
+
+时才允许使用。
+
+### 5. 显示消息
+
+```json
+{
+  "type": "message",
+  "text": "&c该功能暂未开放"
+}
+```
+
+适合制作提示按钮。
+
+动作按数组顺序执行，每个鼠标键最多允许 8 个动作。
+
+`open_menu` 和 `close_menu` 执行后，立即终止本次点击的后续动作，防止菜单已经关闭后继续执行操作。
+
+## 七、玩家命令
+
+至少提供两个稳定命令：
+
+```text
+/omnitools menu open <menu_id>
+/omnitools menu close
+```
+
+示例：
+
+```text
+/omnitools menu open main
+/omnitools menu open server
+/omnitools menu close
+```
+
+可以额外提供：
+
+```text
+/omnitools menu
+```
+
+它默认打开 `id` 为 `main` 的菜单。
+
+不建议首版根据配置动态注册大量顶级命令，以免和其他模组或服务器命令冲突。所有菜单统一使用：
+
+```text
+/omnitools menu open <id>
+```
+
+## 八、权限规则
+
+建议新增：
+
+```text
+CommandAction.COMMAND_MENU_OPEN
+CommandAction.COMMAND_MENU_CLOSE
+```
+
+默认权限：
+
+```text
+command_menu.open  -> PLAYER
+command_menu.close -> PLAYER
+```
+
+菜单注册表中的 `permission` 再提供菜单级权限控制：
+
+```text
+PLAYER
+MODERATOR
+ADMIN
+OWNER
+```
+
+打开菜单时必须同时满足：
+
+1. `command_menu` 模块已启用。
+2. 玩家拥有菜单自身权限。
+3. 菜单文件加载成功。
+4. 菜单 ID 存在。
+
+关闭菜单不应要求管理员权限，玩家始终可以关闭自己打开的菜单。
+
+子菜单跳转时必须重新检查目标菜单权限，不能因为已经进入父菜单就绕过权限。
+
+## 九、安全要求
+
+所有点击操作必须由服务端执行：
+
+- 只允许菜单拥有者操作。
+- 只接受普通左键和普通右键。
+- 拒绝 Shift 点击。
+- 拒绝拖拽。
+- 拒绝双击收集。
+- 拒绝数字键交换。
+- `quickMoveStack` 始终返回空。
+- 客户端不能提交任意命令文本。
+- 服务端只执行已加载配置中的固定命令。
+
+建议只提供白名单占位符：
+
+```text
+{player_name}
+{player_uuid}
+{player_x}
+{player_y}
+{player_z}
+{player_world}
+```
+
+不要允许玩家输入内容直接拼接到控制台命令中。
+
+## 十、热重载
+
+将命令菜单配置纳入现有 `OmniToolsConfigManager` 和 `OmniToolsConfigSnapshot`。
+
+重载流程：
+
+1. 读取主注册配置。
+2. 读取所有已注册菜单文件。
+3. 校验所有菜单。
+4. 构造候选配置快照。
+5. 校验成功后原子替换运行时快照。
+6. 刷新命令树。
+7. 刷新已打开的命令菜单。
+8. 被删除的菜单立即关闭。
+9. `command_menu` 模块被禁用时关闭全部命令菜单。
+
+任意一个菜单配置失败时：
+
+- 不写入正式运行状态。
+- 不替换旧快照。
+- 不关闭现有菜单。
+- 向执行 `/omnitools reload` 的管理员显示错误原因。
+- 记录详细日志。
+
+## 十一、建议新增的类
+
+```text
+CommandMenuConfig.java
+CommandMenuDefinition.java
+CommandMenuPageConfig.java
+CommandMenuItem.java
+CommandMenuAction.java
+CommandMenuService.java
+CommandMenuScreenHandler.java
+```
+
+推荐职责：
+
+- `CommandMenuConfig`：解析主注册文件。
+- `CommandMenuDefinition`：表示一个注册菜单。
+- `CommandMenuPageConfig`：解析单个菜单文件。
+- `CommandMenuItem`：保存槽位和图标数据。
+- `CommandMenuAction`：保存点击动作。
+- `CommandMenuService`：加载、校验、跳转和执行动作。
+- `CommandMenuScreenHandler`：服务端原版箱子菜单。
+
+## 十二、纯服务端兼容
+
+必须使用原版菜单类型：
+
+```text
+27 格 -> GENERIC_9x3
+54 格 -> GENERIC_9x6
+```
+
+不要注册自定义 `MenuType`，不要依赖客户端 `Screen`，不要把翻译键直接发送给客户端。
+
+菜单标题、物品名称和 Lore 应在服务端解析为最终文本。这样原版客户端无需安装 OmniTools 也能：
+
+- 执行打开命令。
+- 看见菜单。
+- 点击菜单。
+- 执行左右键动作。
+- 关闭菜单。
+- 跳转到子菜单。
+
+## 十三、实施阶段
+
+### 阶段一：配置与目录
+
+- 增加 `COMMAND_MENU` 模块。
+- 创建主注册配置加载器。
+- 创建 `menus` 目录和空配置生成逻辑。
+- 实现文件名和路径安全校验。
+
+### 阶段二：菜单模型
+
+- 实现 27/54 格配置。
+- 实现物品、名称、Lore、填充物和光效。
+- 实现左右键动作模型。
+
+### 阶段三：服务端菜单
+
+- 使用原版 `GENERIC_9x3` 和 `GENERIC_9x6`。
+- 实现服务端点击鉴权。
+- 禁用所有物品移动方式。
+- 实现关闭和页面刷新。
+
+### 阶段四：命令与权限
+
+- 增加 `/omnitools menu open <id>`。
+- 增加 `/omnitools menu close`。
+- 接入现有 `CommandPermissionService`。
+- 接入菜单级 `permission`。
+
+### 阶段五：跳转与动作
+
+- 实现 `open_menu`。
+- 实现 `close_menu`。
+- 实现玩家命令。
+- 实现可选控制台命令。
+- 实现基础占位符。
+
+### 阶段六：热重载与文档
+
+- 接入完整配置快照。
+- 接入 `/omnitools reload`。
+- 处理菜单删除、模块禁用和命令树刷新。
+- 补充默认配置说明和示例。
+
+## 十四、验收标准
+
+- 默认安装后 `menus` 为空，没有示例菜单。
+- 注册 `1.json`、`2.json`、`3.json` 后可以分别打开。
+- 27 格和 54 格菜单都能正常显示。
+- 左键、右键可以绑定不同动作。
+- 子菜单可以跳转，主菜单可以返回。
+- `/omnitools menu close` 能关闭当前命令菜单。
+- 无权限玩家无法通过命令或菜单跳转进入受限菜单。
+- 配置错误不会破坏当前运行中的菜单。
+- 热重载后新增、修改和删除菜单立即生效。
+- 模块关闭后所有命令菜单自动关闭。
+- 原版客户端无需安装 OmniTools 即可使用该菜单。

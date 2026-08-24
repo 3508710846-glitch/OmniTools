@@ -185,6 +185,7 @@
   "gui.omnitools.modules.module.achievements": "Achievements",
   "gui.omnitools.modules.module.cloud_storage": "Cloud Storage",
   "gui.omnitools.modules.module.permissions": "Command Permissions",
+  "gui.omnitools.modules.module.command_menu": "Command Menus",
   "gui.omnitools.modules.enabled": "Enabled",
   "gui.omnitools.modules.disabled": "Disabled",
   "gui.omnitools.modules.status": "Status: %s",
@@ -199,5 +200,9 @@
   "message.omnitools.modules.updated": "Module %s is now %s.",
   "message.omnitools.modules.update_failed": "Module update failed: %s",
   "message.omnitools.modules.update_failed_unknown": "Module update failed. Check the server log for details.",
-  "message.omnitools.modules.reloaded": "Disk configuration reloaded."
+  "message.omnitools.modules.reloaded": "Disk configuration reloaded.",
+  "message.omnitools.command_menu.disabled": "The command menu module is disabled.",
+  "message.omnitools.command_menu.unknown": "Unknown menu: %s",
+  "message.omnitools.command_menu.no_permission": "You do not have permission to open this menu.",
+  "message.omnitools.command_menu.player_only": "This command can only be used by an in-game player."
 }

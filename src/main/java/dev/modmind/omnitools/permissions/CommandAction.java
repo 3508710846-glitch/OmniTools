@@ -18,7 +18,9 @@ public enum CommandAction {
     CHECKIN_CLEAR("checkin.clear", CommandRole.ADMIN),
     TITLE_GRANT("title.grant", CommandRole.ADMIN),
     TITLE_REVOKE("title.revoke", CommandRole.ADMIN),
-    CONFIG_RELOAD("config.reload", CommandRole.ADMIN);
+    CONFIG_RELOAD("config.reload", CommandRole.ADMIN),
+    COMMAND_MENU_OPEN("command_menu.open", CommandRole.PLAYER),
+    COMMAND_MENU_CLOSE("command_menu.close", CommandRole.PLAYER);
 
     private final String id;
     private final CommandRole defaultRole;

@@ -23,6 +23,7 @@
 | 成就 | 基于原版统计的条件树成就和一次性奖励 |
 | 云端存储 | 可扩容的玩家个人存储空间 |
 | 指令权限 | 为规范动作配置玩家、协管、管理员或服主门槛 |
+| 命令菜单 | 可配置的原版箱子菜单、子菜单和点击动作 |
 | Placeholder API | 可选的文本占位符联动 |
 
 成就支持原版统计、目标分组、标签、逻辑条件树和一次性奖励。详细规则见[成就配置指南](docs/achievements.md)。
@@ -48,7 +49,7 @@
 
 1. 首次启动后查看 `config/omnitools/config.json`，确认时区和模块开关。
 2. 使用 `/omnitools` 打开默认签到界面。
-3. 使用 `/omnitools online`、`/omnitools shop`、`/omnitools title` 或 `/omnitools achievements` 打开对应功能。
+3. 使用 `/omnitools online`、`/omnitools shop`、`/omnitools title`、`/omnitools achievements` 或 `/omnitools menu open <id>` 打开对应功能。
 4. 按需编辑各模块目录下的 `config.json`，然后由管理员执行 `/omnitools reload`。
 
 模块关闭后不会删除已有玩家数据，但对应命令和服务端逻辑会停止工作。
@@ -72,12 +73,16 @@
 | `/omnitools title give|add|remove|take` | 授予或回收称号 | 管理员 |
 | `/omnitools clear [today]` | 清除当天签到数据 | 管理员 |
 | `/omnitools reload` | 重载全部配置 | 管理员 |
+| `/omnitools menu open <id>` | 打开已注册的命令菜单 | 玩家 |
+| `/omnitools menu` | 打开 ID 为 `main` 的菜单 | 玩家 |
+| `/omnitools menu close` | 关闭当前命令菜单 | 玩家 |
+| `/omnitools menu main` | 打开 ID 为 `main` 的菜单 | 玩家 |
 
 ### 模块管理
 
 `/omnitools modules` 使用 `config.reload` 动作权限，默认仅管理员可用。该命令只能由游戏内玩家执行，用于打开三行箱子式模块管理界面；控制台可继续执行 `/omnitools reload`，但不能打开 GUI。
 
-界面可切换每日签到、在线奖励、商店、称号、称号效果、成就、云端存储和指令权限八个模块。左键点击模块图标会立即尝试切换，底部的“重新读取磁盘配置”按钮等价于 `/omnitools reload`。切换成功后，命令、已打开的菜单和相关定时服务会立即按新状态更新。
+界面可切换每日签到、在线奖励、商店、称号、称号效果、成就、云端存储、指令权限和命令菜单九个模块。左键点击模块图标会立即尝试切换，底部的“重新读取磁盘配置”按钮等价于 `/omnitools reload`。切换成功后，命令、已打开的菜单和相关定时服务会立即按新状态更新。
 
 切换前会加载并校验候选配置。启用模块时若其子配置无效，或称号与称号效果的依赖不满足，界面会显示原因，磁盘和运行中的模块状态均保持不变。Placeholder API 属于独立集成开关，不在此界面中管理。完整规则见[配置指南的模块管理章节](docs/configuration.md#模块管理)。
 
@@ -109,6 +114,8 @@ checkin.clear
 title.grant
 title.revoke
 config.reload
+command_menu.open
+command_menu.close
 ```
 
 完整权限配置和安全开关说明见[配置指南](docs/configuration.md#指令权限)。
@@ -127,6 +134,8 @@ config/omnitools/
 ├── title_effects/config.json
 ├── achievements/config.json
 ├── cloud_storage/config.json
+├── command_menu/config.json
+├── command_menu/menus/
 ├── permissions/config.json
 └── legacy/
 ```
@@ -153,7 +162,8 @@ config/omnitools/
     "title_effects": { "enabled": true },
     "achievements": { "enabled": true },
     "cloud_storage": { "enabled": true },
-    "permissions": { "enabled": false }
+    "permissions": { "enabled": false },
+    "command_menu": { "enabled": true }
   }
 }
 ```
@@ -163,7 +173,7 @@ config/omnitools/
 - `integrations.placeholder_api.enabled`：Placeholder API 集成总开关。
 - `modules.*.enabled`：对应模块开关。
 
-模块配置、权限配置和迁移细节见[配置指南](docs/configuration.md)。
+命令菜单使用独立注册表和菜单文件；未注册菜单时不会生成示例按钮。详细格式见[命令菜单配置指南](docs/command-menu.md)。其他模块配置、权限配置和迁移细节见[配置指南](docs/configuration.md)。
 
 ## Placeholder API 联动
 

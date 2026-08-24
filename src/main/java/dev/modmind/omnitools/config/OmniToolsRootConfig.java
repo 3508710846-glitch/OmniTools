@@ -35,7 +35,9 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         timezone = zone;
         EnumMap<ModuleId, Boolean> copy = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
-            copy.put(module, modules == null || !modules.containsKey(module) || modules.get(module));
+            copy.put(module, modules == null || !modules.containsKey(module)
+                    ? module != ModuleId.PERMISSIONS
+                    : modules.get(module));
         }
         modules = Map.copyOf(copy);
     }

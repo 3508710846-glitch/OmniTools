@@ -16,6 +16,8 @@ config/omnitools/
 ├── title_effects/config.json
 ├── achievements/config.json
 ├── cloud_storage/config.json
+├── command_menu/config.json
+├── command_menu/menus/
 ├── permissions/config.json
 └── legacy/
 ```
@@ -30,6 +32,7 @@ config/omnitools/
 | `title_effects/config.json` | 称号关联的效果定义 |
 | `achievements/config.json` | 成就条件和奖励；详见[成就配置指南](achievements.md) |
 | `cloud_storage/config.json` | 云端存储的容量和页面配置 |
+| `command_menu/config.json` | 命令菜单注册表；菜单内容位于同目录的 `menus/` |
 | `permissions/config.json` | 指令动作的最低角色与安全开关；仅在权限模块启用时生效 |
 | `legacy/` | 识别到的历史根目录配置副本与迁移清单 |
 
@@ -59,7 +62,8 @@ config/omnitools/
     "title_effects": { "enabled": true },
     "achievements": { "enabled": true },
     "cloud_storage": { "enabled": true },
-    "permissions": { "enabled": false }
+    "permissions": { "enabled": false },
+    "command_menu": { "enabled": true }
   }
 }
 ```
@@ -104,6 +108,8 @@ config/omnitools/
 | `title.grant` | `ADMIN` | 授予称号 |
 | `title.revoke` | `ADMIN` | 回收称号 |
 | `config.reload` | `ADMIN` | 重载配置，并打开模块管理界面 |
+| `command_menu.open` | `PLAYER` | 打开命令菜单 |
+| `command_menu.close` | `PLAYER` | 关闭当前命令菜单 |
 
 一个可编辑的最小示例：
 
@@ -131,7 +137,7 @@ config/omnitools/
 
 管理员可使用 `/omnitools modules` 打开模块管理界面。该入口复用 `config.reload` 动作权限，默认角色为 `ADMIN`，并且只能由游戏内玩家执行；控制台仍可使用 `/omnitools reload`，但不能打开箱子 GUI。菜单打开和每次点击时都会再次验证该权限。
 
-界面展示根配置 `config/omnitools/config.json` 中的八个 `modules.*.enabled` 开关：
+界面展示根配置 `config/omnitools/config.json` 中的九个 `modules.*.enabled` 开关：
 
 | 模块 ID | 管理的功能 |
 | --- | --- |
@@ -143,6 +149,7 @@ config/omnitools/
 | `achievements` | 成就检查、界面与领奖 |
 | `cloud_storage` | 云端存储入口 |
 | `permissions` | `permissions/config.json` 中的动作角色覆盖项 |
+| `command_menu` | 自定义命令菜单与点击动作 |
 
 左键点击图标可切换对应模块。成功后服务器会刷新在线玩家的命令树、关闭已失效的模块菜单，并应用对应的运行时处理：停止在线奖励前会先保存在线时长；禁用称号效果会移除其管理的效果；重新启用成就会立即进行一次检查。模块关闭不会删除已有 `SavedData`。
 
@@ -160,6 +167,7 @@ config/omnitools/
 - 称号与称号效果：先定义称号，再将有效效果 ID 关联给称号。
 - 成就：配置原版统计条件树和一次性奖励，详见[成就配置指南](achievements.md)。
 - 云端存储：调整个人存储的容量和页面设置。
+- 命令菜单：使用独立注册表和 `menus/` 文件配置原版箱子菜单，详见[命令菜单配置指南](command-menu.md)。
 
 模块关闭后不会继续执行该模块的定时服务或开放相应入口。重新启用时，原有的世界数据仍会保留。关闭成就模块时不进行成就检查和领奖；关闭称号效果模块时，服务端会移除其管理的效果。
 

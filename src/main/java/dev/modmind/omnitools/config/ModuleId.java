@@ -9,7 +9,8 @@ public enum ModuleId {
     TITLE_EFFECTS("title_effects"),
     ACHIEVEMENTS("achievements"),
     CLOUD_STORAGE("cloud_storage"),
-    PERMISSIONS("permissions");
+    PERMISSIONS("permissions"),
+    COMMAND_MENU("command_menu");
 
     private final String id;
 

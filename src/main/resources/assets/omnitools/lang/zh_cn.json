@@ -185,6 +185,7 @@
   "gui.omnitools.modules.module.achievements": "\u6210\u5c31",
   "gui.omnitools.modules.module.cloud_storage": "\u4e91\u7aef\u50a8\u5b58",
   "gui.omnitools.modules.module.permissions": "\u6307\u4ee4\u6743\u9650",
+  "gui.omnitools.modules.module.command_menu": "\u547d\u4ee4\u83dc\u5355",
   "gui.omnitools.modules.enabled": "\u5df2\u542f\u7528",
   "gui.omnitools.modules.disabled": "\u5df2\u7981\u7528",
   "gui.omnitools.modules.status": "\u72b6\u6001\uff1a%s",
@@ -199,5 +200,9 @@
   "message.omnitools.modules.updated": "\u6a21\u5757 %s \u5df2%s\u3002",
   "message.omnitools.modules.update_failed": "\u66f4\u65b0\u6a21\u5757\u5931\u8d25\uff1a%s",
   "message.omnitools.modules.update_failed_unknown": "\u66f4\u65b0\u6a21\u5757\u5931\u8d25\uff0c\u8bf7\u67e5\u770b\u670d\u52a1\u5668\u65e5\u5fd7\u3002",
-  "message.omnitools.modules.reloaded": "\u78c1\u76d8\u914d\u7f6e\u5df2\u91cd\u65b0\u8bfb\u53d6\u3002"
+  "message.omnitools.modules.reloaded": "\u78c1\u76d8\u914d\u7f6e\u5df2\u91cd\u65b0\u8bfb\u53d6\u3002",
+  "message.omnitools.command_menu.disabled": "\u547d\u4ee4\u83dc\u5355\u6a21\u5757\u672a\u542f\u7528\u3002",
+  "message.omnitools.command_menu.unknown": "\u672a\u627e\u5230\u83dc\u5355\uff1a%s",
+  "message.omnitools.command_menu.no_permission": "\u4f60\u6ca1\u6709\u6253\u5f00\u8be5\u83dc\u5355\u7684\u6743\u9650\u3002",
+  "message.omnitools.command_menu.player_only": "\u8be5\u547d\u4ee4\u53ea\u80fd\u7531\u6e38\u620f\u5185\u73a9\u5bb6\u6267\u884c\u3002"
 }

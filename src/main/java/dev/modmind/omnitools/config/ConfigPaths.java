@@ -25,6 +25,18 @@ public final class ConfigPaths {
         return moduleDir(module).resolve("config.json");
     }
 
+    public static Path commandMenuDir() {
+        return moduleDir(ModuleId.COMMAND_MENU);
+    }
+
+    public static Path commandMenuRegistry() {
+        return commandMenuDir().resolve("config.json");
+    }
+
+    public static Path commandMenuFiles() {
+        return commandMenuDir().resolve("menus");
+    }
+
     public static Path legacyDir() {
         return root().resolve("legacy");
     }

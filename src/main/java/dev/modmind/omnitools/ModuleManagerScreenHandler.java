@@ -47,7 +47,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             ModuleId.TITLE_EFFECTS, Items.BLAZE_POWDER,
             ModuleId.ACHIEVEMENTS, Items.KNOWLEDGE_BOOK,
             ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST,
-            ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK);
+            ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK,
+            ModuleId.COMMAND_MENU, Items.CHEST);
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;
@@ -247,6 +248,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         slots.put(ModuleId.ACHIEVEMENTS, 15);
         slots.put(ModuleId.CLOUD_STORAGE, 16);
         slots.put(ModuleId.PERMISSIONS, 17);
+        slots.put(ModuleId.COMMAND_MENU, 18);
         return Map.copyOf(slots);
     }
 }

@@ -33,6 +33,9 @@ import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 import dev.modmind.omnitools.permissions.CommandPermissionService;
+import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
+import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
+import dev.modmind.omnitools.commandmenu.CommandMenuService;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -135,7 +138,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
-                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD))
+                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
+                            CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -161,6 +165,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
                             .executes(context -> reloadRewards(context.getSource())))
+                    .then(commandMenuCommand())
                     .then(moduleManagerCommand());
             dispatcher.register(command);
             dispatcher.register(Commands.literal("checkin")
@@ -236,11 +241,15 @@ public final class ModMindEntry implements ModInitializer {
         return MODULE_CONTROL;
     }
 
-    static OmniToolsConfigSnapshot configSnapshot() {
+    public static OmniToolsConfigSnapshot configSnapshot() {
         return configSnapshot;
     }
 
-    static boolean isModuleEnabled(ModuleId module) {
+    public static CommandMenuConfig commandMenuConfig() {
+        return configSnapshot.commandMenus();
+    }
+
+    public static boolean isModuleEnabled(ModuleId module) {
         return configSnapshot.enabled(module);
     }
 
@@ -286,6 +295,27 @@ public final class ModMindEntry implements ModInitializer {
         if (current.enabled(ModuleId.ACHIEVEMENTS)) {
             achievementService().checkAll(server);
         }
+        refreshCommandMenus(server, current);
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> commandMenuCommand() {
+        return Commands.literal("menu")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.COMMAND_MENU_OPEN,
+                        CommandAction.COMMAND_MENU_CLOSE))
+                .then(Commands.literal("open")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.COMMAND_MENU_OPEN)
+                                .and(source -> isModuleEnabled(ModuleId.COMMAND_MENU)))
+                        .then(Commands.argument("menu_id", StringArgumentType.word())
+                                .executes(context -> openCommandMenu(context.getSource(),
+                                        StringArgumentType.getString(context, "menu_id")))))
+                .executes(context -> openCommandMenu(context.getSource(), "main"))
+                .then(Commands.literal("close")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.COMMAND_MENU_CLOSE))
+                        .executes(context -> closeCommandMenu(context.getSource())))
+                .then(Commands.literal("main")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.COMMAND_MENU_OPEN)
+                                .and(source -> isModuleEnabled(ModuleId.COMMAND_MENU)))
+                        .executes(context -> openCommandMenu(context.getSource(), "main")));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> onlineTimeCommand() {
@@ -338,7 +368,7 @@ public final class ModMindEntry implements ModInitializer {
         return hasCloudStoragePermission(player.createCommandSourceStack());
     }
 
-    static boolean hasCommandPermission(ServerPlayer player, CommandAction action) {
+    public static boolean hasCommandPermission(ServerPlayer player, CommandAction action) {
         return COMMAND_PERMISSIONS.canUse(player, action);
     }
 
@@ -567,9 +597,29 @@ public final class ModMindEntry implements ModInitializer {
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CONFIG_RELOAD)
-                    && player.containerMenu instanceof ModuleManagerScreenHandler);
+                    && player.containerMenu instanceof ModuleManagerScreenHandler)
+                    || (!snapshot.enabled(ModuleId.COMMAND_MENU)
+                    && player.containerMenu instanceof CommandMenuScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.COMMAND_MENU_OPEN)
+                    && player.containerMenu instanceof CommandMenuScreenHandler);
             if (close) {
                 player.closeContainer();
+            } else if (player.containerMenu instanceof CommandMenuScreenHandler commandMenu) {
+                commandMenu.refreshFromConfig();
+            }
+        }
+    }
+
+    private static void refreshCommandMenus(net.minecraft.server.MinecraftServer server,
+                                            OmniToolsConfigSnapshot snapshot) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.containerMenu instanceof CommandMenuScreenHandler menu) {
+                if (!snapshot.enabled(ModuleId.COMMAND_MENU)
+                        || snapshot.commandMenus().menu(menu.menuId()) == null) {
+                    player.closeContainer();
+                } else {
+                    menu.refreshFromConfig();
+                }
             }
         }
     }
@@ -672,6 +722,25 @@ public final class ModMindEntry implements ModInitializer {
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         achievementService(), 0),
                 Component.translatable("gui.omnitools.achievement.title")));
+        return 1;
+    }
+
+    private static int openCommandMenu(CommandSourceStack source, String menuId) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("message.omnitools.command_menu.player_only"));
+            return 0;
+        }
+        return CommandMenuService.open(player, menuId) ? 1 : 0;
+    }
+
+    private static int closeCommandMenu(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("message.omnitools.command_menu.player_only"));
+            return 0;
+        }
+        if (player.containerMenu instanceof CommandMenuScreenHandler) {
+            player.closeContainer();
+        }
         return 1;
     }
 

@@ -22,6 +22,7 @@ public final class ConfigValidator {
         if (snapshot.root() == null || snapshot.rewards() == null || snapshot.shop() == null
                 || snapshot.titles() == null || snapshot.titleEffects() == null
                 || snapshot.cloudStorage() == null || snapshot.achievements() == null
+                || snapshot.commandMenus() == null
                 || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
