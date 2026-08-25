@@ -1,0 +1,28 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "first_stone_reward",
+      "display": "新手礼包",
+      "description": "挖掘一块石头，领取四种奖励示例",
+      "icon": "minecraft:chest",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["minecraft:stone"],
+        "at_least": 1
+      },
+      "rewards": [
+        { "id": "coins", "type": "currency", "amount": 100 },
+        { "id": "bread", "type": "item", "item": "minecraft:bread", "count": 8 },
+        { "id": "title", "type": "title", "title": "geologist" },
+        {
+          "id": "notice",
+          "type": "command",
+          "run_as": "console",
+          "command": "say {player_name} unlocked a reward"
+        }
+      ]
+    }
+  ]
+}

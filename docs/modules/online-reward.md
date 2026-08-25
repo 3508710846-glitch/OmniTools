@@ -1,37 +1,35 @@
 # 在线奖励
 
-## 1. 模块用途和适用场景
+## 1. 用途与场景
 
-在线奖励按玩家当天累计在线分钟数解锁里程碑，可发货币、物品、称号和受控控制台命令。它使用原版箱子 GUI 与统一奖励账本，适合需要每日在线激励的服务器。
+在线时长按服务器时区的自然日累计。玩家打开原版奖励箱领取已达成的时长里程碑；同一里程碑事件只处理一次。
 
-## 2. 模块依赖与关联模块
+## 2. 前置条件、关联模块与开关
 
-模块 ID 为 `online_reward`。货币使用共享数据；称号奖励依赖 `titles`；命令奖励受根配置命令安全限制。统一发放和异常处理见[奖励一致性](../guides/reward-consistency.md)。
+根开关为 `modules.online_reward.enabled`。四类奖励的额外要求与安全限制见[统一奖励](../reference/rewards.md)。
 
-## 3. 模块开关配置
+## 3. 配置路径与重载
 
-```json
-{ "modules": { "online_reward": { "enabled": true } } }
-```
+使用 `config/omnitools/online_reward/config.json`，保存后执行 `/omnitools reload`。
 
-禁用时先保存在线时长，再停止计时并关闭在线奖励 GUI；历史时长、里程碑和账本不会删除。
+## 4--6. 最小配置、教学版与可复制版
 
-## 4. 初始配置文件位置
+推荐新格式教学版，不能直接复制：
 
-首次启动生成 `config/omnitools/online_reward/config.json`。修改后执行 `/omnitools reload`。
-
-## 5. 最小可用配置
-
-```json
+```jsonc
 {
   "format_version": 1,
   "rewards": [
-    { "id": "online_30m", "minutes": 30, "rewards": [{ "id": "currency", "type": "currency", "amount": 50 }] }
+    {
+      "id": "online_30m", // 稳定 ID；不要在发放后随意改名
+      "minutes": 30,
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }]
+    }
   ]
 }
 ```
 
-## 6. 完整配置示例
+可直接复制版：
 
 ```json
 {
@@ -40,70 +38,55 @@
     {
       "id": "online_30m",
       "minutes": 30,
-      "rewards": [
-        { "id": "currency", "type": "currency", "amount": 50 },
-        { "id": "bread", "type": "item", "item": "minecraft:bread", "count": 2, "components": {} }
-      ]
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }]
     },
     {
       "id": "online_60m",
       "minutes": 60,
-      "rewards": [{ "id": "title", "type": "title", "title": "loyal_player" }]
+      "rewards": [{ "id": "bread", "type": "item", "item": "minecraft:bread", "count": 8 }]
     }
   ]
 }
 ```
 
-## 7. 配置字段表
+## 7. 字段表
 
-| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
+| 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
 | --- | --- | --- | --- | --- |
-| `format_version` | integer | 否 | 首次生成 `1` | reload |
-| `rewards` | array | 是 | 非空；按分钟严格递增 | reload |
-| `rewards[].id` | string | 否 | `online_<minutes>m`，唯一且匹配 `[a-z0-9_.-]{1,64}` | reload |
-| `rewards[].minutes` | integer | 是 | 正整数 | reload |
-| `rewards[].rewards` | array | 新配置是 | 非空统一奖励定义 | reload |
-| `rewards[].coins` | integer | 旧格式兼容 | 非负；会转换为 `legacy_currency` | reload |
-| 奖励条目 | object | 是 | 与签到奖励相同的四种类型 | reload |
+| `format_version` | 整数 | 否 | 1 | 不是正整数。 |
+| `rewards` | 数组 | 是 | 按分钟严格升序 | 30 后写 30 或 15。 |
+| `id` | 字符串 | 否 | `online_<分钟>m` | 重复或更改已使用 ID。 |
+| `minutes` | 正整数 | 是 | 1 以上 | 使用秒数。 |
+| `rewards` | 奖励数组 | 是 | 至少一项 | `coins` 写在新格式项中。 |
 
-稳定里程碑 ID 是事件键的一部分；修改已使用 ID 会使历史领取消重失去对应关系。
+## 8. 全部配置场景
 
-## 8. 指令、别名和权限节点
+每个里程碑可放货币、物品、称号和指令奖励；完整数组直接复制自[统一奖励](../reference/rewards.md)。每个自然日事件 ID 包含玩家、日期和里程碑 ID，旧 `coins` 格式兼容读取：
 
-| 指令 | 别名 | 权限节点 | 默认角色 |
-| --- | --- | --- | --- |
-| `/omnitools online [rewards]` | `/checkin online [rewards]` | `online.open` | PLAYER |
-| `/omnitools rewards open` | 无 | `rewards.retry` | PLAYER |
-| `/omnitools rewards retry` | 无 | `rewards.retry` | PLAYER |
+```jsonc
+{ "onlineTimeRewards": [{ "minutes": 30, "coins": 50 }] }
+```
 
-## 9. GUI 操作说明
+同一旧格式的严格 JSON 版（仅供核对旧服）：
 
-原版箱子菜单显示每个里程碑所需时长、奖励预览与状态：未解锁、可领取、已领取、待处理或阻塞。满足时长后点击相应格领取；背包满时物品保留在奖励箱。GUI 物品不可取走。
+```json
+{ "onlineTimeRewards": [{ "minutes": 30, "coins": 50 }] }
+```
 
-## 10. 占位符列表及用途
+`onlineTimeRewards` 是当前加载器保留的兼容数组名，旧签到奖励文件也会读取它；它不是新在线奖励文件的推荐写法，新服使用本页的 `rewards` 格式。
 
-`%omnitools:online_today_seconds%`、`online_today_minutes` 与 `online_today_hms` 可显示今日在线时长。完整规则见[Placeholder API](../guides/placeholder-api.md)。
+## 9. 指令、权限与默认角色
 
-## 11. 数据保存位置和升级影响
+`/omnitools online` 默认 `PLAYER`。奖励箱 `/omnitools rewards open` 也默认 `PLAYER`。
 
-在线时长和历史领取标记在世界 `CheckinData`，奖励事件在 `RewardClaimLedger`。事件 ID 采用 `online:<uuid>:<epoch_day>:<milestone_id>`；重连、跨日与 reload 不会重复发放已完成项目。旧 `coins` 配置仍可读取。
+## 10. 占位符
 
-## 12. 与其他模块的联动
+`%online_today_seconds%`、`%online_today_minutes%`、`%online_today_hms%`。
 
-在线奖励可增加共享货币、授予称号、进入奖励箱；侧边栏可读取在线时长。称号和命令奖励依赖对应模块和根安全开关。
+## 11. 数据与升级
 
-## 13. 常见错误及解决方法
+在线时长和领取记录在 SavedData；背包满时物品奖励进奖励箱。升级不要重置数据或修改已领取里程碑 ID。
 
-| 现象 | 处理 |
-| --- | --- |
-| 里程碑没有解锁 | 确认模块已启用、在线分钟数已达到，并检查奖励配置的分钟顺序。 |
-| 物品奖励待处理 | 清理背包后用奖励箱重试。 |
-| 命令奖励被拒绝 | 检查总开关、命令根白名单、长度和 `console` 身份。 |
-| reload 后仍是旧规则 | 新 JSON 校验失败；查看服务端日志并修正。 |
+## 12. 验收与排错
 
-## 14. 可复制的验收清单
-
-- [ ] 30 分钟和 60 分钟里程碑按顺序解锁。
-- [ ] 货币、物品、称号奖励均可安全领取。
-- [ ] 背包满时奖励不丢失，且不会因重连重复发放。
-- [ ] 禁用模块会保存时长、停止计时并关闭 GUI。
+进入服务器达到里程碑，打开在线奖励 GUI 领取；背包满时检查奖励箱。重连后同一事件不会重复发放。

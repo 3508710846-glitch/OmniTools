@@ -1387,3 +1387,203 @@ README 只保留：
 - 工作台最终输出修改文件清单、链接检查结果、JSON 校验结果和剩余风险。
 
 本轮仅整理文档重构方案，未修改文件。
+
+---
+
+## Development request 2026/8/25 23:06:29
+
+## 文档重构目标
+
+将文档改造成“零基础服主可复制配置”的教程体系，并以当前代码解析器与 `ConfigValidator` 为唯一真源，禁止根据旧示例猜测字段。
+
+关键规则：
+
+- 真正的 `config.json` 必须是严格 JSON，不能写 `//` 或 `/* */` 注释。
+- 每个配置场景同时提供两份代码：
+  - `jsonc`：带逐行中文注释，仅用于教学。
+  - `json`：无注释、可直接复制到服务器使用。
+- 文档明确标注“推荐新格式”和“旧格式兼容”，不能混在同一示例中。
+- 所有文档统一 UTF-8 编码；排查当前乱码、失效链接、重复入口。
+- 保留旧文档链接的跳转页或迁移提示，不能直接删除导致外链失效。
+
+## 建议目录
+
+```text
+docs/
+├── index.md                         # 首页，只放简介、安装、快速开始、文档导航
+├── getting-started/
+│   ├── first-setup.md                # 第一次启动、配置文件位置、reload、备份
+│   ├── configuration-basics.md       # JSON 基础、物品 ID、颜色、常见错误
+│   └── troubleshooting.md            # 报错与排查
+├── reference/
+│   ├── root-config.md                # 总配置全部字段
+│   ├── rewards.md                    # 四类统一奖励
+│   ├── placeholders.md               # OmniTools 内置占位符完整表
+│   └── placeholder-api.md            # 可选 Text Placeholder API 占位符
+├── modules/
+│   ├── daily-checkin.md
+│   ├── online-reward.md
+│   ├── shop-and-currency.md
+│   ├── titles.md
+│   ├── title-effects.md
+│   ├── achievements.md
+│   ├── cloud-storage.md
+│   ├── permissions.md
+│   ├── command-menu.md
+│   └── sidebar.md
+├── examples/
+│   ├── minimal-server/
+│   ├── reward-examples/
+│   └── achievement-examples/
+├── presets/                          # 保留现有可直接加载的 JSON 预设
+├── guides/                           # 迁移、备份、模块管理等跨模块主题
+└── archive/                          # 历史设计，不作为正式配置教程入口
+```
+
+当前 `docs/guides/`、`docs/modules/` 与根目录中存在重复主题，应选择上述路径作为唯一正式入口；旧 `docs/modules/module-management.md`、`docs/modules/placeholder-api.md` 等改为跳转说明。
+
+## 每个模块文档的固定结构
+
+所有 `docs/modules/*.md` 必须采用同一章节顺序：
+
+1. 模块用途与适用场景。
+2. 前置条件、关联模块、模块开关位置。
+3. 配置文件路径与修改后执行的指令。
+4. 最小可用配置。
+5. 注释教学版 `jsonc`。
+6. 可直接复制版 `json`。
+7. 字段表：字段、类型、是否必填、默认值、范围、示例、常见错误。
+8. 全部配置场景示例。
+9. 指令、权限节点、默认角色。
+10. 可用占位符与示例。
+11. 数据保存位置及升级影响。
+12. 验收步骤与故障排查。
+
+## 配置覆盖清单
+
+工作台必须逐项补齐以下示例，不能只给“完整大配置”。
+
+| 配置 | 必须覆盖的情况 |
+|---|---|
+| 根配置 `config/omnitools/config.json` | 全局语言/时区、数据保留、十个模块开关、指令奖励安全开关、命令根白名单、长度/冷却限制、Placeholder API 集成开关 |
+| 每日签到 | 最低配每日奖励、月度里程碑、四类奖励、新 `rewards` 格式、旧 `dailyCoins/monthlyRewards` 兼容迁移 |
+| 在线奖励 | 单个时长奖励、多里程碑、四类奖励、新格式与旧 `coins` 兼容格式 |
+| 商店 | 普通物品、价格、槽位、`components`、购买失败原因；明确不推荐/不支持的旧 NBT 写法 |
+| 称号 | 稀有度、展示文本、描述、解锁、佩戴、效果关联、头顶/队伍名称冲突策略 |
+| 称号效果 | `POTION`、`ATTRIBUTE`、`PARTICLE`、`PERMISSION` 四类效果各一个可运行示例 |
+| 成就 | 下方“成就专章”全部情况 |
+| 云存储 | 默认页数、扩容价格、最大页数、禁用模块时的行为 |
+| 权限 | `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER`；字符串简写与对象完整写法；原生命令节点授权 |
+| 命令菜单 | 菜单注册、页面文件、27/54 格、物品、Lore、左/右键、关闭、跳转子菜单、玩家/控制台执行、权限与命令安全 |
+| 侧边栏 | 标题、行、刷新频率、内置/第三方占位符、长度限制、`skip`/`replace`/`restore` 三种冲突策略 |
+
+特别修正：侧边栏新配置只推荐 `skip`、`replace`、`restore`。旧值 `warn`、`disabled` 只作为兼容迁移说明，不能出现在新用户可复制的配置中。
+
+## 成就文档拆分
+
+不要用一个巨型 JSON 解释全部成就。将 `docs/modules/achievements.md` 链接到多个独立、可复制的例子：
+
+```text
+examples/achievement-examples/
+├── 01-mine-one-block.json
+├── 02-sum-multiple-targets.json
+├── 03-each-target-must-pass.json
+├── 04-any-condition.json
+├── 05-all-conditions.json
+├── 06-not-condition.json
+├── 07-distance-statistics.json
+├── 08-time-statistics.json
+├── 09-damage-statistics.json
+├── 10-entity-and-boss.json
+├── 11-target-groups-tags-wildcards.json
+└── 12-four-reward-types.json
+```
+
+成就条件必须解释并各自给出示例：
+
+- 条件节点：`stat`、`sum`、`all`、`any`、`not`。
+- 统计域：`block_mined`、`item_crafted`、`item_used`、`item_broken`、`item_picked_up`、`item_dropped`、`entity_killed`、`entity_killed_by`、`custom`。
+- 多目标统计方式：`sum`、`each`、`any`。
+- 目标写法：普通 ID、`$target_group`、`#namespace:tag`、通配符 `*`。
+- 单位：距离 `cm/meters/blocks/kilometers`，时间 `ticks/seconds/minutes/hours`，伤害 `damage/hearts`，其余为 `count`。
+- 明确限制：原版没有严格独立的“方块放置数”统计；`item_used` 只能近似反映物品使用或放置，不能宣传为精确放置统计。
+
+## 统一奖励教程
+
+新增 `docs/reference/rewards.md`，并由签到、在线奖励、成就复用链接，不要维护三份不同说明。
+
+支持四种奖励：
+
+- `currency`
+- `item`：使用 `item`、`count`、`components`，明确禁止示例使用 NBT。
+- `title`
+- `command`：仅允许 `run_as: "console"`，并同时受根配置的奖励开关与 `allowed_roots` 白名单限制。
+
+命令奖励和命令菜单中只能使用：
+
+```text
+{player_name}
+{player_uuid}
+{player_x}
+{player_y}
+{player_z}
+{player_world}
+```
+
+第三方 `%...%` 文本占位符不得进入控制台命令，必须在文档中作为安全红线说明。
+
+## 占位符文档
+
+`docs/reference/placeholders.md` 必须完整列出当前 OmniTools 保证支持的 17 个占位符，表格字段为：占位符、说明、依赖模块、模块关闭时回退值、配置示例。
+
+| 分类 | 占位符 |
+|---|---|
+| 货币 | `balance`、`balance_formatted` |
+| 签到 | `checkin_today`、`checkin_today_rank`、`checkin_total_days`、`checkin_streak_days`、`checkin_month_days` |
+| 在线奖励 | `online_today_seconds`、`online_today_minutes`、`online_today_hms` |
+| 称号 | `title_id`、`title`、`title_plain`、`title_effects_enabled` |
+| 成就 | `achievements_unlocked`、`achievements_claimed`、`achievements_total` |
+
+标准写法为：
+
+```text
+%omnitools:balance%
+```
+
+侧边栏额外允许简写：
+
+```text
+%balance%
+```
+
+回退规则也必须写清：
+
+- 数值为 `0`。
+- 布尔值为 `false`。
+- 称号文本为空。
+- `online_today_hms` 为 `00:00:00`。
+- 未知文本占位符显示 `-`，并仅记录一次警告。
+
+`docs/reference/placeholder-api.md` 单独说明可选 Text Placeholder API：
+
+- 未安装 API 或 `integrations.placeholder_api.enabled=false` 时，OmniTools 仍可正常启动。
+- 仅在 API 存在且集成开关开启时解析第三方文本占位符。
+- 依据当前内置的 Placeholder API `2.8.2`，按“玩家、世界、服务器、计分板”四类列出已验证占位符，并标明 API 版本。
+- 不得声称可预先列出“所有第三方模组占位符”；第三方内容由服务器实际安装的模组动态注册，应提供检测与排错方法。
+
+## 工作台验收
+
+完成前必须输出一份文档审计报告，至少包括：
+
+- 每个模块、每种配置场景是否已有“教学版 + 可复制版”。
+- 所有 `json` 代码块可被 JSON 解析。
+- `jsonc` 明确标注“不能直接复制到真实 JSON 文件”。
+- 示例通过配置加载器或 `ConfigValidator` 验证。
+- 字段名、默认值、枚举值、路径与当前解析代码一致。
+- 检索并处理旧名称 `qiandao`、旧配置路径、旧冲突策略 `warn/disabled`、过时版本号。
+- 检查全部 Markdown 链接、锚点和预设文件链接。
+- 检查文件编码，统一为 UTF-8，避免终端/编辑器乱码。
+- 列出新增、迁移、归档和保留跳转的文档文件。
+- 说明未覆盖的人工验收项，例如实际服务器中第三方 Placeholder API 模组是否已注册对应变量。
+
+当前资料的依据应优先来自配置解析与验证代码，例如 [AchievementConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)、[ConfigValidator.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)、[OmniToolsPlaceholderResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OmniToolsPlaceholderResolver.java)，而不是直接复制 `run/config` 中可能保留旧格式的示例。

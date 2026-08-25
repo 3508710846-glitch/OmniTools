@@ -1,0 +1,18 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "dragon_slayer",
+      "display": "屠龙者",
+      "description": "击杀末影龙",
+      "icon": "minecraft:dragon_head",
+      "requirements": {
+        "type": "stat",
+        "stat": "entity_killed",
+        "targets": ["minecraft:ender_dragon"],
+        "at_least": 1
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 1000 }]
+    }
+  ]
+}

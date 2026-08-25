@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "mine_one_stone",
+      "display": "石匠起步",
+      "description": "挖掘 1 个石头",
+      "icon": "minecraft:stone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["minecraft:stone"],
+        "match": "sum",
+        "at_least": 1
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 10 }]
+    }
+  ]
+}

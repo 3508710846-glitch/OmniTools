@@ -1,3 +1,3 @@
-# 页面已迁移
+# 文档已迁移
 
-请阅读[Placeholder API](../guides/placeholder-api.md)。
+本入口保留以兼容旧链接。请阅读[可选 Text Placeholder API](../reference/placeholder-api.md)。

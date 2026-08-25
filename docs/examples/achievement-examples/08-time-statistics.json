@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "play_one_hour",
+      "display": "常驻居民",
+      "description": "累计游玩 1 小时",
+      "icon": "minecraft:clock",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:play_time",
+        "unit": "hours",
+        "at_least": 1
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 60 }]
+    }
+  ]
+}

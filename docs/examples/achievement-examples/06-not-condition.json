@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "careful_miner",
+      "display": "谨慎矿工",
+      "description": "挖掘煤矿石时尚未掉落钻石",
+      "icon": "minecraft:coal",
+      "requirements": {
+        "type": "all",
+        "children": [
+          { "type": "stat", "stat": "block_mined", "targets": ["minecraft:coal_ore"], "at_least": 1 },
+          { "type": "not", "child": { "type": "stat", "stat": "item_picked_up", "targets": ["minecraft:diamond"], "at_least": 1 } }
+        ]
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 5 }]
+    }
+  ]
+}

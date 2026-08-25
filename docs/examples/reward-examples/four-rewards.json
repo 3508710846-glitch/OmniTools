@@ -1,0 +1,11 @@
+[
+  { "id": "coins", "type": "currency", "amount": 100 },
+  { "id": "gift", "type": "item", "item": "minecraft:bread", "count": 8 },
+  { "id": "geologist", "type": "title", "title": "geologist" },
+  {
+    "id": "notice",
+    "type": "command",
+    "run_as": "console",
+    "command": "say {player_name} completed a milestone"
+  }
+]

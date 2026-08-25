@@ -1,0 +1,31 @@
+{
+  "format_version": 3,
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai",
+    "language": "zh_cn",
+    "data_retention": "full",
+    "command_security": {
+      "allowed_roots": ["spawn", "home", "warp"],
+      "max_command_length": 1024,
+      "cooldown_ticks": 10
+    },
+    "reward_security": {
+      "allow_command_rewards": false,
+      "max_command_length": 1024
+    }
+  },
+  "integrations": { "placeholder_api": { "enabled": true } },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "online_reward": { "enabled": true },
+    "shop": { "enabled": true },
+    "titles": { "enabled": true },
+    "title_effects": { "enabled": true },
+    "achievements": { "enabled": true },
+    "cloud_storage": { "enabled": true },
+    "permissions": { "enabled": false },
+    "command_menu": { "enabled": true },
+    "sidebar": { "enabled": true }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "deal_ten_hearts",
+      "display": "初次交锋",
+      "description": "累计造成 10 颗心伤害",
+      "icon": "minecraft:iron_sword",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:damage_dealt",
+        "unit": "hearts",
+        "at_least": 10
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 30 }]
+    }
+  ]
+}

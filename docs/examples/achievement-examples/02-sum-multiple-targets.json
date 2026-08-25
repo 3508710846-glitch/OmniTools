@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "mine_stone_family",
+      "display": "石料工",
+      "description": "挖掘石头或深板岩共 32 个",
+      "icon": "minecraft:cobblestone",
+      "requirements": {
+        "type": "stat",
+        "stat": "block_mined",
+        "targets": ["minecraft:stone", "minecraft:deepslate"],
+        "match": "sum",
+        "at_least": 32
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 32 }]
+    }
+  ]
+}

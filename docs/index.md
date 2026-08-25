@@ -1,34 +1,35 @@
 # OmniTools 文档
 
-本索引只列出面向服务器管理员和玩家的文档。`docs/archive/` 保存历史设计资料；工作台记录不属于用户文档。
+本目录面向第一次管理 Fabric 服务端的服主。所有可复制的 `json` 代码块都符合严格 JSON；带注释的 `jsonc` 仅用于讲解，不能直接放进 `.json` 文件。
 
-## 开始使用
+## 快速入口
 
-- [项目首页与安装](../README.md)
-- [模块管理与热重载](guides/module-management.md)
-- [Placeholder API](guides/placeholder-api.md)
-- [升级指南](guides/upgrade-guide.md)
-- [备份与恢复](guides/backup-and-recovery.md)
-- [奖励一致性与奖励箱](guides/reward-consistency.md)
+- [第一次配置](getting-started/first-setup.md)
+- [JSON、物品 ID 与颜色](getting-started/configuration-basics.md)
+- [排错](getting-started/troubleshooting.md)
+- [根配置参考](reference/root-config.md)
+- [统一奖励格式](reference/rewards.md)
+- [17 个 OmniTools 占位符](reference/placeholders.md)
+- [可选 Text Placeholder API](reference/placeholder-api.md)
 
 ## 模块
 
-| 模块 | 内容 |
-| --- | --- |
-| [每日签到](modules/daily-checkin.md) | 周历签到、月度里程碑、记录与奖励详情 |
-| [在线奖励](modules/online-reward.md) | 在线时长里程碑与统一奖励 |
-| [商店与货币](modules/shop-and-currency.md) | 商品、购买与货币指令 |
-| [称号](modules/titles.md) | 称号授予、展示与队伍冲突策略 |
-| [称号效果](modules/title-effects.md) | 药水、属性、粒子与权限效果 |
-| [成就](modules/achievements.md) | 原版统计条件树、奖励与预设 |
-| [云存储](modules/cloud-storage.md) | 玩家个人仓库与扩容 |
-| [权限](modules/permissions.md) | 命令角色与原生权限节点 |
-| [命令菜单](modules/command-menu.md) | 原版箱子菜单、动作与命令安全 |
-| [侧边栏](modules/sidebar.md) | 计分板显示、文本和冲突策略 |
+- [每日签到](modules/daily-checkin.md)
+- [在线奖励](modules/online-reward.md)
+- [商店与货币](modules/shop-and-currency.md)
+- [称号](modules/titles.md)
+- [称号效果](modules/title-effects.md)
+- [成就](modules/achievements.md)
+- [云存储](modules/cloud-storage.md)
+- [权限](modules/permissions.md)
+- [命令菜单](modules/command-menu.md)
+- [侧边栏](modules/sidebar.md)
 
-## 约定
+## 跨模块指南
 
-- 所有配置均在 `config/omnitools/` 下；根配置为 `config/omnitools/config.json`，当前格式版本为 `3`。
-- 修改配置后执行 `/omnitools reload`。任一候选配置无效时，当前运行快照不会被替换。
-- 所有业务 GUI 均为原版 `GENERIC_9x3` 或 `GENERIC_9x6` 容器，客户端无需安装 OmniTools。
-- 奖励、签到、货币、成就、称号和云存储的玩家数据位于世界的 `SavedData`，不是配置 JSON。
+- [模块管理与热重载](guides/module-management.md)
+- [配置升级](guides/upgrade-guide.md)
+- [备份与恢复](guides/backup-and-recovery.md)
+- [奖励一致性与奖励箱](guides/reward-consistency.md)
+
+历史设计位于 `archive/`，不作为配置真源。`last-ai-change.json` 和 `last-ai-response.txt` 是内部记录，未纳入导航。

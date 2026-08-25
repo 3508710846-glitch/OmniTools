@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "first_resource",
+      "display": "第一份资源",
+      "description": "挖到煤矿石或铁矿石",
+      "icon": "minecraft:coal_ore",
+      "requirements": {
+        "type": "any",
+        "children": [
+          { "type": "stat", "stat": "block_mined", "targets": ["minecraft:coal_ore"], "at_least": 1 },
+          { "type": "stat", "stat": "block_mined", "targets": ["minecraft:iron_ore"], "at_least": 1 }
+        ]
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 15 }]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "two_tools",
+      "display": "双工具",
+      "description": "分别使用木镐和木斧各 1 次",
+      "icon": "minecraft:wooden_pickaxe",
+      "requirements": {
+        "type": "stat",
+        "stat": "item_used",
+        "targets": ["minecraft:wooden_pickaxe", "minecraft:wooden_axe"],
+        "match": "each",
+        "at_least": 1
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 20 }]
+    }
+  ]
+}

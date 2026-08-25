@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "miner_and_crafter",
+      "display": "自给自足",
+      "description": "挖掘石头并制作工作台",
+      "icon": "minecraft:crafting_table",
+      "requirements": {
+        "type": "all",
+        "children": [
+          { "type": "stat", "stat": "block_mined", "targets": ["minecraft:stone"], "at_least": 8 },
+          { "type": "stat", "stat": "item_crafted", "targets": ["minecraft:crafting_table"], "at_least": 1 }
+        ]
+      },
+      "rewards": [{ "id": "bread", "type": "item", "item": "minecraft:bread", "count": 4 }]
+    }
+  ]
+}

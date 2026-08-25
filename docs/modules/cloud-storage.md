@@ -1,84 +1,57 @@
 # 云存储
 
-## 1. 模块用途和适用场景
+## 1. 用途与场景
 
-云存储提供每名玩家独立的箱子式仓库。每页固定 45 格，第一页免费，后续页面可消耗共享货币扩容；存取物品均由服务端保存。
+云存储为每位玩家提供原版 6 行箱子。默认可用第一页，玩家可花货币扩容到第二页。
 
-## 2. 模块依赖与关联模块
+## 2. 前置条件、关联模块与开关
 
-模块 ID 为 `cloud_storage`。扩容扣除共享货币，但不要求签到模块持续启用。可选原生权限节点 `omnitools:cloud_storage` 由权限配置与称号权限效果共同控制。
+根开关为 `modules.cloud_storage.enabled`。权限来自权限模块配置；禁用时已打开的存储界面关闭，物品数据保留。
 
-## 3. 模块开关配置
+## 3. 配置路径与重载
 
-```json
-{ "modules": { "cloud_storage": { "enabled": true } } }
+文件为 `config/omnitools/cloud_storage/config.json`，修改后执行 `/omnitools reload`。
+
+## 4--6. 最小配置、教学版与可复制版
+
+解析器的实际字段只有扩容价格与最大页数；第一页固定存在，不能通过配置改为 0 页或超过 2 页。
+
+教学版，不能直接复制：
+
+```jsonc
+{ "format_version": 1, "expansionCost": 100, "maxPages": 2 } // 第二页价格和总页数
 ```
 
-禁用会关闭已打开的存储 GUI 并拒绝新入口，不删除玩家仓库、已解锁页数或货币。
-
-## 4. 初始配置文件位置
-
-首次启动生成 `config/omnitools/cloud_storage/config.json`。修改后执行 `/omnitools reload`。
-
-## 5. 最小可用配置
+可直接复制版：
 
 ```json
-{ "format_version": 1, "expansionCost": 100, "maxPages": 1 }
+{ "format_version": 1, "expansionCost": 100, "maxPages": 2 }
 ```
 
-## 6. 完整配置示例
+## 7. 字段表
 
-```json
-{
-  "format_version": 1,
-  "expansionCost": 250,
-  "maxPages": 2
-}
-```
-
-## 7. 配置字段表
-
-| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
+| 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
 | --- | --- | --- | --- | --- |
-| `format_version` | integer | 否 | 首次生成 `1` | reload |
-| `expansionCost` | integer | 是 | 默认 `100`，非负 | reload |
-| `maxPages` | integer | 是 | 默认 `2`，范围 `1-2` | reload |
+| `format_version` | 整数 | 否 | 1 | 非整数。 |
+| `expansionCost` | 非负整数 | 是 | 默认 100 | 使用负数。 |
+| `maxPages` | 整数 | 是 | 1--2，默认 2 | 写 3 或 0。 |
 
-## 8. 指令、别名和权限节点
+## 8. 全部配置场景
 
-| 指令 | 别名 | 权限节点 | 默认角色 |
-| --- | --- | --- | --- |
-| `/omnitools storage [open]` | `/cloudstorage [open]`、`/cstorage [open]`、`/checkin storage [open]` | `storage.open` | ADMIN |
+`maxPages: 1` 禁止扩容，`maxPages: 2` 开启一页付费扩容。没有名为 `default_pages` 的配置字段；默认页数由实现固定为 1。
 
-`permissions/config.json` 中 `storage.open.allow_native_node: true` 时，原生节点 `omnitools:cloud_storage` 也可以授权访问。
+## 9. 指令、权限与默认角色
 
-## 9. GUI 操作说明
+`/omnitools storage` 默认 `ADMIN`。权限配置的 `storage.open` 可用字符串角色或对象完整写法；见[权限](permissions.md)。
 
-仓库使用原版 6 行箱子。玩家可在物品区正常存取，使用导航格翻页，并在尚未解锁的下一页点击扩容。扩容会先校验余额，再永久保存页数；GUI 装饰与导航物品不可取走。
+## 10. 占位符
 
-## 10. 占位符列表及用途
+没有独立占位符；可在侧边栏使用 `%balance%` 显示扩容货币。
 
-当前没有专属云存储占位符。可在侧边栏或菜单文本中使用通用 `%omnitools:balance%` 和称号占位符；完整列表见[Placeholder API](../guides/placeholder-api.md)。
+## 11. 数据与升级
 
-## 11. 数据保存位置和升级影响
+物品与已解锁页数保存在世界 SavedData。禁用模块不删除物品；升级或恢复必须一并备份世界数据。
 
-每名玩家的已解锁页数和每页 45 个 `ItemStack` 保存在世界 `CloudStorageData`。配置 JSON 只保存价格和页数上限；降低 `maxPages` 不会主动删除历史存储，应先备份再调整。
+## 12. 验收与排错
 
-## 12. 与其他模块的联动
-
-扩容使用与签到、商店和奖励相同的货币余额。权限模块可改写访问角色，称号效果可通过受限权限节点授予访问能力。
-
-## 13. 常见错误及解决方法
-
-| 现象 | 处理 |
-| --- | --- |
-| 无法打开仓库 | 检查模块开关、`storage.open` 角色或原生节点。 |
-| 无法扩容 | 检查 `maxPages`、余额与 `expansionCost`。 |
-| reload 后价格未变 | 查看服务端日志中的配置校验错误；旧快照会继续生效。 |
-
-## 14. 可复制的验收清单
-
-- [ ] 玩家可存取第一页物品，重连后内容仍在。
-- [ ] 余额足够时可扩容，余额不足时不扣费。
-- [ ] 翻页与最大页数限制正确。
-- [ ] 禁用模块关闭 GUI 但不丢失仓库内容。
+打开存储，放入物品，扩容后翻页并重启服务器验证。不能打开时检查模块开关和 `storage.open` 角色。

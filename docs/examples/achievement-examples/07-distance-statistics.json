@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "walk_one_km",
+      "display": "远足",
+      "description": "步行 1 公里",
+      "icon": "minecraft:leather_boots",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:walk_one_cm",
+        "unit": "kilometers",
+        "at_least": 1
+      },
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 100 }]
+    }
+  ]
+}
