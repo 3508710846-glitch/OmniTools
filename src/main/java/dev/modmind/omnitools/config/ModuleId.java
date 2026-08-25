@@ -10,7 +10,8 @@ public enum ModuleId {
     ACHIEVEMENTS("achievements"),
     CLOUD_STORAGE("cloud_storage"),
     PERMISSIONS("permissions"),
-    COMMAND_MENU("command_menu");
+    COMMAND_MENU("command_menu"),
+    SIDEBAR("sidebar");
 
     private final String id;
 

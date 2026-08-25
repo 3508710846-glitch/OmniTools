@@ -36,6 +36,7 @@ import dev.modmind.omnitools.permissions.CommandPermissionService;
 import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
 import dev.modmind.omnitools.commandmenu.CommandMenuService;
+import dev.modmind.omnitools.sidebar.SidebarService;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -46,6 +47,7 @@ public final class ModMindEntry implements ModInitializer {
     private static TitleEffectConfig titleEffectConfig = TitleEffectConfig.empty();
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
     private static AchievementService achievementService = AchievementService.empty();
+    private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
@@ -90,6 +92,9 @@ public final class ModMindEntry implements ModInitializer {
                     && server.getTickCount() % AchievementService.CHECK_INTERVAL_TICKS == 0) {
                 achievementService().checkAll(server);
             }
+            if (isModuleEnabled(ModuleId.SIDEBAR)) {
+                sidebarService().tick(server);
+            }
         });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
@@ -106,6 +111,9 @@ public final class ModMindEntry implements ModInitializer {
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
                 achievementService().check(player);
             }
+            if (isModuleEnabled(ModuleId.SIDEBAR)) {
+                sidebarService().onJoin(player);
+            }
             LocalDate date = CheckinData.today(server);
             if (isModuleEnabled(ModuleId.DAILY_CHECKIN)
                     && !CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
@@ -120,6 +128,7 @@ public final class ModMindEntry implements ModInitializer {
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 onlineTimeRewardService().onDisconnect(handler.getPlayer());
             }
+            sidebarService().onDisconnect(handler.getPlayer());
         });
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
@@ -128,6 +137,9 @@ public final class ModMindEntry implements ModInitializer {
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
                 TitleDisplayService.refreshPlayer(newPlayer);
+            }
+            if (isModuleEnabled(ModuleId.SIDEBAR)) {
+                sidebarService().onJoin(newPlayer);
             }
         });
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
@@ -139,7 +151,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                             CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
-                            CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE))
+                            CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE,
+                            CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -149,6 +162,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(titleCommand())
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
+                    .then(sidebarCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -237,6 +251,10 @@ public final class ModMindEntry implements ModInitializer {
         return achievementService;
     }
 
+    static SidebarService sidebarService() {
+        return SIDEBAR_SERVICE;
+    }
+
     static ModuleControlService moduleControlService() {
         return MODULE_CONTROL;
     }
@@ -247,6 +265,10 @@ public final class ModMindEntry implements ModInitializer {
 
     public static CommandMenuConfig commandMenuConfig() {
         return configSnapshot.commandMenus();
+    }
+
+    public static dev.modmind.omnitools.sidebar.SidebarConfig sidebarConfig() {
+        return configSnapshot.sidebar();
     }
 
     public static boolean isModuleEnabled(ModuleId module) {
@@ -280,6 +302,9 @@ public final class ModMindEntry implements ModInitializer {
         if (previous.enabled(ModuleId.ONLINE_REWARD) && !current.enabled(ModuleId.ONLINE_REWARD)) {
             onlineTimeRewardService().flushAll(server);
         }
+        if (previous.enabled(ModuleId.SIDEBAR) && !current.enabled(ModuleId.SIDEBAR)) {
+            sidebarService().clearAll(server);
+        }
         applySnapshot(current);
         PlaceholderBootstrap.registerIfAvailable();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -296,6 +321,11 @@ public final class ModMindEntry implements ModInitializer {
             achievementService().checkAll(server);
         }
         refreshCommandMenus(server, current);
+        if (current.enabled(ModuleId.SIDEBAR)) {
+            sidebarService().refreshAll(server);
+        } else {
+            sidebarService().clearAll(server);
+        }
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> commandMenuCommand() {
@@ -352,6 +382,66 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> sidebarCommand() {
+        return Commands.literal("sidebar")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.SIDEBAR_TOGGLE,
+                        CommandAction.SIDEBAR_STATUS))
+                .then(Commands.literal("on")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SIDEBAR_TOGGLE))
+                        .executes(context -> setSidebar(context.getSource(), true)))
+                .then(Commands.literal("off")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SIDEBAR_TOGGLE))
+                        .executes(context -> setSidebar(context.getSource(), false)))
+                .then(Commands.literal("toggle")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SIDEBAR_TOGGLE))
+                        .executes(context -> toggleSidebar(context.getSource())))
+                .then(Commands.literal("status")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SIDEBAR_STATUS))
+                        .executes(context -> sidebarStatus(context.getSource())));
+    }
+
+    private static int setSidebar(CommandSourceStack source, boolean visible) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            return 0;
+        }
+        if (!isModuleEnabled(ModuleId.SIDEBAR)) {
+            player.displayClientMessage(Component.translatable("command.omnitools.sidebar.module_disabled"), true);
+            return 0;
+        }
+        sidebarService().setVisible(player, visible);
+        player.displayClientMessage(Component.translatable(visible
+                ? "command.omnitools.sidebar.enabled_result" : "command.omnitools.sidebar.disabled_result"), true);
+        return 1;
+    }
+
+    private static int toggleSidebar(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            return 0;
+        }
+        if (!isModuleEnabled(ModuleId.SIDEBAR)) {
+            player.displayClientMessage(Component.translatable("command.omnitools.sidebar.module_disabled"), true);
+            return 0;
+        }
+        boolean visible = !sidebarService().isVisible(player);
+        sidebarService().setVisible(player, visible);
+        player.displayClientMessage(Component.translatable(visible
+                ? "command.omnitools.sidebar.enabled_result" : "command.omnitools.sidebar.disabled_result"), true);
+        return 1;
+    }
+
+    private static int sidebarStatus(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            return 0;
+        }
+        boolean visible = sidebarService().isVisible(player);
+        source.sendSuccess(() -> Component.translatable("command.omnitools.sidebar.status",
+                Component.translatable(visible ? "command.omnitools.sidebar.enabled" : "command.omnitools.sidebar.disabled")), false);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> moduleManagerCommand() {

@@ -7618,3 +7618,708 @@ CommandMenuScreenHandler.java
 - 热重载后新增、修改和删除菜单立即生效。
 - 模块关闭后所有命令菜单自动关闭。
 - 原版客户端无需安装 OmniTools 即可使用该菜单。
+
+---
+
+## Development request 2026/8/24 21:13:12
+
+新增一个 `sidebar` 模块
+
+## 一、功能目标
+
+玩家使用：
+
+```text
+/omnitools sidebar on
+/omnitools sidebar off
+/omnitools sidebar toggle
+/omnitools sidebar status
+```
+
+控制自己的侧边栏。
+
+服主通过配置文件定义：
+
+- 标题。
+- 显示行数和顺序。
+- 每行文本。
+- OmniTools 占位符。
+- 刷新间隔。
+- 默认是否显示。
+
+全局模块开关放在：
+
+```text
+config/omnitools/config.json
+```
+
+```json
+"modules": {
+  "sidebar": {
+    "enabled": true
+  }
+}
+```
+
+模块详细配置放在：
+
+```text
+config/omnitools/sidebar/config.json
+```
+
+## 二、配置示例
+
+```json
+{
+  "format_version": 1,
+  "default_visible": true,
+  "refresh_interval_ticks": 20,
+  "title": "&b&lOmniTools",
+  "lines": [
+    {
+      "id": "player",
+      "text": "&f玩家：&b%omnitools:title_plain%"
+    },
+    {
+      "id": "balance",
+      "text": "&e货币：&f%omnitools:balance_formatted%"
+    },
+    {
+      "id": "checkin",
+      "text": "&a签到天数：&f%omnitools:checkin_total_days%"
+    },
+    {
+      "id": "streak",
+      "text": "&6连续签到：&f%omnitools:checkin_streak_days%"
+    },
+    {
+      "id": "online",
+      "text": "&d今日在线：&f%omnitools:online_today_hms%"
+    },
+    {
+      "id": "achievement",
+      "text": "&b成就：&f%omnitools:achievements_unlocked%/%omnitools:achievements_total%"
+    }
+  ]
+}
+```
+
+建议使用现有 `OmniToolsPlaceholderResolver` 支持的 ID：
+
+```text
+balance
+balance_formatted
+checkin_today
+checkin_total_days
+checkin_streak_days
+checkin_month_days
+online_today_seconds
+online_today_minutes
+online_today_hms
+title
+title_plain
+title_effects_enabled
+achievements_unlocked
+achievements_claimed
+achievements_total
+```
+
+Placeholder API 未安装时，内置 OmniTools 占位符仍然正常工作；第三方占位符不可用时显示配置的回退值，例如 `-`。
+
+## 三、重要实现限制
+
+原版 scoreboard 的 `SIDEBAR` 显示槽本质上只有一个。若直接使用服务器全局 scoreboard：
+
+- 所有玩家看到相同内容。
+- 无法正确显示每个玩家不同的货币、签到天数和成就数据。
+
+因此推荐使用“每玩家独立发送 scoreboard 数据包”的方案：
+
+```text
+每个玩家拥有独立的虚拟 objective
+服务端只向该玩家发送侧边栏创建、更新和删除数据包
+不修改全局 ServerScoreboard
+```
+
+这样可以实现：
+
+- 每个玩家显示不同占位符结果。
+- 玩家可以独立开启或关闭。
+- 不影响服务器其他 scoreboard 数据。
+- 不需要客户端模组。
+
+但仍需明确：一个玩家的右侧侧边栏只能显示一个模组的内容。如果其他模组随后覆盖侧边栏，最终显示内容由最后发送的数据包决定。
+
+## 四、玩家状态保存
+
+新增：
+
+```text
+SidebarPreferenceData
+```
+
+使用世界 `SavedData` 保存：
+
+```text
+玩家 UUID -> 是否显示侧边栏
+```
+
+规则：
+
+- 玩家第一次加入时使用 `default_visible`。
+- 玩家执行 `on/off/toggle` 后保存个人设置。
+- 服务器重启后保留玩家选择。
+- 关闭 `sidebar` 模块不删除个人设置。
+- 重新启用模块后恢复玩家原来的显示状态。
+
+## 五、生命周期处理
+
+建议新增：
+
+```text
+SidebarService.java
+SidebarConfig.java
+SidebarLine.java
+SidebarPreferenceData.java
+```
+
+接入现有生命周期：
+
+### 玩家加入
+
+在 `ModMindEntry` 的 `ServerPlayConnectionEvents.JOIN` 中：
+
+1. 读取玩家显示偏好。
+2. 如果模块启用且玩家开启侧边栏，发送完整侧边栏。
+3. 建立该玩家的渲染缓存。
+
+### 服务器 Tick
+
+在现有 `ServerTickEvents.END_SERVER_TICK` 中调用：
+
+```java
+sidebarService.tick(server);
+```
+
+不建议每 tick 刷新，默认每 20 tick 刷新一次。
+
+只在以下情况更新：
+
+- 占位符结果发生变化。
+- 配置版本发生变化。
+- 玩家刚加入。
+- 玩家执行开启命令。
+- 玩家切换世界或重生。
+
+### 玩家退出
+
+清理：
+
+- 该玩家的侧边栏数据包状态。
+- 渲染缓存。
+- 临时 objective 和 line 数据。
+
+### 配置重载
+
+沿用现有 `OmniToolsConfigManager` 的完整快照机制：
+
+1. 加载 `sidebar/config.json`。
+2. 校验标题、行数、占位符和刷新间隔。
+3. 成功后替换配置快照。
+4. 重新渲染所有在线玩家。
+5. 模块被禁用时，为所有玩家发送清除侧边栏数据包。
+
+## 六、配置校验
+
+必须校验：
+
+- `lines` 最多 15 行。
+- 每个 `id` 唯一。
+- `id` 只允许字母、数字、下划线和短横线。
+- `text` 不能为空。
+- 单行解析后的文本限制在合理长度，例如 40 个字符。
+- `refresh_interval_ticks` 限制在 `5-600`。
+- 标题长度设置上限。
+- 占位符无法解析时不能导致整个服务器崩溃。
+- 未知占位符显示回退值并记录警告。
+- 不允许在文本中执行命令或 ClickEvent。
+
+配置错误时：
+
+- 不替换当前运行配置。
+- 不清除现有侧边栏。
+- `/omnitools reload` 返回具体错误。
+- 日志记录出错文件和行 ID。
+
+## 七、权限配置
+
+在现有 `CommandAction` 中增加：
+
+```text
+SIDEBAR_TOGGLE("sidebar.toggle", PLAYER)
+SIDEBAR_STATUS("sidebar.status", PLAYER)
+```
+
+建议：
+
+```json
+{
+  "commands": {
+    "sidebar.toggle": "PLAYER",
+    "sidebar.status": "PLAYER"
+  }
+}
+```
+
+玩家只能修改自己的侧边栏。
+
+后续如需管理员控制其他玩家，再增加：
+
+```text
+/omnitools sidebar <玩家> on
+/omnitools sidebar <玩家> off
+```
+
+对应权限：
+
+```text
+sidebar.manage -> ADMIN
+```
+
+首版不建议直接开放管理员代切换，避免命令设计过于复杂。
+
+## 八、与其他侧边栏模组的兼容
+
+建议增加配置：
+
+```json
+{
+  "conflict_policy": "warn"
+}
+```
+
+可选值：
+
+```text
+warn    正常显示并记录冲突警告
+replace 覆盖玩家当前侧边栏
+disabled 检测到冲突时不显示
+```
+
+不过原版协议不能可靠知道其他模组是否正在使用侧边栏，因此该选项只能作为行为策略，不能保证完全检测所有冲突。
+
+文档中必须说明：
+
+> 一个玩家同一时间只能看到一个右侧 scoreboard 侧边栏。
+
+## 九、实现阶段
+
+### 阶段一：基础模块
+
+- 增加 `ModuleId.SIDEBAR`。
+- 增加 `SidebarConfig`。
+- 接入 `OmniToolsConfigManager` 和 `OmniToolsConfigSnapshot`。
+- 实现空配置和默认配置生成。
+
+### 阶段二：静态侧边栏
+
+- 实现固定标题和文本行。
+- 实现 15 行限制。
+- 实现玩家加入、退出和模块关闭时的显示与清除。
+
+### 阶段三：占位符
+
+- 复用 `OmniToolsPlaceholderResolver`。
+- 支持货币、签到、在线时长、称号和成就占位符。
+- 增加缓存和变化检测。
+- 接入可选 Placeholder API，但不能让侧边栏依赖该模组。
+
+### 阶段四：玩家命令
+
+- 实现 `on`、`off`、`toggle`、`status`。
+- 保存玩家偏好。
+- 接入权限配置。
+
+### 阶段五：热重载
+
+- `/omnitools reload` 后重新加载侧边栏配置。
+- 在线玩家立即刷新。
+- 配置错误时保留旧侧边栏。
+- 模块关闭时清除所有侧边栏。
+
+## 十、验收标准
+
+- 玩家可以独立开启或关闭自己的侧边栏。
+- 玩家重连和服务器重启后状态正确保存。
+- 不同玩家看到的占位符数值互不影响。
+- 修改配置并执行 `/omnitools reload` 后立即生效。
+- 侧边栏最多显示 15 行。
+- Placeholder API 缺失时内置占位符仍可用。
+- 模块关闭后所有侧边栏消失。
+- 原版客户端无需安装 OmniTools 即可看到侧边栏。
+- 与其他 scoreboard 模组冲突时不会崩溃，并有明确日志提示。
+
+---
+
+## Development request 2026/8/24 22:47:02
+
+1.利用游戏内的模块GUI开启关闭模块时，提示的文字出现错误：模块商店已已经禁用。出现了两个已。
+2.侧边栏新增支持原版占位符
+
+---
+
+## Development request 2026/8/24 22:48:53
+
+1.利用游戏内的模块GUI开启关闭模块时，提示的文字出现错误：模块商店已已经禁用。出现了两个已。
+2.侧边栏新增支持Placeholder API的占位符
+3.侧边栏可以自定义显示文字
+
+---
+
+## Development request 2026/8/24 23:18:07
+
+## 文档重制目标
+
+以当前源码和实际配置加载逻辑为唯一事实来源，重新整理用户文档：
+
+- `README.md` 只保留项目首页介绍、安装、快速开始和文档导航。
+- 除首页外，所有内容按功能模块归档。
+- 每个模块的指令、权限、配置教程、初始配置、数据保存、热重载和故障排查必须放在同一篇文档。
+- 不得把 `docs/idea.md` 中的规划内容当成已实现功能。
+- 不得虚构源码中不存在的命令、配置字段或默认值。
+
+## 建议目录
+
+```text
+README.md
+
+docs/modules/
+├── daily-checkin.md
+├── online-reward.md
+├── shop-and-currency.md
+├── titles.md
+├── title-effects.md
+├── achievements.md
+├── cloud-storage.md
+├── permissions.md
+├── command-menu.md
+├── sidebar.md
+├── module-management.md
+└── placeholder-api.md
+
+docs/archive/
+└── idea.md
+```
+
+现有 [docs/configuration.md](/D:/mod/qiandao/docs/configuration.md) 的内容应拆分到各模块文档；现有 [docs/achievements.md](/D:/mod/qiandao/docs/achievements.md)、`docs/command-menu.md`、`docs/sidebar.md` 的有效内容迁移到 `docs/modules/`，避免重复维护。
+
+## README.md 范围
+
+首页只包含：
+
+1. OmniTools 是什么。
+2. Minecraft、Fabric Loader、Java 和依赖版本。
+3. 一句话功能概览。
+4. 安装步骤。
+5. 首次启动和 `/omnitools reload` 快速说明。
+6. 模块列表及文档链接。
+7. Placeholder API 为可选依赖。
+8. 纯服务端兼容说明。
+9. 备份和问题反馈提示。
+
+README 不应再包含完整指令表、完整 JSON 配置、权限字段解释或长篇实现细节。
+
+## 每个模块文档的固定结构
+
+每篇模块文档都必须按以下顺序编写：
+
+### 1. 功能简介
+
+说明模块解决什么问题、适合谁使用，以及是否依赖其他模块。
+
+### 2. 模块开关
+
+说明根配置位置：
+
+```text
+config/omnitools/config.json
+```
+
+示例：
+
+```json
+"modules": {
+  "daily_checkin": {
+    "enabled": true
+  }
+}
+```
+
+同时解释禁用后的行为、已有玩家数据是否保留、重新启用后是否恢复。
+
+### 3. 初始配置
+
+说明首次启动会创建哪些文件，文件的准确路径、默认值和完整示例。
+
+必须区分：
+
+- 自动生成默认配置。
+- 默认生成空配置。
+- 配置文件不存在时使用内置默认值。
+- 配置文件损坏时保留旧快照，不覆盖原文件。
+
+当前已知情况应明确写出：
+
+- 根配置默认启用除 `permissions` 外的模块。
+- 命令菜单默认注册表为空，不生成示例菜单。
+- 侧边栏会生成默认示例内容。
+- 签到默认每日奖励为 `100` 货币。
+- 月度奖励里程碑为 `5/10/15/25` 天，对应 `500/1000/2000/5000`。
+- 在线奖励默认 `30/60/120` 分钟，对应 `50/100/250` 货币。
+- 商店默认包含 1 个钻石商品，价格为 `20`。
+- 成就默认包含挖掘石头 1000 个的示例成就。
+- 具体默认值必须以 `*Config.defaults()` 源码再次核对。
+
+### 4. 指令与权限
+
+每个模块必须使用表格列出：
+
+| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
+|---|---|---|---|---|
+
+权限名称必须来自 [CommandAction.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandAction.java)，不能自行改名。
+
+### 5. 配置字段
+
+每个字段都要说明：
+
+```text
+字段名
+JSON 类型
+是否必填
+默认值
+允许范围
+实际作用
+错误时的行为
+```
+
+所有 JSON 示例必须是可直接解析的合法 JSON，不得使用注释或尾逗号。
+
+### 6. 使用示例
+
+至少提供：
+
+- 默认配置示例。
+- 最小可用配置。
+- 常见自定义场景。
+- 配置修改后如何重载。
+- 配置错误时如何恢复。
+
+### 7. 数据保存
+
+说明数据保存位置和数据类型：
+
+- 签到、货币、在线时间、成就等使用世界 `SavedData`。
+- 称号玩家状态使用称号数据。
+- 侧边栏显示偏好使用侧边栏玩家数据。
+- JSON 只保存配置，不保存玩家进度。
+- 升级或迁移前必须备份世界目录和 `config/omnitools/`。
+
+### 8. 热重载与依赖
+
+每篇文档都要说明：
+
+- `/omnitools reload` 是否会立即生效。
+- 已打开 GUI 是否刷新或关闭。
+- 模块禁用时后台任务是否停止。
+- 配置错误时旧配置是否继续运行。
+- 与其他模块的依赖关系。
+
+## 模块文档内容要求
+
+### `daily-checkin.md`
+
+覆盖：
+
+```text
+/omnitools
+/omnitools open
+/checkin
+/omnitools clear
+/omnitools clear today
+```
+
+说明签到日期、连续签到、月度奖励、签到记录、货币奖励和玩家数据保存方式。
+
+特别注明：当前货币数据与签到数据共用数据存储，但货币指令本身不是独立的 `ModuleId`，不能写成“关闭签到必然关闭货币”。
+
+### `online-reward.md`
+
+覆盖：
+
+```text
+/omnitools online
+/omnitools online rewards
+```
+
+说明在线时间累计、奖励领取、跨日处理、定时保存、断线保存以及关闭模块时的 `flushAll` 行为。
+
+### `shop-and-currency.md`
+
+覆盖：
+
+```text
+/omnitools shop
+/omnitools shop open
+/omnitools currency
+/money
+/balance
+/money add|remove|deduct|take
+```
+
+分别解释：
+
+- 商店商品配置。
+- 商品索引、物品堆、价格和组件/SNBT。
+- 玩家查询余额。
+- 管理员增减货币。
+- 商店模块开关与货币指令权限不是同一件事。
+
+### `titles.md`
+
+覆盖：
+
+```text
+/omnitools title
+/omnitools title open
+/omnitools title give|add
+/omnitools title remove|take
+/title
+```
+
+说明称号 ID、显示文本、稀有度、Lore、授予、回收、佩戴、聊天、Tab 列表和头顶显示。
+
+### `title-effects.md`
+
+说明效果类型、效果 ID、称号引用、效果开关和依赖关系：
+
+```text
+title_effects 启用时，titles 必须满足依赖校验。
+```
+
+必须解释药水、属性、粒子和权限效果的配置限制，以及关闭效果模块后的清理行为。
+
+### `achievements.md`
+
+详细解释：
+
+- 原版统计类型。
+- `stat`、`sum`、`all`、`any`、`not` 条件。
+- 目标组和嵌套条件。
+- 阈值、进度、奖励货币和奖励称号。
+- 成就领取、重复领取和数据保存。
+- 条件嵌套深度、统计叶子数量和非法配置处理。
+
+### `cloud-storage.md`
+
+覆盖：
+
+```text
+/omnitools storage
+/omnitools storage open
+/cloudstorage
+/cstorage
+```
+
+说明容量、页数、扩容费用、权限节点 `omnitools:cloud_storage`、管理员权限和存储数据保存方式。
+
+### `permissions.md`
+
+说明：
+
+- `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER` 与原版权限等级的对应关系。
+- `permissions/config.json` 的完整格式。
+- 所有 `CommandAction` 的默认角色。
+- `permissions` 模块关闭后回退到源码默认角色。
+- 权限配置错误时不会变成无条件放行。
+- GUI 点击时会重新校验权限。
+
+### `command-menu.md`
+
+保留并完善当前独立菜单配置：
+
+```text
+config/omnitools/command_menu/config.json
+config/omnitools/command_menu/menus/*.json
+```
+
+覆盖：
+
+```text
+/omnitools menu
+/omnitools menu open <id>
+/omnitools menu main
+/omnitools menu close
+```
+
+详细解释菜单注册表、27/54 格、图标、Lore、左右键动作、子菜单跳转、玩家命令、控制台命令、安全限制和热重载。
+
+### `sidebar.md`
+
+覆盖：
+
+```text
+/omnitools sidebar on
+/omnitools sidebar off
+/omnitools sidebar toggle
+/omnitools sidebar status
+```
+
+说明标题、行文本、最多 15 行、刷新间隔、默认显示状态、玩家独立偏好、scoreboard 冲突和内置/第三方占位符。
+
+### `module-management.md`
+
+说明：
+
+```text
+/omnitools modules
+/omnitools reload
+```
+
+详细解释模块 GUI、模块状态、管理员权限、事务式切换、依赖拒绝、在线奖励刷新、菜单关闭、称号刷新和配置失败回滚。
+
+### `placeholder-api.md`
+
+说明这是可选集成，不属于模块开关：
+
+```text
+integrations.placeholder_api.enabled
+```
+
+列出当前 OmniTools 占位符 ID、使用格式、模块关闭时的回退值、Placeholder API 未安装时的行为以及侧边栏中的第三方占位符支持。
+
+## 统一热重载说明
+
+所有模块文档必须引用同一套语义：
+
+1. 读取全部启用模块配置。
+2. 构造候选配置快照。
+3. 完整校验。
+4. 校验成功后原子发布。
+5. 执行运行时补偿。
+6. 任一配置失败时保留旧快照。
+
+不要在不同文档中分别描述不同的重载行为。
+
+## 工作台验收标准
+
+- README 不再包含模块级详细教程。
+- 每个当前 `ModuleId` 都有对应文档或明确归属。
+- 每个已注册命令都能在对应模块文档找到。
+- 每个配置文件都能在对应模块文档找到。
+- 所有默认值来自源码，而不是来自旧文档。
+- 已实现功能与未来规划明确分离。
+- `docs/idea.md` 不再作为用户使用文档入口。
+- 所有链接有效，所有 JSON 示例可解析。
+- 文档使用 UTF-8，中文显示正常。
+- 文档完成后逐项对照 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java)、各模块 `*Config.java`、`CommandAction.java` 和语言文件复核。

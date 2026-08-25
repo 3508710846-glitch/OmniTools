@@ -9,6 +9,7 @@ import dev.modmind.omnitools.CheckinRewardConfig;
 import dev.modmind.omnitools.OnlineRewardConfig;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
+import dev.modmind.omnitools.sidebar.SidebarConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -20,6 +21,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     ShopConfig shop, TitleConfig titles, TitleEffectConfig titleEffects,
                                     CloudStorageConfig cloudStorage, AchievementConfig achievements,
                                     CommandMenuConfig commandMenus,
+                                    SidebarConfig sidebar,
                                     CommandPermissionConfig commandPermissions,
                                     Map<ModuleId, ModuleStatus> statuses, long revision) {
     public OmniToolsConfigSnapshot {

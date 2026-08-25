@@ -48,7 +48,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             ModuleId.ACHIEVEMENTS, Items.KNOWLEDGE_BOOK,
             ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST,
             ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK,
-            ModuleId.COMMAND_MENU, Items.CHEST);
+            ModuleId.COMMAND_MENU, Items.CHEST,
+            ModuleId.SIDEBAR, Items.PAPER);
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;
@@ -133,8 +134,10 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         OmniToolsConfigManager.ModuleUpdateResult result = ModMindEntry.moduleControlService()
                 .updateModuleEnabled(player.level().getServer(), module, targetState);
         if (result.success()) {
-            player.displayClientMessage(Component.translatable("message.omnitools.modules.updated",
-                    moduleName(module), stateName(targetState)).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Component.translatable(targetState
+                    ? "message.omnitools.modules.enabled_result"
+                    : "message.omnitools.modules.disabled_result", moduleName(module))
+                    .withStyle(ChatFormatting.GREEN), true);
         } else {
             player.displayClientMessage(failureMessage(result.message()), true);
         }
@@ -249,6 +252,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         slots.put(ModuleId.CLOUD_STORAGE, 16);
         slots.put(ModuleId.PERMISSIONS, 17);
         slots.put(ModuleId.COMMAND_MENU, 18);
+        slots.put(ModuleId.SIDEBAR, 19);
         return Map.copyOf(slots);
     }
 }

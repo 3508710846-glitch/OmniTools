@@ -3,6 +3,7 @@ package dev.modmind.omnitools.config;
 import dev.modmind.omnitools.AchievementConfig;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
+import dev.modmind.omnitools.sidebar.SidebarConfig;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
 import dev.modmind.omnitools.achievement.AnyCondition;
@@ -23,9 +24,11 @@ public final class ConfigValidator {
                 || snapshot.titles() == null || snapshot.titleEffects() == null
                 || snapshot.cloudStorage() == null || snapshot.achievements() == null
                 || snapshot.commandMenus() == null
+                || snapshot.sidebar() == null
                 || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
+        validateSidebar(snapshot.sidebar());
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
             if (achievement.condition() == null || achievement.requirements().isEmpty()) {
                 throw new IllegalArgumentException("achievement " + achievement.id()
@@ -71,6 +74,16 @@ public final class ConfigValidator {
         }
         if (snapshot.enabled(ModuleId.CLOUD_STORAGE) && !snapshot.enabled(ModuleId.PERMISSIONS)) {
             // The built-in cloud_storage atom and administrator bypass are always available.
+        }
+    }
+
+    private static void validateSidebar(SidebarConfig sidebar) {
+        if (sidebar.refreshIntervalTicks() < SidebarConfig.MIN_REFRESH_INTERVAL_TICKS
+                || sidebar.refreshIntervalTicks() > SidebarConfig.MAX_REFRESH_INTERVAL_TICKS) {
+            throw new IllegalArgumentException("sidebar.refresh_interval_ticks is out of range");
+        }
+        if (sidebar.lines().size() > SidebarConfig.MAX_LINES) {
+            throw new IllegalArgumentException("sidebar.lines contains too many entries");
         }
     }
 

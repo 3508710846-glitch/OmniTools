@@ -20,7 +20,7 @@ public final class OmniToolsPlaceholderResolver {
 
     public static Component resolve(ServerPlayer player, String argument) {
         String id = argument == null ? "" : argument.trim().toLowerCase(Locale.ROOT);
-        if (player == null || !ModMindEntry.configSnapshot().placeholderApiEnabled()) {
+        if (player == null) {
             return fallback(id);
         }
         return switch (id) {
