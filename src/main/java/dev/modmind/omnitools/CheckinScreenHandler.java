@@ -11,7 +11,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
-import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -19,11 +18,8 @@ import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.ResolvableProfile;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
-import java.util.Locale;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.reward.RewardDefinition;
@@ -37,16 +33,9 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static final int RECORDS_SLOT = DATE_SLOT_COUNT;
     public static final int PROFILE_SLOT = 4 * 9 + 4;
     public static final int ACHIEVEMENTS_SLOT = CONTAINER_SIZE - 1;
-    private static final int NEXT_CHECKIN_SECONDS_DATA_SLOT = 1;
     private final SimpleContainer checkinContainer;
     private final UUID ownerId;
-    private final ServerPlayer owner;
-    private final DataSlot openedDayData = addDataSlot(DataSlot.standalone());
-    private final DataSlot nextCheckinSeconds = addDataSlot(DataSlot.standalone());
     private LocalDate openedDate;
-    private long nextCheckinDeadlineMillis;
-    private long clientCountdownDeadlineNanos;
-    private long lastCountdownUpdateTick = Long.MIN_VALUE;
 
     public CheckinScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, null);
@@ -57,7 +46,6 @@ public final class CheckinScreenHandler extends ChestMenu {
         super(MenuType.GENERIC_9x5, syncId, inventory, container, ROWS);
         this.checkinContainer = container;
         this.ownerId = owner == null ? null : owner.getUUID();
-        this.owner = owner;
         this.openedDate = openedDate;
         if (owner != null) {
             refreshContents(owner, openedDate);
@@ -71,25 +59,13 @@ public final class CheckinScreenHandler extends ChestMenu {
     }
 
     public LocalDate getOpenedDate() {
-        int syncedEpochDay = openedDayData.get();
-        return syncedEpochDay > 0 ? LocalDate.ofEpochDay(syncedEpochDay) : (openedDate == null ? today() : openedDate);
+        return openedDate == null ? today() : openedDate;
     }
 
     public boolean hasSignedToday() {
-        if (getSecondsUntilNextCheckin() == 0L) {
-            return false;
-        }
         int todaySlot = getOpenedDate().getDayOfMonth() - 1;
         return todaySlot >= 0 && todaySlot < DATE_SLOT_COUNT
                 && checkinContainer.getItem(todaySlot).is(Items.ENCHANTED_BOOK);
-    }
-
-    public String getTimeUntilNextCheckin() {
-        long remainingSeconds = getSecondsUntilNextCheckin();
-        long hours = remainingSeconds / 3_600L;
-        long minutes = (remainingSeconds % 3_600L) / 60L;
-        long seconds = remainingSeconds % 60L;
-        return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds);
     }
 
     @Override
@@ -164,29 +140,8 @@ public final class CheckinScreenHandler extends ChestMenu {
         return ItemStack.EMPTY;
     }
 
-    @Override
-    public void setData(int id, int value) {
-        super.setData(id, value);
-        if (ownerId == null && id == NEXT_CHECKIN_SECONDS_DATA_SLOT) {
-            clientCountdownDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(Math.max(0, value));
-        }
-    }
-
-    @Override
-    public void broadcastChanges() {
-        if (owner != null) {
-            long tick = owner.level().getServer().getTickCount();
-            if (lastCountdownUpdateTick == Long.MIN_VALUE || tick - lastCountdownUpdateTick >= 20L) {
-                updateCountdown();
-                lastCountdownUpdateTick = tick;
-            }
-        }
-        super.broadcastChanges();
-    }
-
     private void refreshContents(ServerPlayer owner, LocalDate date) {
         this.openedDate = date;
-        updateCheckinDeadline(date);
         CheckinData data = CheckinData.get(owner);
         CheckinData.PlayerStats stats = data.getStats(owner.getUUID(), date.toEpochDay());
         int daysInMonth = date.lengthOfMonth();
@@ -343,22 +298,4 @@ public final class CheckinScreenHandler extends ChestMenu {
         }
     }
 
-    private void updateCheckinDeadline(LocalDate date) {
-        openedDayData.set(Math.toIntExact(date.toEpochDay()));
-        nextCheckinDeadlineMillis = date.plusDays(1).atStartOfDay(ModMindEntry.configuredZone()).toInstant().toEpochMilli();
-        updateCountdown();
-    }
-
-    private void updateCountdown() {
-        long remainingMillis = Math.max(0L, nextCheckinDeadlineMillis - System.currentTimeMillis());
-        nextCheckinSeconds.set(Math.toIntExact((remainingMillis + 999L) / 1_000L));
-    }
-
-    private long getSecondsUntilNextCheckin() {
-        if (ownerId != null || clientCountdownDeadlineNanos == 0L) {
-            return Math.max(0L, nextCheckinSeconds.get());
-        }
-        long remainingNanos = clientCountdownDeadlineNanos - System.nanoTime();
-        return Math.max(0L, (remainingNanos + TimeUnit.SECONDS.toNanos(1L) - 1L) / TimeUnit.SECONDS.toNanos(1L));
-    }
 }

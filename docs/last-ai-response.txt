@@ -1,16 +1,11 @@
-已完成纯服务端迁移。
+已定位并修复。原版 `GENERIC_9x5` 箱子菜单客户端没有同步数据槽，但签到菜单仍发送了两个 `container_set_data` 包，导致客户端访问空数据槽列表并断开。
 
-- 所有业务 GUI 改为原版箱子容器，移除客户端入口、专用 Screen、自定义菜单注册和客户端 Mixin。
-- 新增服务端文本解析，`global.language` 支持 `zh_cn` / `en_us`，不会向原版客户端发送 OmniTools 翻译键。
-- 头顶称号改为服务端计分板队伍前缀，支持 `nameplate_mode` 与外部队伍冲突策略。
-- 更新 Fabric 元数据为 `environment: "server"`，并同步 README 与模块文档。
-- 保留现有配置路径与 SavedData，不重置玩家数据。
+已从 [CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:1) 移除旧 GUI 专用的 `DataSlot`、倒计时同步和相关包发送路径。签到日期与状态仍由服务端校验，界面内容继续通过物品名称和 Lore 更新。
 
-验证已通过：
+验证通过：
 
-- Gradle 构建成功，产物：`.modmind/minecraft/mods/modmind-current-project.jar`
+- 构建成功：`build/libs/omnitools-0.1.0.jar`
 - 内容校验通过
-- 服务端启动并稳定运行 15 秒通过
-- 最终 JAR 不含客户端入口、Screen、客户端 Mixin 或 `net.minecraft.client` 类
+- 服务端启动稳定测试通过
 
-原版客户端实际加入的 HeadlessMC 工具仅支持 Modpack 工程，未能对普通 Mod 工程执行该项自动测试；但服务端元数据和网络菜单类型已全部收敛到原版协议。
+停止服务器后，用新的 `omnitools-0.1.0.jar` 替换旧模组 JAR 并重启，再用未安装 OmniTools 的客户端打开签到菜单即可。
