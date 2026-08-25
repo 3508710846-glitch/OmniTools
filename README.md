@@ -8,7 +8,7 @@ OmniTools 是面向 Fabric 服务器的模块化实用工具模组。它提供�
 | Fabric Loader | `>= 0.19.3` |
 | Fabric API | `0.141.6+1.21.11` |
 | Java | `21` |
-| OmniTools | `1.5.1` |
+| OmniTools | `2.0.1` |
 
 OmniTools 是纯服务端模组：配置、玩家数据、命令校验和全部业务 GUI 都在服务端执行。签到、在线奖励、商店、称号、成就、云端存储、命令菜单和模块管理均使用原版箱子界面；侧边栏使用原版 scoreboard 数据包。玩家可使用完全未安装 OmniTools 的原版或 Fabric 客户端连接，无需资源包、客户端模组或自定义网络包。
 
