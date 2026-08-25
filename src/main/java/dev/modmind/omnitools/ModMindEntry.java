@@ -37,6 +37,8 @@ import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
 import dev.modmind.omnitools.commandmenu.CommandMenuService;
 import dev.modmind.omnitools.sidebar.SidebarService;
+import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardEvent;
 import dev.modmind.omnitools.reward.RewardGrantService;
 
 public final class ModMindEntry implements ModInitializer {
@@ -68,6 +70,7 @@ public final class ModMindEntry implements ModInitializer {
             TitleData.bind(server);
             TitleData.importLegacy(server);
             MODULE_CONTROL.reload(server);
+            rewardGrantService().reconcileStartup(server);
             PlaceholderBootstrap.registerIfAvailable();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -83,9 +86,8 @@ public final class ModMindEntry implements ModInitializer {
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
                 TitleEffectService.tick(server);
             }
-            if (isModuleEnabled(ModuleId.ACHIEVEMENTS)
-                    && server.getTickCount() % AchievementService.CHECK_INTERVAL_TICKS == 0) {
-                achievementService().checkAll(server);
+            if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+                achievementService().tick(server);
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().tick(server);
@@ -152,7 +154,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                             CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
                             CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE,
-                            CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY))
+                            CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY,
+                            CommandAction.REWARDS_ADMIN))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -179,10 +182,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
                             .executes(context -> reloadRewards(context.getSource())))
-                    .then(Commands.literal("rewards")
-                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_RETRY))
-                            .then(Commands.literal("retry")
-                                    .executes(context -> retryRewards(context.getSource().getPlayerOrException()))))
+                    .then(rewardsCommand())
                     .then(commandMenuCommand())
                     .then(moduleManagerCommand());
             dispatcher.register(command);
@@ -318,6 +318,10 @@ public final class ModMindEntry implements ModInitializer {
             TitleDisplayService.clearAll(server);
         }
         applySnapshot(current);
+        CheckinData.get(server).applyRetention(current.root().dataRetention(), CheckinData.today(server));
+        if (current.root().dataRetention() != dev.modmind.omnitools.config.OmniToolsRootConfig.DataRetention.FULL) {
+            rewardGrantService().cleanupProvenCompleted(server);
+        }
         PlaceholderBootstrap.registerIfAvailable();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             server.getCommands().sendCommands(player);
@@ -669,6 +673,159 @@ public final class ModMindEntry implements ModInitializer {
         source.sendSuccess(() -> ServerText.translatable("command.omnitools.reload.success",
                 configSnapshot.revision()), true);
         return 1;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> rewardsCommand() {
+        return Commands.literal("rewards")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.REWARDS_RETRY, CommandAction.REWARDS_ADMIN))
+                .then(Commands.literal("retry")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_RETRY))
+                        .executes(context -> retryRewards(context.getSource().getPlayerOrException()))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_ADMIN))
+                                .then(Commands.argument("event", StringArgumentType.word())
+                                        .executes(ModMindEntry::retryRewardEvent))))
+                .then(Commands.literal("inspect")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_ADMIN))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .executes(context -> inspectRewardLedger(context, null))
+                                .then(Commands.argument("event", StringArgumentType.word())
+                                        .executes(context -> inspectRewardLedger(context,
+                                                StringArgumentType.getString(context, "event"))))))
+                .then(Commands.literal("resolve")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_ADMIN))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("event", StringArgumentType.word())
+                                        .then(Commands.literal("grant")
+                                                .executes(context -> resolveRewardEvent(context,
+                                                        RewardClaimLedger.EntryStatus.GRANTED)))
+                                        .then(Commands.literal("fail")
+                                                .executes(context -> resolveRewardEvent(context,
+                                                        RewardClaimLedger.EntryStatus.FAILED))))));
+    }
+
+    private static int retryRewardEvent(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        String eventId = StringArgumentType.getString(context, "event");
+        int retried = 0;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            ServerPlayer player = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
+            if (player == null) {
+                context.getSource().sendFailure(Component.literal("Player must be online to retry rewards: "
+                        + profile.name()));
+                continue;
+            }
+            boolean accepted = isModuleEnabled(ModuleId.DAILY_CHECKIN) && rewardService().retryEvent(player, eventId);
+            accepted |= isModuleEnabled(ModuleId.ACHIEVEMENTS) && achievementService().retryEvent(player, eventId);
+            if (accepted) {
+                retried++;
+                context.getSource().sendSuccess(() -> Component.literal("Retried reward event " + eventId
+                        + " for " + player.getGameProfile().name()), true);
+            } else {
+                context.getSource().sendFailure(Component.literal("Unknown or ineligible reward event for "
+                        + player.getGameProfile().name() + ": " + eventId));
+            }
+        }
+        return retried;
+    }
+
+    private static int inspectRewardLedger(CommandContext<CommandSourceStack> context, String requestedEvent)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        int inspected = 0;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            RewardClaimLedger ledger = RewardClaimLedger.get(context.getSource().getServer());
+            java.util.List<String> eventIds = requestedEvent == null
+                    ? rewardEventIdsFor(ledger, profile.id()) : java.util.List.of(requestedEvent);
+            for (String eventId : eventIds) {
+                if (!belongsToPlayer(eventId, profile.id())) {
+                    context.getSource().sendFailure(Component.literal("Reward event does not belong to "
+                            + profile.name() + ": " + eventId));
+                    continue;
+                }
+                RewardEvent event = new RewardEvent(eventId, profile.id());
+                java.util.Map<String, RewardClaimLedger.Entry> entries = ledger.entries(event);
+                if (entries.isEmpty()) {
+                    context.getSource().sendFailure(Component.literal("No reward ledger entry for " + eventId));
+                    continue;
+                }
+                inspected++;
+                context.getSource().sendSuccess(() -> Component.literal(formatLedgerEntries(profile.name(), eventId, entries)),
+                        false);
+            }
+        }
+        return inspected;
+    }
+
+    private static int resolveRewardEvent(CommandContext<CommandSourceStack> context,
+                                          RewardClaimLedger.EntryStatus status)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        String eventId = StringArgumentType.getString(context, "event");
+        int resolved = 0;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            if (!belongsToPlayer(eventId, profile.id())) {
+                context.getSource().sendFailure(Component.literal("Reward event does not belong to "
+                        + profile.name() + ": " + eventId));
+                continue;
+            }
+            RewardEvent event = new RewardEvent(eventId, profile.id());
+            int count = RewardClaimLedger.get(context.getSource().getServer()).resolveEvent(event, status,
+                    "resolved_by:" + context.getSource().getTextName());
+            if (count == 0) {
+                context.getSource().sendFailure(Component.literal("No reward ledger entry for " + eventId));
+                continue;
+            }
+            if (status == RewardClaimLedger.EntryStatus.GRANTED) {
+                ServerPlayer online = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
+                finalizeResolvedGrant(context.getSource().getServer(), profile.id(), profile.name(), eventId, online);
+            }
+            resolved++;
+            context.getSource().sendSuccess(() -> Component.literal("Resolved " + count + " reward entries as "
+                    + status + " for " + profile.name() + ": " + eventId), true);
+        }
+        return resolved;
+    }
+
+    private static java.util.List<String> rewardEventIdsFor(RewardClaimLedger ledger, java.util.UUID playerId) {
+        java.util.List<String> events = new java.util.ArrayList<>();
+        events.addAll(ledger.eventIdsStartingWith("checkin:" + playerId + ":"));
+        events.addAll(ledger.eventIdsStartingWith("achievement:" + playerId + ":"));
+        return events;
+    }
+
+    private static boolean belongsToPlayer(String eventId, java.util.UUID playerId) {
+        return eventId != null && (eventId.startsWith("checkin:" + playerId + ":")
+                || eventId.startsWith("achievement:" + playerId + ":"));
+    }
+
+    private static String formatLedgerEntries(String playerName, String eventId,
+                                              java.util.Map<String, RewardClaimLedger.Entry> entries) {
+        StringBuilder message = new StringBuilder("Reward ledger ").append(eventId).append(" for ")
+                .append(playerName).append(':');
+        entries.forEach((rewardId, entry) -> message.append(" ").append(rewardId).append('=')
+                .append(entry.status()).append(entry.reason().isBlank() ? "" : "(" + entry.reason() + ")")
+                .append(entry.dispatchedCommand().isBlank() ? "" : " command=" + entry.dispatchedCommand()));
+        return message.toString();
+    }
+
+    private static void finalizeResolvedGrant(net.minecraft.server.MinecraftServer server, java.util.UUID playerId,
+                                              String playerName, String eventId, ServerPlayer onlinePlayer) {
+        String[] checkin = eventId.split(":", -1);
+        if (checkin.length == 5 && checkin[0].equals("checkin") && checkin[2].equals("monthly")) {
+            try {
+                CheckinData.get(server).markMonthlyRewardClaimed(playerId, java.time.YearMonth.parse(checkin[3]),
+                        Integer.parseInt(checkin[4]), playerName);
+            } catch (RuntimeException ignored) {
+                // The event was still resolved; a malformed legacy key must not fail the command.
+            }
+            return;
+        }
+        String prefix = "achievement:" + playerId + ":";
+        if (eventId.startsWith(prefix)) {
+            AchievementData.get(server).markClaimed(playerId, eventId.substring(prefix.length()));
+            if (onlinePlayer != null) {
+                achievementService().check(onlinePlayer);
+            }
+        }
     }
 
     private static int retryRewards(ServerPlayer player) {

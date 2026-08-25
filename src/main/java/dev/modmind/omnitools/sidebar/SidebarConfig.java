@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
 /** Administrator-editable sidebar presentation configuration. */
 public record SidebarConfig(int formatVersion, boolean defaultVisible, int refreshIntervalTicks,
                             String title, List<SidebarLine> lines, ConflictPolicy conflictPolicy) {
-    public static final int CURRENT_FORMAT_VERSION = 1;
+    public static final int CURRENT_FORMAT_VERSION = 2;
     public static final int MAX_LINES = 15;
     public static final int MIN_REFRESH_INTERVAL_TICKS = 5;
     public static final int MAX_REFRESH_INTERVAL_TICKS = 600;
@@ -63,11 +63,11 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
             copy.add(new SidebarLine(line.id(), line.text()));
         }
         lines = List.copyOf(copy);
-        conflictPolicy = conflictPolicy == null ? ConflictPolicy.WARN : conflictPolicy;
+        conflictPolicy = conflictPolicy == null ? ConflictPolicy.SKIP : conflictPolicy;
     }
 
     public static SidebarConfig empty() {
-        return new SidebarConfig(CURRENT_FORMAT_VERSION, false, 20, "", List.of(), ConflictPolicy.WARN);
+        return new SidebarConfig(CURRENT_FORMAT_VERSION, false, 20, "", List.of(), ConflictPolicy.SKIP);
     }
 
     public static SidebarConfig load() {
@@ -105,7 +105,7 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
                 new SidebarLine("streak", "&6连续签到：&f%omnitools:checkin_streak_days%"),
                 new SidebarLine("online", "&d今日在线：&f%omnitools:online_today_hms%"),
                 new SidebarLine("achievement", "&b成就：&f%omnitools:achievements_unlocked%/%omnitools:achievements_total%")
-        ), ConflictPolicy.WARN);
+        ), ConflictPolicy.SKIP);
     }
 
     private static SidebarConfig parse(JsonObject root) {
@@ -127,7 +127,7 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
             JsonObject line = element.getAsJsonObject();
             lines.add(new SidebarLine(string(line, "id", ""), string(line, "text", "")));
         }
-        String policy = string(root, "conflict_policy", "warn");
+        String policy = string(root, "conflict_policy", "skip");
         return new SidebarConfig(version, visible, interval, title, lines, ConflictPolicy.parse(policy));
     }
 
@@ -194,7 +194,7 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
     }
 
     public enum ConflictPolicy {
-        WARN("warn"), REPLACE("replace"), DISABLED("disabled");
+        SKIP("skip"), REPLACE("replace"), RESTORE("restore");
 
         private final String serializedName;
 
@@ -207,12 +207,17 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
         }
 
         static ConflictPolicy parse(String value) {
+            // v1 names were advisory and had no runtime effect. Treat them as the conservative v2 behavior.
+            if ("warn".equalsIgnoreCase(value == null ? "" : value.trim())
+                    || "disabled".equalsIgnoreCase(value == null ? "" : value.trim())) {
+                return SKIP;
+            }
             for (ConflictPolicy policy : values()) {
                 if (policy.serializedName.equalsIgnoreCase(value == null ? "" : value.trim())) {
                     return policy;
                 }
             }
-            throw new JsonParseException("sidebar.conflict_policy must be warn, replace, or disabled");
+            throw new JsonParseException("sidebar.conflict_policy must be skip, replace, or restore");
         }
     }
 }

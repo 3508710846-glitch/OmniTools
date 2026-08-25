@@ -934,3 +934,90 @@ slot(day) = ((monthStartOffset + day - 1) / 7) * 9
 ```
 
 这个方案会让主界面只承担“今天能不能签到、这个月签了多少、去哪看详情”三件事，奖励细节放到单独页面，能明显改善原版箱子 GUI 的扫读体验。
+
+---
+
+## Development request 2026/8/25 17:33:01
+
+下面方案可直接转交工作台。目标是在不删减现有十个模块和纯服务端兼容性的前提下，优先修复正确性风险，再优化性能、配置安全和可维护性。
+
+**阶段 A：数据正确性与安全，优先完成**
+
+1. 修复 Placeholder API 注册错误。  
+   当前注册循环遍历占位符 ID，但回调实际把 `argument` 当作 ID 传入解析器，外部调用 `%omnitools:balance%` 等可能无法正确解析。修改为闭包捕获循环变量 `id`。  
+   位置：[FabricPlaceholderRegistrar.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/FabricPlaceholderRegistrar.java:18)
+
+2. 重构奖励发放为可恢复状态机。  
+   当前货币、物品和指令奖励会先标记账本 `GRANTED`，再改货币、背包或执行指令；服务器在中间崩溃时可能漏发。  
+   建议状态：`PENDING -> APPLYING -> GRANTED / BLOCKED / FAILED`，启动与玩家登录时扫描 `APPLYING` 项并对账恢复。
+
+3. 明确奖励一致性边界。  
+   - 货币、称号：记录奖励事件 ID 到同一份 OmniTools 持久化数据，做到可验证的“至多一次”。  
+   - 物品：改为“奖励收件箱/待领取队列”，背包满时保留待领；领取成功后再完成事件。  
+   - 指令：只能承诺“最多派发一次”，不能承诺严格一次。记录派发时间、事件 ID、解析后的命令和异常；提供管理员确认/补偿命令，禁止自动重放。  
+   位置：[RewardGrantService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:15)
+
+4. 补充管理员奖励排障指令：  
+   `omnitools reward inspect <player> [event]`、`retry <player> <event>`、`resolve <player> <event> grant|fail`。全部走现有权限模块，输出审计日志。
+
+验收：17 个内置占位符可被第三方 Placeholder API 正确读取；模拟背包满、重连和异常后，奖励不会静默丢失，管理员可定位每一条异常奖励。
+
+**阶段 B：性能与数据生命周期**
+
+1. 成就检查改为有预算的分批调度。  
+   目前每 10 tick 遍历所有在线玩家和全部成就；玩家或统计条件增多会造成卡顿。改为每 tick 处理固定数量的“玩家-成就”任务，并配置：
+   `check_interval_ticks`、`max_players_per_tick`、`max_conditions_per_tick`、`full_recheck_seconds`。打开成就菜单和领取奖励时仍对当前玩家实时校验，保证不漏解锁。  
+   位置：[AchievementService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:78)
+
+2. 缓存一次检查周期内的统计值。  
+   同一玩家的同一统计项只读取一次，逻辑组合条件共享 `StatisticEvaluationContext`，避免 `ALL/ANY/SUM/NOT` 重复计算。
+
+3. 为签到与奖励账本增加生命周期策略。  
+   [CheckinData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:54) 会永久保存每日签到、排名和时间；月度统计还会遍历全部历史日期。  
+   新增 `data_retention` 配置：`full`、`monthly_summary`、`archive`。默认 `full` 保持旧行为；启用精简前必须导出并生成归档。当前月保留明细，历史月聚合为总签到数、连签峰值、奖励状态。
+
+4. 账本清理必须和来源状态联动。  
+   仅清理“来源已永久完成且可由签到/成就数据证明”的终态记录，不能按时间盲删，否则可能再次发奖。
+
+验收：高玩家数、高成就数时单 tick 检查量受配置上限约束；长期运行后的数据体积可预测，历史统计仍可展示。
+
+**阶段 C：配置、模块运行时与集成**
+
+1. 完整实现根配置版本迁移。  
+   当前运行中的 `config.json` 缺少 `language`、`reward_security`、`command_menu`、`sidebar` 等字段，而缺失模块会默认启用。  
+   位置：[OmniToolsRootConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java:94)  
+   迁移应：备份旧文件、补齐字段、写入升级日志、对“旧版本不存在的新模块”默认禁用，避免升级后静默开启新功能。
+
+2. 建立模块生命周期接口。  
+   每个模块实现 `validate`、`reload`、`enable`、`disable`、`shutdown`，并声明依赖关系。例如称号效果依赖称号模块；禁用模块时关闭相关 GUI、停止任务、保留数据且不再处理新事件。
+
+3. 落实侧边栏冲突策略。  
+   当前配置存在 `conflict_policy`，但侧边栏服务没有真正按策略处理。实现：
+   - `skip`：已有第三方侧边栏时不覆盖，建议默认；
+   - `replace`：明确替换；
+   - `restore`：关闭 OmniTools 侧边栏时恢复之前的显示目标。  
+   位置：[SidebarService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/sidebar/SidebarService.java:215)
+
+4. 统一动态文本渲染器。  
+   将内置占位符、Fabric Placeholder API、语言文本和格式解析集中到 `TextTemplateRenderer`。应用到侧边栏、命令菜单标题与 Lore、签到提示、成就名称/描述、称号展示文本。每玩家每 tick 缓存一次，未知占位符记录一次警告并安全回退。
+
+5. 收紧可配置命令执行。  
+   命令菜单与奖励指令增加命令根白名单、最大长度、冷却、执行身份（控制台/玩家）和审计日志；占位符只能替换为文本，不能拼接绕过命令限制。
+
+验收：旧配置升级后没有新模块意外启用；热重载失败保留旧快照；侧边栏不再抢占其他模组的显示栏。
+
+**阶段 D：结构、测试与文档**
+
+1. 拆分入口类。  
+   将 `ModMindEntry` 收敛为启动与注册入口，配置、模块生命周期、命令注册、定时任务和集成注册分别由专用服务负责。
+
+2. 建立自动化测试，当前项目未发现 `src/test`。  
+   最低覆盖：配置迁移与校验、17 个占位符、奖励状态转换、成就逻辑树、模块启停、侧边栏冲突策略、命令菜单配置校验。
+
+3. 增加原版客户端连接的服务端烟雾测试。  
+   验证启动、配置迁移、模块重载、原版 Chest GUI、侧边栏、可选 Placeholder API 缺失与存在两种环境。
+
+4. 重整文档。  
+   `docs/modules/` 按模块说明“功能、依赖、指令、完整配置、占位符、迁移、常见故障”；另增统一升级指南、数据备份与恢复指南、奖励一致性说明。
+
+建议严格按 A → B → C → D 实施，每阶段独立构建、启动验证并保留可回滚配置备份。本轮仅做了只读核查，未执行构建或测试。

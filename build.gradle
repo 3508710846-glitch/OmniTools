@@ -23,7 +23,11 @@ dependencies {
 
 
 
+
+
 // MODMIND DEPENDENCIES START
+    runtimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+    implementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     modImplementation files('libs/modmind/placeholder-api-2.8.2+1.21.10.jar')
 // MODMIND DEPENDENCIES END
 }
@@ -31,6 +35,10 @@ dependencies {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
 }
 
 java {

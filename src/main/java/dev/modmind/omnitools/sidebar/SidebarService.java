@@ -1,11 +1,9 @@
 package dev.modmind.omnitools.sidebar;
 
-import dev.modmind.omnitools.LegacyTitleText;
 import dev.modmind.omnitools.ModMindEntry;
-import dev.modmind.omnitools.OmniToolsPlaceholderResolver;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.numbers.BlankFormat;
 import net.minecraft.network.chat.numbers.NumberFormat;
 import net.minecraft.network.protocol.game.ClientboundResetScorePacket;
@@ -21,22 +19,16 @@ import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /** Sends a private scoreboard objective to each player without touching the server scoreboard. */
 public final class SidebarService {
-    private static final Pattern PLACEHOLDER = Pattern.compile("%([^%]+)%");
     private static final NumberFormat HIDDEN_NUMBER_FORMAT = BlankFormat.INSTANCE;
     private static final int MAX_RENDERED_LINE_LENGTH = 40;
     private final Map<UUID, PlayerState> states = new HashMap<>();
-    private final Set<String> warnedPlaceholders = new HashSet<>();
 
     public void onJoin(ServerPlayer player) {
         PlayerState state = states.computeIfAbsent(player.getUUID(), this::newState);
@@ -131,6 +123,20 @@ public final class SidebarService {
             return;
         }
         PlayerState state = states.computeIfAbsent(player.getUUID(), this::newState);
+        Objective external = player.level().getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
+        if (external != null && state.objective == null && config.conflictPolicy() == SidebarConfig.ConflictPolicy.SKIP) {
+            state.skippedByConflict = true;
+            return;
+        }
+        if (external != null && state.objective != null && config.conflictPolicy() == SidebarConfig.ConflictPolicy.SKIP) {
+            releaseToExternal(player, state, external);
+            state.skippedByConflict = true;
+            return;
+        }
+        state.skippedByConflict = false;
+        if (external != null && state.objective == null && config.conflictPolicy() == SidebarConfig.ConflictPolicy.RESTORE) {
+            state.restoreObjective = external;
+        }
         List<Component> rendered = new ArrayList<>(config.lines().size());
         for (SidebarLine line : config.lines()) {
             rendered.add(renderLine(player, line.text()));
@@ -165,11 +171,25 @@ public final class SidebarService {
         if (state == null || state.objective == null) {
             return;
         }
-        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, state.restoreObjective));
         for (int index = 0; index < state.rendered.size(); index++) {
             player.connection.send(new ClientboundResetScorePacket(owner(index), state.objective.getName()));
         }
         player.connection.send(new ClientboundSetObjectivePacket(state.objective, 1));
+        state.objective = null;
+        state.rendered = List.of();
+        state.configRevision = Long.MIN_VALUE;
+        state.dimensionId = "";
+        state.restoreObjective = null;
+        state.skippedByConflict = false;
+    }
+
+    private void releaseToExternal(ServerPlayer player, PlayerState state, Objective external) {
+        for (int index = 0; index < state.rendered.size(); index++) {
+            player.connection.send(new ClientboundResetScorePacket(owner(index), state.objective.getName()));
+        }
+        player.connection.send(new ClientboundSetObjectivePacket(state.objective, 1));
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, external));
         state.objective = null;
         state.rendered = List.of();
         state.configRevision = Long.MIN_VALUE;
@@ -203,37 +223,7 @@ public final class SidebarService {
     }
 
     private Component renderText(ServerPlayer player, String text) {
-        String source = text == null ? "" : text.replace('&', '\u00a7').replace('\n', ' ');
-        Matcher matcher = PLACEHOLDER.matcher(source);
-        MutableComponent result = Component.empty();
-        int cursor = 0;
-        while (matcher.find()) {
-            if (matcher.start() > cursor) {
-                result.append(LegacyTitleText.parse(source.substring(cursor, matcher.start())));
-            }
-            String token = matcher.group(1).trim();
-            String id = token.toLowerCase(java.util.Locale.ROOT);
-            if (id.startsWith("omnitools:")) {
-                id = id.substring("omnitools:".length());
-            }
-            if (OmniToolsPlaceholderResolver.IDS.contains(id)) {
-                result.append(OmniToolsPlaceholderResolver.resolve(player, id));
-            } else {
-                Component external = dev.modmind.omnitools.PlaceholderBootstrap.resolveExternal(player, token);
-                if (external != null) {
-                    result.append(external);
-                } else {
-                    if (warnedPlaceholders.add(token)) {
-                        System.err.println("[omnitools] Unknown sidebar placeholder: " + token);
-                    }
-                    result.append(Component.literal("-"));
-                }
-            }
-            cursor = matcher.end();
-        }
-        if (cursor < source.length()) {
-            result.append(LegacyTitleText.parse(source.substring(cursor)));
-        }
+        Component result = TextTemplateRenderer.render(player, text);
         String plain = result.getString();
         if (plain.length() > MAX_RENDERED_LINE_LENGTH) {
             return Component.literal(plain.substring(0, MAX_RENDERED_LINE_LENGTH));
@@ -256,5 +246,7 @@ public final class SidebarService {
         private long configRevision = Long.MIN_VALUE;
         private long lastRefreshTick = Long.MIN_VALUE;
         private String dimensionId = "";
+        private Objective restoreObjective;
+        private boolean skippedByConflict;
     }
 }

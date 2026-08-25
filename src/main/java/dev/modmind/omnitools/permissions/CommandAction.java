@@ -23,7 +23,8 @@ public enum CommandAction {
     COMMAND_MENU_CLOSE("command_menu.close", CommandRole.PLAYER),
     SIDEBAR_TOGGLE("sidebar.toggle", CommandRole.PLAYER),
     SIDEBAR_STATUS("sidebar.status", CommandRole.PLAYER),
-    REWARDS_RETRY("rewards.retry", CommandRole.PLAYER);
+    REWARDS_RETRY("rewards.retry", CommandRole.PLAYER),
+    REWARDS_ADMIN("rewards.admin", CommandRole.ADMIN);
 
     private final String id;
     private final CommandRole defaultRole;

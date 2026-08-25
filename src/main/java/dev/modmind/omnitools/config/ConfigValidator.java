@@ -4,6 +4,9 @@ import dev.modmind.omnitools.AchievementConfig;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
+import dev.modmind.omnitools.commandmenu.CommandMenuAction;
+import dev.modmind.omnitools.commandmenu.CommandMenuDefinition;
+import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.achievement.AchievementCondition;
@@ -31,6 +34,7 @@ public final class ConfigValidator {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
         validateSidebar(snapshot.sidebar());
+        validateCommandMenus(snapshot);
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
             if (achievement.condition() == null || achievement.requirements().isEmpty()) {
                 throw new IllegalArgumentException("achievement " + achievement.id()
@@ -93,6 +97,27 @@ public final class ConfigValidator {
         }
     }
 
+    private static void validateCommandMenus(OmniToolsConfigSnapshot snapshot) {
+        for (CommandMenuDefinition menu : snapshot.commandMenus().menus().values()) {
+            for (CommandMenuItem item : menu.page().items().values()) {
+                validateCommandActions(snapshot, item.leftClick(), "menu " + menu.id() + " slot " + item.slot());
+                validateCommandActions(snapshot, item.rightClick(), "menu " + menu.id() + " slot " + item.slot());
+            }
+        }
+    }
+
+    private static void validateCommandActions(OmniToolsConfigSnapshot snapshot,
+                                               java.util.List<CommandMenuAction> actions, String context) {
+        for (CommandMenuAction action : actions) {
+            if (action.type() != CommandMenuAction.Type.COMMAND) {
+                continue;
+            }
+            if (!snapshot.root().commandSecurity().allows(action.value())) {
+                throw new IllegalArgumentException(context + " command is not allowed by global.command_security");
+            }
+        }
+    }
+
     private static void validateReward(OmniToolsConfigSnapshot snapshot, RewardDefinition reward, String context) {
         if (reward.type() == RewardType.TITLE) {
             if (!snapshot.enabled(ModuleId.TITLES)) {
@@ -108,6 +133,9 @@ public final class ConfigValidator {
             }
             if (reward.command().length() > snapshot.root().maxCommandRewardLength()) {
                 throw new IllegalArgumentException(context + " command reward exceeds max_command_length");
+            }
+            if (!snapshot.root().commandSecurity().allows(reward.command())) {
+                throw new IllegalArgumentException(context + " command reward is not allowed by global.command_security");
             }
         }
     }

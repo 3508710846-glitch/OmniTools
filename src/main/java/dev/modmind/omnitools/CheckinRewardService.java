@@ -71,7 +71,16 @@ public final class CheckinRewardService {
         }
     }
 
-    private void retryKnownEvent(ServerPlayer player, String eventId) {
+    /** Retries one administrator-selected ledger event only when it belongs to this player. */
+    public boolean retryEvent(ServerPlayer player, String eventId) {
+        String prefix = "checkin:" + player.getUUID() + ":";
+        if (eventId == null || !eventId.startsWith(prefix)) {
+            return false;
+        }
+        return retryKnownEvent(player, eventId);
+    }
+
+    private boolean retryKnownEvent(ServerPlayer player, String eventId) {
         String[] parts = eventId.split(":", -1);
         if (parts.length == 4 && parts[2].equals("daily")) {
             try {
@@ -80,8 +89,9 @@ public final class CheckinRewardService {
                 showResult(player, grants.retry(player, event, config.dailyRewards()), "daily");
             } catch (RuntimeException ignored) {
                 // Ignore corrupt or foreign ledger keys rather than risking a player login failure.
+                return false;
             }
-            return;
+            return true;
         }
         if (parts.length == 5 && parts[2].equals("monthly")) {
             try {
@@ -89,7 +99,7 @@ public final class CheckinRewardService {
                 int milestone = Integer.parseInt(parts[4]);
                 List<RewardDefinition> rewards = config.monthlyRewards().get(milestone);
                 if (rewards == null) {
-                    return;
+                    return false;
                 }
                 RewardEvent event = RewardEvent.checkinMonthly(player.getUUID(), month, milestone);
                 RewardGrantResult result = grants.retry(player, event, rewards);
@@ -100,8 +110,11 @@ public final class CheckinRewardService {
                 showResult(player, result, "monthly_" + milestone);
             } catch (RuntimeException ignored) {
                 // See daily branch.
+                return false;
             }
+            return true;
         }
+        return false;
     }
 
     private void grantEligibleMonthly(ServerPlayer player, long day, int monthlyDays) {

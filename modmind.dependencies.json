@@ -2,6 +2,34 @@
   "version": 1,
   "dependencies": [
     {
+      "projectId": "maven-54a6223436e1eb72",
+      "versionId": "org.junit.platform:junit-platform-launcher:1.11.4",
+      "slug": "junit-platform-launcher",
+      "name": "org.junit.platform:junit-platform-launcher",
+      "versionNumber": "1.11.4",
+      "fileName": "",
+      "relativePath": "",
+      "installedAt": "2026-08-25T10:22:55.121Z",
+      "environment": "both",
+      "source": "maven",
+      "coordinate": "org.junit.platform:junit-platform-launcher:1.11.4",
+      "configuration": "runtimeOnly"
+    },
+    {
+      "projectId": "maven-3936e6202216546a",
+      "versionId": "org.junit.jupiter:junit-jupiter:5.11.4",
+      "slug": "junit-jupiter",
+      "name": "org.junit.jupiter:junit-jupiter",
+      "versionNumber": "5.11.4",
+      "fileName": "",
+      "relativePath": "",
+      "installedAt": "2026-08-25T10:19:51.267Z",
+      "environment": "both",
+      "source": "maven",
+      "coordinate": "org.junit.jupiter:junit-jupiter:5.11.4",
+      "configuration": "implementation"
+    },
+    {
       "projectId": "modrinth-eXts2L7r",
       "versionId": "qxjzQ9xY",
       "slug": "eXts2L7r",

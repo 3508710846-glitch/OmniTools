@@ -176,6 +176,18 @@ public final class TitleData extends SavedData {
         return changed;
     }
 
+    /** Records the reward event together with the title unlock for restart-safe recovery. */
+    public synchronized boolean grantReward(UUID playerId, String playerName, String titleId, String eventId,
+                                            String rewardId) {
+        PlayerRecord record = record(playerId, playerName);
+        boolean eventRecorded = record.rewardEvents.add(rewardEventKey(eventId, rewardId));
+        boolean unlocked = record.unlocked.add(titleId);
+        if (eventRecorded || unlocked) {
+            setDirty();
+        }
+        return unlocked;
+    }
+
     public synchronized boolean revoke(UUID playerId, String playerName, String titleId) {
         PlayerRecord record = record(playerId, playerName);
         boolean changed = record.unlocked.remove(titleId);
@@ -221,6 +233,7 @@ public final class TitleData extends SavedData {
                 PlayerRecord record = new PlayerRecord();
                 record.name = tag.getStringOr("name", "");
                 readIds(tag.getListOrEmpty("unlocked"), record.unlocked);
+                readIds(tag.getListOrEmpty("reward_events"), record.rewardEvents);
                 record.selected = tag.getStringOr("selected", "");
                 record.effectsEnabled = tag.getBooleanOr("effects_enabled", true);
                 data.players.put(id, record);
@@ -241,6 +254,13 @@ public final class TitleData extends SavedData {
         }
     }
 
+    private static String rewardEventKey(String eventId, String rewardId) {
+        if (eventId == null || eventId.isBlank() || rewardId == null || rewardId.isBlank()) {
+            throw new IllegalArgumentException("Reward event and reward ids must not be blank");
+        }
+        return eventId.trim() + "#" + rewardId.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
     private static CompoundTag toTag(TitleData data) {
         CompoundTag root = new CompoundTag();
         CompoundTag players = new CompoundTag();
@@ -251,6 +271,9 @@ public final class TitleData extends SavedData {
             ListTag unlocked = new ListTag();
             record.unlocked.forEach(id -> unlocked.add(StringTag.valueOf(id)));
             tag.put("unlocked", unlocked);
+            ListTag rewardEvents = new ListTag();
+            record.rewardEvents.stream().sorted().forEach(id -> rewardEvents.add(StringTag.valueOf(id)));
+            tag.put("reward_events", rewardEvents);
             tag.putString("selected", record.selected);
             tag.putBoolean("effects_enabled", record.effectsEnabled);
             players.put(entry.getKey().toString(), tag);
@@ -262,6 +285,7 @@ public final class TitleData extends SavedData {
     public static final class PlayerRecord {
         private String name = "";
         private final Set<String> unlocked = new HashSet<>();
+        private final Set<String> rewardEvents = new HashSet<>();
         private String selected = "";
         private boolean effectsEnabled = true;
 

@@ -18,7 +18,7 @@ public final class FabricPlaceholderRegistrar {
         for (String id : OmniToolsPlaceholderResolver.IDS) {
             Identifier identifier = Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, id);
             Placeholders.register(identifier, (context, argument) -> PlaceholderResult.value(
-                    OmniToolsPlaceholderResolver.resolve(context == null ? null : context.player(), argument)));
+                    OmniToolsPlaceholderResolver.resolve(context == null ? null : context.player(), id)));
         }
         registered = true;
         System.out.println("[omnitools] Registered " + OmniToolsPlaceholderResolver.IDS.size()

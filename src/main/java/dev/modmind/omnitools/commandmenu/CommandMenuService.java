@@ -5,15 +5,19 @@ import dev.modmind.omnitools.ServerText;
 import dev.modmind.omnitools.LegacyTitleText;
 import dev.modmind.omnitools.ModMindEntry;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import dev.modmind.omnitools.permissions.CommandAction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Map;
+import java.util.HashMap;
+import java.util.UUID;
 
 /** Server-side command-menu access, permission checks and action execution. */
 public final class CommandMenuService {
+    private static final Map<UUID, Long> LAST_COMMAND_TICK = new HashMap<>();
     private CommandMenuService() {
     }
 
@@ -48,7 +52,7 @@ public final class CommandMenuService {
                 player.closeContainer();
                 return;
             }
-            case MESSAGE -> player.sendSystemMessage(LegacyTitleText.parse(colored(action.value())));
+            case MESSAGE -> player.sendSystemMessage(TextTemplateRenderer.render(player, action.value()));
             case COMMAND -> executeCommand(player, action);
         }
     }
@@ -56,11 +60,27 @@ public final class CommandMenuService {
     private static void executeCommand(ServerPlayer player, CommandMenuAction action) {
         MinecraftServer server = player.level().getServer();
         String command = substitute(action.value(), player);
+        var security = ModMindEntry.configSnapshot().root().commandSecurity();
+        if (!security.allows(command)) {
+            player.sendSystemMessage(Component.literal("This menu command is blocked by server security."));
+            System.err.println("[omnitools] Blocked menu command for " + player.getUUID() + ": " + command);
+            return;
+        }
+        long tick = server.getTickCount();
+        long previous = LAST_COMMAND_TICK.getOrDefault(player.getUUID(), Long.MIN_VALUE);
+        if (security.cooldownTicks() > 0 && previous != Long.MIN_VALUE
+                && tick - previous < security.cooldownTicks()) {
+            player.sendSystemMessage(Component.literal("Please wait before using another menu command."));
+            return;
+        }
+        LAST_COMMAND_TICK.put(player.getUUID(), tick);
         if (action.runAs() == CommandMenuAction.RunAs.CONSOLE) {
             server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), command);
         } else {
             server.getCommands().performPrefixedCommand(player.createCommandSourceStack(), command);
         }
+        System.out.println("[omnitools] Executed " + action.runAs().name().toLowerCase(java.util.Locale.ROOT)
+                + " menu command for " + player.getUUID() + ": " + command);
     }
 
     private static String substitute(String command, ServerPlayer player) {

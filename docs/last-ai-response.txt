@@ -1,8 +1,10 @@
-已补齐 `managed_download` 审计证据。
+已完成 A-D 的核心改造并通过构建与服务端运行验证。
 
-- `addon_prepare` 确认 Placeholder API 已是现有同一 add-on，因此拒绝重复准备。
-- 随后 `addon_import` 对现有 JAR 成功执行受管哈希识别与关系登记：
-  `libs/modmind/placeholder-api-2.8.2+1.21.10.jar`
-  已确认为 Modrinth `Text Placeholder API`、Fabric 1.21.11 可选依赖，并保留精确源码与许可证记录。
+- 修复 Placeholder API ID 闭包错误；17 个内置 ID 可正确注册。
+- 奖励账本新增 `APPLYING`、物品快照、命令审计与管理员 `inspect/retry/resolve` 命令。货币、称号可上线对账恢复；物品和指令的崩溃不确定状态冻结为可审计项，避免自动重放导致重复发放。[RewardGrantService](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:25)
+- 成就检查改为配置化预算调度；新增签到数据保留、归档和基于来源证明的账本清理。[AchievementService](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:99) [CheckinData](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:391)
+- 根配置升级至 v3，迁移时备份旧文件，缺失的菜单/侧边栏模块默认关闭；新增命令白名单、长度与冷却限制。[ConfigMigration](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java:48)
+- 侧边栏实现 `skip / replace / restore`，并抽出按玩家与 tick 缓存的文本模板渲染器。
+- 新增升级、备份恢复和奖励一致性说明：[升级指南](/D:/mod/qiandao/docs/upgrade-guide.md) [备份与恢复](/D:/mod/qiandao/docs/backup-and-recovery.md) [奖励一致性](/D:/mod/qiandao/docs/reward-consistency.md)
 
-未新增或替换任何依赖，也未改动已完成的签到界面实现。
+验证通过：`gradlew.bat test`、ModMind 内容校验、受管构建、Fabric 服务端稳定运行 15 秒。隔离客户端启动返回 `spawn UNKNOWN`，且 Modpack 联机工具不适用于该项目；原版客户端的菜单交互仍需在可用客户端环境手动验收。

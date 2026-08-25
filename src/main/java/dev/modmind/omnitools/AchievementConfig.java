@@ -56,14 +56,20 @@ public final class AchievementConfig {
 
     private final List<AchievementDefinition> achievements;
     private final Map<String, AchievementDefinition> byId;
+    private final SchedulerConfig scheduler;
 
     private AchievementConfig(List<AchievementDefinition> achievements) {
+        this(achievements, SchedulerConfig.defaults());
+    }
+
+    private AchievementConfig(List<AchievementDefinition> achievements, SchedulerConfig scheduler) {
         this.achievements = List.copyOf(achievements);
         Map<String, AchievementDefinition> indexed = new LinkedHashMap<>();
         for (AchievementDefinition achievement : achievements) {
             indexed.put(achievement.id(), achievement);
         }
         this.byId = Collections.unmodifiableMap(indexed);
+        this.scheduler = scheduler == null ? SchedulerConfig.defaults() : scheduler;
     }
 
     public static AchievementConfig load(HolderLookup.Provider registries) {
@@ -101,12 +107,17 @@ public final class AchievementConfig {
         return Optional.ofNullable(byId.get(normalizeId(id)));
     }
 
+    public SchedulerConfig scheduler() {
+        return scheduler;
+    }
+
     private static AchievementConfig parse(JsonObject root, HolderLookup.Provider registries) {
         int version = integer(root, "format_version", 1);
         if (version < 1 || version > CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported achievement format_version: " + version);
         }
         Map<String, List<String>> targetGroups = parseTargetGroups(root.get("target_groups"));
+        SchedulerConfig scheduler = parseScheduler(root.get("check_scheduler"));
         validateTargetGroupGraph(targetGroups);
         JsonElement element = root.get("achievements");
         if (element == null || !element.isJsonArray()) {
@@ -163,7 +174,22 @@ public final class AchievementConfig {
             definitions.add(new AchievementDefinition(id, display, description, iconId, icon,
                     parsed.requirements(), parsed.condition(), rewards));
         }
-        return new AchievementConfig(definitions);
+        return new AchievementConfig(definitions, scheduler);
+    }
+
+    private static SchedulerConfig parseScheduler(JsonElement element) {
+        if (element == null) {
+            return SchedulerConfig.defaults();
+        }
+        if (!element.isJsonObject()) {
+            throw new JsonParseException("check_scheduler must be an object");
+        }
+        JsonObject scheduler = element.getAsJsonObject();
+        return new SchedulerConfig(
+                rangedInteger(scheduler, "check_interval_ticks", SchedulerConfig.defaults().checkIntervalTicks(), 1, 1_200),
+                rangedInteger(scheduler, "max_players_per_tick", SchedulerConfig.defaults().maxPlayersPerTick(), 1, 1_000),
+                rangedInteger(scheduler, "max_conditions_per_tick", SchedulerConfig.defaults().maxConditionsPerTick(), 1, 16_384),
+                rangedInteger(scheduler, "full_recheck_seconds", SchedulerConfig.defaults().fullRecheckSeconds(), 1, 86_400));
     }
 
     private static boolean isV2ConditionArray(JsonElement element, String achievementId) {
@@ -536,6 +562,12 @@ public final class AchievementConfig {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
             root.addProperty("format_version", CURRENT_FORMAT_VERSION);
+            JsonObject scheduler = new JsonObject();
+            scheduler.addProperty("check_interval_ticks", config.scheduler.checkIntervalTicks());
+            scheduler.addProperty("max_players_per_tick", config.scheduler.maxPlayersPerTick());
+            scheduler.addProperty("max_conditions_per_tick", config.scheduler.maxConditionsPerTick());
+            scheduler.addProperty("full_recheck_seconds", config.scheduler.fullRecheckSeconds());
+            root.add("check_scheduler", scheduler);
             JsonArray achievements = new JsonArray();
             for (AchievementDefinition definition : config.achievements) {
                 JsonObject achievement = new JsonObject();
@@ -738,6 +770,14 @@ public final class AchievementConfig {
         }
     }
 
+    private static int rangedInteger(JsonObject object, String key, int fallback, int minimum, int maximum) {
+        int value = integer(object, key, fallback);
+        if (value < minimum || value > maximum) {
+            throw new JsonParseException(key + " must be between " + minimum + " and " + maximum);
+        }
+        return value;
+    }
+
     private static String normalizeId(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
@@ -863,6 +903,20 @@ public final class AchievementConfig {
         ITEM,
         ENTITY,
         CUSTOM
+    }
+
+    public record SchedulerConfig(int checkIntervalTicks, int maxPlayersPerTick, int maxConditionsPerTick,
+                                  int fullRecheckSeconds) {
+        public SchedulerConfig {
+            if (checkIntervalTicks < 1 || maxPlayersPerTick < 1 || maxConditionsPerTick < 1
+                    || fullRecheckSeconds < 1) {
+                throw new IllegalArgumentException("Achievement scheduler values must be positive");
+            }
+        }
+
+        public static SchedulerConfig defaults() {
+            return new SchedulerConfig(10, 8, 128, 60);
+        }
     }
 
     public record Requirement(RequirementType type, String targetId, long count, Object target,

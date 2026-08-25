@@ -28,6 +28,7 @@ public final class ConfigMigration {
         try {
             Files.createDirectories(ConfigPaths.root());
             Files.createDirectories(ConfigPaths.legacyDir());
+            migrateRootConfig();
             migrateRewards();
             copy("omnitools-shop.json", ModuleId.SHOP, false);
             copy("omnitools-titles.json", ModuleId.TITLES, true);
@@ -37,6 +38,89 @@ public final class ConfigMigration {
         } catch (IOException exception) {
             System.err.println("[omnitools] Configuration migration failed: " + exception.getMessage());
         }
+    }
+
+    /**
+     * Root config migration is intentionally conservative: modules introduced after the legacy
+     * root layout stay disabled until an administrator opts in. The original file is copied before
+     * any normalization so a failed upgrade is fully reversible.
+     */
+    private static void migrateRootConfig() throws IOException {
+        Path rootConfig = ConfigPaths.rootConfig();
+        if (!Files.exists(rootConfig)) {
+            return;
+        }
+        JsonObject root = readObject(rootConfig);
+        int version = root.has("format_version") && root.get("format_version").isJsonPrimitive()
+                ? root.get("format_version").getAsInt() : 1;
+        if (version >= OmniToolsRootConfig.CURRENT_FORMAT_VERSION) {
+            return;
+        }
+        Path backup = rootConfig.resolveSibling("config.json.v" + version + ".bak-" + System.currentTimeMillis());
+        Files.copy(rootConfig, backup, StandardCopyOption.COPY_ATTRIBUTES);
+
+        JsonObject global = object(root, "global");
+        if (!global.has("debug")) {
+            global.addProperty("debug", false);
+        }
+        if (!global.has("timezone")) {
+            global.addProperty("timezone", "Asia/Shanghai");
+        }
+        if (!global.has("language")) {
+            global.addProperty("language", "zh_cn");
+        }
+        if (!global.has("data_retention")) {
+            global.addProperty("data_retention", "full");
+        }
+        JsonObject security = object(global, "reward_security");
+        if (!security.has("allow_command_rewards")) {
+            security.addProperty("allow_command_rewards", false);
+        }
+        if (!security.has("max_command_length")) {
+            security.addProperty("max_command_length", 1_024);
+        }
+        global.add("reward_security", security);
+        JsonObject commandSecurity = object(global, "command_security");
+        if (!commandSecurity.has("allowed_roots")) {
+            JsonArray legacyRoots = new JsonArray();
+            legacyRoots.add("*");
+            commandSecurity.add("allowed_roots", legacyRoots);
+        }
+        if (!commandSecurity.has("max_command_length")) {
+            commandSecurity.addProperty("max_command_length", 1_024);
+        }
+        if (!commandSecurity.has("cooldown_ticks")) {
+            commandSecurity.addProperty("cooldown_ticks", 0);
+        }
+        global.add("command_security", commandSecurity);
+        root.add("global", global);
+
+        JsonObject integrations = object(root, "integrations");
+        JsonObject placeholderApi = object(integrations, "placeholder_api");
+        if (!placeholderApi.has("enabled")) {
+            placeholderApi.addProperty("enabled", true);
+        }
+        integrations.add("placeholder_api", placeholderApi);
+        root.add("integrations", integrations);
+
+        JsonObject modules = object(root, "modules");
+        for (ModuleId module : ModuleId.values()) {
+            if (modules.has(module.id()) && modules.get(module.id()).isJsonObject()) {
+                continue;
+            }
+            JsonObject status = new JsonObject();
+            boolean enabled = module != ModuleId.PERMISSIONS;
+            if (module == ModuleId.COMMAND_MENU || module == ModuleId.SIDEBAR) {
+                enabled = false;
+            }
+            status.addProperty("enabled", enabled);
+            modules.add(module.id(), status);
+        }
+        root.add("modules", modules);
+        root.addProperty("format_version", OmniToolsRootConfig.CURRENT_FORMAT_VERSION);
+        write(rootConfig, root);
+        System.out.println("[omnitools] Migrated root config from v" + version + " to v"
+                + OmniToolsRootConfig.CURRENT_FORMAT_VERSION + "; backup: " + backup.getFileName());
     }
 
     private static void migrateRewards() throws IOException {
@@ -143,6 +227,11 @@ public final class ConfigMigration {
         return root.getAsJsonObject();
     }
 
+    private static JsonObject object(JsonObject root, String key) {
+        JsonElement value = root.get(key);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject().deepCopy() : new JsonObject();
+    }
+
     private static void copyProperty(JsonObject source, JsonObject target, String key) {
         JsonElement value = source.get(key);
         if (value != null) {
@@ -157,6 +246,18 @@ public final class ConfigMigration {
         Files.createDirectories(path.getParent());
         try (Writer writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
             GSON.toJson(root, writer);
+        }
+    }
+
+    private static void write(Path path, JsonElement root) throws IOException {
+        Path temporary = Files.createTempFile(path.getParent(), "config-migration-", ".json");
+        try {
+            try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                GSON.toJson(root, writer);
+            }
+            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 

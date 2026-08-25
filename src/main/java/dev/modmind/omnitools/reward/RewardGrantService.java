@@ -1,14 +1,19 @@
 package dev.modmind.omnitools.reward;
 
 import dev.modmind.omnitools.CheckinData;
+import dev.modmind.omnitools.AchievementData;
 import dev.modmind.omnitools.ModMindEntry;
-import dev.modmind.omnitools.TitleConfig;
+import dev.modmind.omnitools.TitleData;
+import dev.modmind.omnitools.TitleDisplayService;
 import dev.modmind.omnitools.config.ModuleId;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 import java.util.Map;
+import java.time.YearMonth;
+import java.util.UUID;
 
 /** Applies one event in configuration order with per-reward idempotency and durable failure state. */
 public final class RewardGrantService {
@@ -28,7 +33,12 @@ public final class RewardGrantService {
             if (entry.status() == RewardClaimLedger.EntryStatus.FAILED) {
                 return RewardGrantResult.failed(granted, alreadyGranted, entry.reason());
             }
-            SingleResult result = grantOne(player, reward, ledger, event);
+            if (entry.status() == RewardClaimLedger.EntryStatus.BLOCKED && isManualResolutionRequired(entry.reason())) {
+                return RewardGrantResult.blocked(granted, alreadyGranted, entry.reason());
+            }
+            SingleResult result = entry.status() == RewardClaimLedger.EntryStatus.APPLYING
+                    ? recoverApplying(player, reward, ledger, event, entry)
+                    : grantOne(player, reward, ledger, event);
             if (result.status == RewardClaimLedger.EntryStatus.GRANTED) {
                 granted++;
                 continue;
@@ -37,7 +47,7 @@ public final class RewardGrantService {
                 case PENDING -> RewardGrantResult.pending(granted, alreadyGranted, result.reason);
                 case BLOCKED -> RewardGrantResult.blocked(granted, alreadyGranted, result.reason);
                 case FAILED -> RewardGrantResult.failed(granted, alreadyGranted, result.reason);
-                case GRANTED -> throw new IllegalStateException("handled above");
+                case APPLYING, GRANTED -> throw new IllegalStateException("unfinished reward result");
             };
         }
         return RewardGrantResult.success(granted, alreadyGranted);
@@ -45,6 +55,40 @@ public final class RewardGrantService {
 
     public RewardGrantResult retry(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards) {
         return grant(player, event, rewards);
+    }
+
+    public void reconcileStartup(MinecraftServer server) {
+        RewardClaimLedger.RecoveryAudit audit = RewardClaimLedger.get(server).reconcileStartupApplying();
+        if (audit.hasFindings()) {
+            System.err.println("[omnitools] Reward recovery scan: " + audit.quarantinedItems()
+                    + " item deliveries and " + audit.quarantinedCommands()
+                    + " commands require administrator resolution; " + audit.awaitingDataRecovery()
+                    + " currency/title entries will reconcile when their players join.");
+        }
+    }
+
+    /**
+     * Retention cleanup is proof-based rather than age-based. An event is discarded only once all
+     * of its entries are granted and its original sign-in or achievement state is still present.
+     */
+    public int cleanupProvenCompleted(MinecraftServer server) {
+        RewardClaimLedger ledger = RewardClaimLedger.get(server);
+        int removed = 0;
+        for (String eventId : ledger.eventIds()) {
+            EventSource source = EventSource.parse(eventId);
+            if (source == null) {
+                continue;
+            }
+            RewardEvent event = new RewardEvent(eventId, source.playerId());
+            if (ledger.entries(event).values().stream()
+                    .anyMatch(entry -> entry.status() != RewardClaimLedger.EntryStatus.GRANTED)) {
+                continue;
+            }
+            if (source.isPermanentlyProven(server) && ledger.removeEvent(event)) {
+                removed++;
+            }
+        }
+        return removed;
     }
 
     private SingleResult grantOne(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
@@ -63,32 +107,53 @@ public final class RewardGrantService {
         }
     }
 
+    /**
+     * A ledger entry can be left APPLYING only across a process stop. Currency and title source
+     * data carry the same event key, so replaying those writes is idempotent. Inventory and
+     * command side effects cannot be atomically committed with SavedData, therefore they become
+     * visible administrator work rather than being replayed and potentially duplicated.
+     */
+    private SingleResult recoverApplying(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
+                                         RewardEvent event, RewardClaimLedger.Entry entry) {
+        return switch (reward.type()) {
+            case CURRENCY -> grantCurrency(player, reward, ledger, event);
+            case TITLE -> grantTitle(player, reward, ledger, event);
+            case ITEM -> blocked(ledger, event, reward, "item_delivery_outcome_unknown");
+            case COMMAND -> blocked(ledger, event, reward, "command_dispatch_outcome_unknown");
+        };
+    }
+
     private SingleResult grantCurrency(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
                                        RewardEvent event) {
-        long balance = CheckinData.get(player).getBalance(player.getUUID());
-        if (reward.amount() > Long.MAX_VALUE - balance) {
+        ledger.beginApplying(event, reward.id(), "currency_apply");
+        CheckinData.CurrencyRewardResult result = CheckinData.get(player).applyRewardCurrency(player.getUUID(),
+                event.id(), reward.id(), reward.amount(), player.getGameProfile().name());
+        if (result == CheckinData.CurrencyRewardResult.OVERFLOW) {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "currency_overflow");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "currency_overflow");
         }
-        // Ledger and currency are separate SavedData files. Marking first makes this an at-most-once
-        // operation across a crash/retry boundary, which is safer than silently duplicating currency.
         ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
-        CheckinData.get(player).addCurrency(player.getUUID(), reward.amount(), player.getGameProfile().name());
         return SingleResult.granted();
     }
 
     private SingleResult grantItem(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
                                    RewardEvent event) {
-        ItemStack pending = reward.createItemStack();
+        ItemStack pending = ledger.queueItem(event, reward.id(), reward.createItemStack());
+        if (pending.isEmpty()) {
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");
+            return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");
+        }
         if (!canFitFully(player, pending)) {
             String reason = "inventory_full";
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.PENDING, reason);
             return new SingleResult(RewardClaimLedger.EntryStatus.PENDING, reason);
         }
-        // The simulation above proves every unit fits. Persist before mutation to ensure retries
-        // cannot duplicate an item stack if the server stops between inventory and ledger saves.
-        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+        // The player inventory and world SavedData do not share a transaction. APPLYING makes an
+        // interrupted delivery auditable; recovery blocks it for an administrator instead of
+        // blindly replaying an item that may already be present.
+        ledger.beginApplying(event, reward.id(), "item_delivery");
         insertFully(player, pending);
+        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
         return SingleResult.granted();
     }
 
@@ -140,13 +205,15 @@ public final class RewardGrantService {
         if (!ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
             return blocked(ledger, event, reward, "titles_module_disabled");
         }
-        TitleConfig.GrantResult result = ModMindEntry.titleConfig().grant(player.getUUID(),
-                player.getGameProfile().name(), reward.titleId());
-        if (result == TitleConfig.GrantResult.UNKNOWN_TITLE) {
+        if (ModMindEntry.titleConfig().definition(reward.titleId()).isEmpty()) {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "unknown_title");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "unknown_title");
         }
+        ledger.beginApplying(event, reward.id(), "title_apply");
+        TitleData.get(player).grantReward(player.getUUID(), player.getGameProfile().name(), reward.titleId(),
+                event.id(), reward.id());
         ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+        TitleDisplayService.refreshPlayer(player);
         return SingleResult.granted();
     }
 
@@ -159,20 +226,29 @@ public final class RewardGrantService {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "command_too_long");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "command_too_long");
         }
-        // Persist before invoking an external side effect: crashes may skip the command, never replay it.
-        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
         String command = substitute(reward.command(), player);
+        if (!ModMindEntry.configSnapshot().root().commandSecurity().allows(command)) {
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "command_security_blocked");
+            return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "command_security_blocked");
+        }
+        ledger.beginApplying(event, reward.id(), "command_prepare");
+        ledger.markCommandDispatched(event, reward.id(), command);
         try {
             player.level().getServer().getCommands().performPrefixedCommand(
                     player.level().getServer().createCommandSourceStack(), command);
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "command_dispatched");
             System.out.println("[omnitools] Dispatched reward command " + reward.id() + " for "
                     + player.getUUID() + " in event " + event.id() + ": " + command);
         } catch (RuntimeException exception) {
-            // The ledger deliberately remains GRANTED. A command can partially mutate server state before
-            // failing, so replaying it would be less safe than recording a possible lost side effect.
+            // A command may partially mutate server state before throwing. It is never retried
+            // automatically; the administrator can inspect the persisted command and resolve it.
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED,
+                    "command_dispatch_failed_no_replay");
             System.err.println("[omnitools] Reward command " + reward.id() + " for " + player.getUUID()
-                    + " was already marked dispatched but threw " + exception.getClass().getSimpleName()
-                    + " in event " + event.id() + ": " + exception.getMessage());
+                    + " is blocked for manual review in event " + event.id() + ": " + command
+                    + " (" + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
+            return new SingleResult(RewardClaimLedger.EntryStatus.BLOCKED,
+                    "command_dispatch_failed_no_replay");
         }
         return SingleResult.granted();
     }
@@ -181,6 +257,12 @@ public final class RewardGrantService {
                                         String reason) {
         ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED, reason);
         return new SingleResult(RewardClaimLedger.EntryStatus.BLOCKED, reason);
+    }
+
+    private static boolean isManualResolutionRequired(String reason) {
+        return "item_delivery_outcome_unknown".equals(reason)
+                || "command_dispatch_outcome_unknown".equals(reason)
+                || "command_dispatch_failed_no_replay".equals(reason);
     }
 
     private static String substitute(String command, ServerPlayer player) {
@@ -201,6 +283,52 @@ public final class RewardGrantService {
     private record SingleResult(RewardClaimLedger.EntryStatus status, String reason) {
         static SingleResult granted() {
             return new SingleResult(RewardClaimLedger.EntryStatus.GRANTED, "");
+        }
+    }
+
+    private sealed interface EventSource permits DailySource, MonthlySource, AchievementSource {
+        UUID playerId();
+
+        boolean isPermanentlyProven(MinecraftServer server);
+
+        static EventSource parse(String eventId) {
+            try {
+                String[] parts = eventId.split(":", -1);
+                if (parts.length == 4 && parts[0].equals("checkin") && parts[2].equals("daily")) {
+                    return new DailySource(UUID.fromString(parts[1]), Long.parseLong(parts[3]));
+                }
+                if (parts.length == 5 && parts[0].equals("checkin") && parts[2].equals("monthly")) {
+                    return new MonthlySource(UUID.fromString(parts[1]), YearMonth.parse(parts[3]),
+                            Integer.parseInt(parts[4]));
+                }
+                if (parts.length == 3 && parts[0].equals("achievement")) {
+                    return new AchievementSource(UUID.fromString(parts[1]), parts[2]);
+                }
+            } catch (RuntimeException ignored) {
+                // Unknown keys are retained for inspection rather than being treated as disposable.
+            }
+            return null;
+        }
+    }
+
+    private record DailySource(UUID playerId, long day) implements EventSource {
+        @Override
+        public boolean isPermanentlyProven(MinecraftServer server) {
+            return CheckinData.get(server).hasSigned(playerId, day);
+        }
+    }
+
+    private record MonthlySource(UUID playerId, YearMonth month, int milestone) implements EventSource {
+        @Override
+        public boolean isPermanentlyProven(MinecraftServer server) {
+            return CheckinData.get(server).hasClaimedMonthlyReward(playerId, month, milestone);
+        }
+    }
+
+    private record AchievementSource(UUID playerId, String achievementId) implements EventSource {
+        @Override
+        public boolean isPermanentlyProven(MinecraftServer server) {
+            return AchievementData.get(server).isClaimed(playerId, achievementId);
         }
     }
 }

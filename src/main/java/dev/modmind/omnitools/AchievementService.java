@@ -5,6 +5,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Optional;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,7 +28,8 @@ import dev.modmind.omnitools.achievement.StatisticEvaluationContext;
 
 /** Server-side achievement progression, unlock checks, and one-time reward claims. */
 public final class AchievementService {
-    public static final int CHECK_INTERVAL_TICKS = 10;
+    /** Legacy GUI refresh cadence; background checks use {@link AchievementConfig.SchedulerConfig}. */
+    public static final int CHECK_INTERVAL_TICKS = AchievementConfig.SchedulerConfig.defaults().checkIntervalTicks();
 
     private AchievementConfig config;
     private int revision;
@@ -35,6 +39,9 @@ public final class AchievementService {
      * normal periodic achievement check instead of evaluating statistics twice.
      */
     private final Map<UUID, MenuSnapshot> openMenuSnapshots = new HashMap<>();
+    private final Deque<ScheduledCheck> scheduledChecks = new ArrayDeque<>();
+    private int scheduledRevision = -1;
+    private long lastFullRecheckTick = Long.MIN_VALUE;
 
     private AchievementService(AchievementConfig config) {
         this.config = config;
@@ -56,6 +63,8 @@ public final class AchievementService {
         this.config = config;
         revision++;
         openMenuSnapshots.clear();
+        scheduledChecks.clear();
+        scheduledRevision = -1;
     }
 
     public synchronized AchievementConfig config() {
@@ -71,6 +80,8 @@ public final class AchievementService {
             config = ModMindEntry.configSnapshot().achievements();
             revision++;
             openMenuSnapshots.clear();
+            scheduledChecks.clear();
+            scheduledRevision = -1;
         }
         checkAll(server);
     }
@@ -82,6 +93,63 @@ public final class AchievementService {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             check(player);
         }
+    }
+
+    /** Processes a bounded, round-robin set of player-achievement checks. */
+    public void tick(MinecraftServer server) {
+        AchievementConfig snapshot = config();
+        if (snapshot.achievements().isEmpty() || server.getPlayerList().getPlayers().isEmpty()) {
+            return;
+        }
+        AchievementConfig.SchedulerConfig scheduler = snapshot.scheduler();
+        long tick = server.getTickCount();
+        if (tick % scheduler.checkIntervalTicks() != 0L) {
+            return;
+        }
+        if (scheduledRevision != revision()
+                || tick - lastFullRecheckTick >= (long) scheduler.fullRecheckSeconds() * 20L
+                || scheduledChecks.isEmpty()) {
+            rebuildSchedule(server, snapshot, tick);
+        }
+
+        Map<UUID, StatisticEvaluationContext> contexts = new HashMap<>();
+        HashSet<UUID> playersProcessed = new HashSet<>();
+        int conditionsProcessed = 0;
+        int attempts = scheduledChecks.size();
+        while (attempts-- > 0 && !scheduledChecks.isEmpty()) {
+            ScheduledCheck next = scheduledChecks.removeFirst();
+            ServerPlayer player = server.getPlayerList().getPlayer(next.playerId());
+            if (player == null) {
+                continue;
+            }
+            boolean newPlayer = !playersProcessed.contains(next.playerId());
+            if (newPlayer && playersProcessed.size() >= scheduler.maxPlayersPerTick()) {
+                scheduledChecks.addLast(next);
+                continue;
+            }
+            int cost = Math.max(1, next.achievement().requirements().size());
+            if (conditionsProcessed > 0 && conditionsProcessed + cost > scheduler.maxConditionsPerTick()) {
+                scheduledChecks.addLast(next);
+                continue;
+            }
+            playersProcessed.add(next.playerId());
+            StatisticEvaluationContext context = contexts.computeIfAbsent(next.playerId(),
+                    ignored -> new StatisticEvaluationContext(player));
+            checkScheduled(player, next.achievement(), context);
+            conditionsProcessed += cost;
+            scheduledChecks.addLast(next);
+        }
+    }
+
+    private void rebuildSchedule(MinecraftServer server, AchievementConfig snapshot, long tick) {
+        scheduledChecks.clear();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements()) {
+                scheduledChecks.addLast(new ScheduledCheck(player.getUUID(), achievement));
+            }
+        }
+        scheduledRevision = revision();
+        lastFullRecheckTick = tick;
     }
 
     /** Checks all configured achievements for a player and permanently records newly met targets. */
@@ -198,6 +266,36 @@ public final class AchievementService {
         return newlyUnlocked;
     }
 
+    private void checkScheduled(ServerPlayer player, AchievementConfig.AchievementDefinition achievement,
+                                StatisticEvaluationContext context) {
+        AchievementData data = AchievementData.get(player);
+        UUID playerId = player.getUUID();
+        boolean unlocked = data.isUnlocked(playerId, achievement.id());
+        ConditionProgress progress = unlocked ? completedProgress(achievement.condition()) : achievement.progress(context);
+        if (!unlocked && progress.completed() && data.unlock(playerId, achievement.id())) {
+            unlocked = true;
+            player.displayClientMessage(ServerText.translatable("message.omnitools.achievement.unlocked",
+                    achievement.display()), true);
+        }
+        updateCachedScheduledEvaluation(player, achievement, progress, unlocked);
+    }
+
+    private void updateCachedScheduledEvaluation(ServerPlayer player, AchievementConfig.AchievementDefinition achievement,
+                                                 ConditionProgress progress, boolean unlocked) {
+        MenuSnapshot cached = openMenuSnapshots.get(player.getUUID());
+        if (cached == null || cached.revision() != revision()) {
+            return;
+        }
+        Map<String, Evaluation> updated = new LinkedHashMap<>(cached.evaluations());
+        RewardEvent event = RewardEvent.achievement(player.getUUID(), achievement.id());
+        boolean pending = RewardClaimLedger.get(player).hasEvent(event)
+                && !RewardClaimLedger.get(player).allGranted(event, achievement.rewards());
+        State state = AchievementData.get(player).isClaimed(player.getUUID(), achievement.id()) ? State.CLAIMED
+                : (pending ? State.PENDING : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS));
+        updated.put(achievement.id(), new Evaluation(state, progress));
+        openMenuSnapshots.put(player.getUUID(), new MenuSnapshot(Map.copyOf(updated), cached.revision()));
+    }
+
     public ClaimResult claim(ServerPlayer player, String achievementId) {
         Optional<AchievementConfig.AchievementDefinition> optional = config().definition(achievementId);
         if (optional.isEmpty()) {
@@ -253,6 +351,34 @@ public final class AchievementService {
                 updateCachedClaimState(player.getUUID(), achievement.id());
             }
         }
+    }
+
+    /** Retries one administrator-selected achievement event, never an arbitrary ledger key. */
+    public boolean retryEvent(ServerPlayer player, String eventId) {
+        String prefix = "achievement:" + player.getUUID() + ":";
+        if (eventId == null || !eventId.startsWith(prefix)) {
+            return false;
+        }
+        String achievementId = eventId.substring(prefix.length());
+        Optional<AchievementConfig.AchievementDefinition> optional = config().definition(achievementId);
+        if (optional.isEmpty()) {
+            return false;
+        }
+        AchievementConfig.AchievementDefinition achievement = optional.get();
+        AchievementData data = AchievementData.get(player);
+        if (!data.isUnlocked(player.getUUID(), achievement.id()) || data.isClaimed(player.getUUID(), achievement.id())) {
+            return false;
+        }
+        RewardEvent event = RewardEvent.achievement(player.getUUID(), achievement.id());
+        if (!RewardClaimLedger.get(player).hasEvent(event)) {
+            return false;
+        }
+        RewardGrantResult result = ModMindEntry.rewardGrantService().retry(player, event, achievement.rewards());
+        if (result.complete()) {
+            data.markClaimed(player.getUUID(), achievement.id());
+            updateCachedClaimState(player.getUUID(), achievement.id());
+        }
+        return true;
     }
 
     private void updateCachedClaimState(UUID playerId, String achievementId) {
@@ -340,5 +466,8 @@ public final class AchievementService {
         public Evaluation evaluation(String achievementId) {
             return evaluations.get(achievementId);
         }
+    }
+
+    private record ScheduledCheck(UUID playerId, AchievementConfig.AchievementDefinition achievement) {
     }
 }
