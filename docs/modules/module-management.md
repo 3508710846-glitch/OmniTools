@@ -2,7 +2,7 @@
 
 ## 1. 功能简介
 
-模块管理 GUI 让管理员在游戏内查看并事务式切换模块。它使用 OmniTools 的自定义菜单类型及客户端界面；控制台不能打开 GUI，但可以执行完整配置重载。
+模块管理 GUI 让管理员在游戏内查看并事务式切换模块。它使用原版箱子 GUI，原版客户端无需安装 OmniTools；控制台不能打开 GUI，但可以执行完整配置重载。
 
 ## 2. 模块开关
 
@@ -20,6 +20,7 @@
   "global": {
     "debug": false,
     "timezone": "Asia/Shanghai",
+    "language": "zh_cn",
     "reward_security": {
       "allow_command_rewards": false,
       "max_command_length": 1024
@@ -57,6 +58,7 @@
 | `format_version` | integer | 否 | `2`（旧版 `1` 可读），必须为正整数 | 根配置格式版本；类型或范围错误会拒绝候选快照。 |
 | `global.debug` | boolean | 否 | `false` | 全局调试标志。 |
 | `global.timezone` | string | 否 | `Asia/Shanghai` | 有效 Java `ZoneId`，影响签到和在线时长跨日。 |
+| `global.language` | string | 否 | `zh_cn`；可为 `en_us` | 服务端发送的 OmniTools 自定义文本语言。纯服务端模式不能按每名玩家的客户端语言分别翻译。 |
 | `global.reward_security.allow_command_rewards` | boolean | 否 | `false` | 是否允许签到和成就配置 `command` 奖励；关闭时包含该类型奖励的候选快照被拒绝。 |
 | `global.reward_security.max_command_length` | integer | 否 | `1024`，`1-16384` | 允许的奖励命令最大长度；超出范围或被奖励定义超过时拒绝候选快照。 |
 | `integrations.placeholder_api.enabled` | boolean | 否 | `true` | 可选 Placeholder API 集成总开关，不属于模块列表。 |

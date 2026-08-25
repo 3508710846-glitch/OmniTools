@@ -1,11 +1,8 @@
 package dev.modmind.omnitools;
 
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -19,7 +16,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.ResolvableProfile;
-import net.minecraft.world.flag.FeatureFlags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,11 +31,6 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     public static final int STATUS_SLOT = 49;
     public static final int UPGRADE_SLOT = 51;
     public static final int NEXT_PAGE_SLOT = 53;
-    public static final MenuType<CloudStorageScreenHandler> TYPE = Registry.register(
-            BuiltInRegistries.MENU,
-            Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, "cloud_storage"),
-            new MenuType<>(CloudStorageScreenHandler::new, FeatureFlags.DEFAULT_FLAGS));
-
     private final SimpleContainer storageContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -49,17 +40,13 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     private int displayedUnlockedPages = Integer.MIN_VALUE;
     private long lastControlCheckTick = Long.MIN_VALUE;
 
-    public static void register() {
-        // Loading this class registers TYPE before the client creates its screen.
-    }
-
     public CloudStorageScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, null, 0);
     }
 
     private CloudStorageScreenHandler(int syncId, Inventory inventory, SimpleContainer container,
                                       ServerPlayer owner, CloudStorageConfig config, int page) {
-        super(TYPE, syncId, inventory, container, ROWS);
+        super(MenuType.GENERIC_9x6, syncId, inventory, container, ROWS);
         this.storageContainer = container;
         this.owner = owner;
         this.ownerId = owner == null ? null : owner.getUUID();
@@ -196,7 +183,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     private void unlockNextPage(ServerPlayer player) {
         int unlockedPages = availablePages();
         if (unlockedPages >= config.maxPages()) {
-            player.displayClientMessage(Component.translatable("message.omnitools.storage.maxed"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.maxed"), true);
             refreshControls();
             return;
         }
@@ -205,14 +192,14 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         long cost = config.expansionCost();
         long balance = currency.getBalance(ownerId);
         if (balance < cost) {
-            player.displayClientMessage(Component.translatable("message.omnitools.storage.insufficient", cost, balance),
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost, balance),
                     true);
             return;
         }
 
         long removed = currency.removeCurrency(ownerId, cost, player.getGameProfile().name());
         if (removed != cost) {
-            player.displayClientMessage(Component.translatable("message.omnitools.storage.insufficient", cost,
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost,
                     currency.getBalance(ownerId)), true);
             return;
         }
@@ -221,13 +208,13 @@ public final class CloudStorageScreenHandler extends ChestMenu {
                 .unlockNextPage(ownerId, config.maxPages());
         if (!result.unlocked()) {
             currency.addCurrency(ownerId, removed, player.getGameProfile().name());
-            player.displayClientMessage(Component.translatable("message.omnitools.storage.maxed"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.maxed"), true);
             refreshControls();
             return;
         }
 
         long remainingBalance = currency.getBalance(ownerId);
-        player.displayClientMessage(Component.translatable("message.omnitools.storage.expanded", result.unlockedPages(),
+        player.displayClientMessage(ServerText.translatable("message.omnitools.storage.expanded", result.unlockedPages(),
                 cost, remainingBalance), true);
         openPage(player, result.unlockedPages() - 1);
     }
@@ -236,7 +223,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         saveStoragePage();
         player.openMenu(new net.minecraft.world.SimpleMenuProvider(
                 (syncId, inventory, ignored) -> createServer(syncId, inventory, player, config, targetPage),
-                Component.translatable("gui.omnitools.storage.title")));
+                ServerText.translatable("gui.omnitools.storage.title")));
     }
 
     private void loadStoragePage() {
@@ -269,45 +256,45 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         long balance = CheckinData.get(owner).getBalance(ownerId);
         if (page > 0) {
             storageContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    Component.translatable("gui.omnitools.storage.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(Component.translatable("gui.omnitools.storage.previous_hint").withStyle(ChatFormatting.GRAY))));
+                    ServerText.translatable("gui.omnitools.storage.previous").withStyle(ChatFormatting.AQUA),
+                    List.of(ServerText.translatable("gui.omnitools.storage.previous_hint").withStyle(ChatFormatting.GRAY))));
         }
         if (page + 1 < unlockedPages) {
             storageContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    Component.translatable("gui.omnitools.storage.next").withStyle(ChatFormatting.AQUA),
-                    List.of(Component.translatable("gui.omnitools.storage.next_hint").withStyle(ChatFormatting.GRAY))));
+                    ServerText.translatable("gui.omnitools.storage.next").withStyle(ChatFormatting.AQUA),
+                    List.of(ServerText.translatable("gui.omnitools.storage.next_hint").withStyle(ChatFormatting.GRAY))));
         }
 
         storageContainer.setItem(BALANCE_SLOT, namedItem(Items.GOLD_INGOT,
-                Component.translatable("gui.omnitools.storage.balance_title").withStyle(ChatFormatting.GOLD,
+                ServerText.translatable("gui.omnitools.storage.balance_title").withStyle(ChatFormatting.GOLD,
                         ChatFormatting.BOLD),
-                List.of(Component.translatable("gui.omnitools.storage.balance", balance).withStyle(ChatFormatting.GOLD))));
+                List.of(ServerText.translatable("gui.omnitools.storage.balance", balance).withStyle(ChatFormatting.GOLD))));
 
         ItemStack status = new ItemStack(Items.PLAYER_HEAD);
         status.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
-        status.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.storage.status_title")
+        status.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.storage.status_title")
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
         status.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.omnitools.storage.page", page + 1, unlockedPages)
+                ServerText.translatable("gui.omnitools.storage.page", page + 1, unlockedPages)
                         .withStyle(ChatFormatting.AQUA),
-                Component.translatable("gui.omnitools.storage.capacity", unlockedPages * STORAGE_SLOT_COUNT)
+                ServerText.translatable("gui.omnitools.storage.capacity", unlockedPages * STORAGE_SLOT_COUNT)
                         .withStyle(ChatFormatting.GRAY))));
         storageContainer.setItem(STATUS_SLOT, status);
 
         if (unlockedPages < config.maxPages()) {
             storageContainer.setItem(UPGRADE_SLOT, namedItem(Items.EMERALD,
-                    Component.translatable("gui.omnitools.storage.upgrade").withStyle(ChatFormatting.GREEN,
+                    ServerText.translatable("gui.omnitools.storage.upgrade").withStyle(ChatFormatting.GREEN,
                             ChatFormatting.BOLD),
                     List.of(
-                            Component.translatable("gui.omnitools.storage.upgrade_price", config.expansionCost())
+                            ServerText.translatable("gui.omnitools.storage.upgrade_price", config.expansionCost())
                                     .withStyle(ChatFormatting.GOLD),
-                            Component.translatable("gui.omnitools.storage.upgrade_balance", balance)
+                            ServerText.translatable("gui.omnitools.storage.upgrade_balance", balance)
                                     .withStyle(ChatFormatting.GRAY),
-                            Component.translatable("gui.omnitools.storage.upgrade_hint").withStyle(ChatFormatting.GRAY))));
+                            ServerText.translatable("gui.omnitools.storage.upgrade_hint").withStyle(ChatFormatting.GRAY))));
         } else {
             storageContainer.setItem(UPGRADE_SLOT, namedItem(Items.LIME_STAINED_GLASS_PANE,
-                    Component.translatable("gui.omnitools.storage.maxed").withStyle(ChatFormatting.GREEN),
-                    List.of(Component.translatable("gui.omnitools.storage.maxed_hint").withStyle(ChatFormatting.GRAY))));
+                    ServerText.translatable("gui.omnitools.storage.maxed").withStyle(ChatFormatting.GREEN),
+                    List.of(ServerText.translatable("gui.omnitools.storage.maxed_hint").withStyle(ChatFormatting.GRAY))));
         }
         displayedBalance = balance;
         displayedUnlockedPages = unlockedPages;
@@ -326,7 +313,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     }
 
     private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, Component.translatable("gui.omnitools.empty"), List.of());
+        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

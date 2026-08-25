@@ -2,7 +2,7 @@
 
 ## 1. 功能简介
 
-称号模块管理称号定义、玩家拥有的称号和当前佩戴称号。佩戴称号会影响聊天名称、Tab 列表和头顶显示；可选的称号效果由 [title-effects.md](title-effects.md) 管理。称号选择界面使用 OmniTools 的自定义菜单类型及客户端界面。
+称号模块管理称号定义、玩家拥有的称号和当前佩戴称号。佩戴称号会影响聊天名称、Tab 列表和头顶显示；可选的称号效果由 [title-effects.md](title-effects.md) 管理。称号选择界面为原版箱子 GUI，原版客户端无需安装 OmniTools。头顶称号使用原版计分板队伍前缀。
 
 ## 2. 模块开关
 
@@ -25,6 +25,8 @@
 ```json
 {
   "format_version": 1,
+  "nameplate_mode": "scoreboard_team",
+  "team_conflict_policy": "omnitools_priority",
   "titles": [
     {
       "id": "geologist",
@@ -70,7 +72,9 @@
 | `format_version` | 任意 JSON 值（当前未读取） | 否 | 首次生成写入 `1` | 当前读取器忽略该字段；它仅作为生成文件的格式标记。 |
 | `titles` | array | 是 | 默认 3 项 | 称号列表。 |
 | `titles[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，唯一 | 稳定称号 ID，命令和奖励引用它。 |
-| `titles[].display` | string | 是 | 最多 128 字符 | 显示文本，支持 `&` 颜色；去除格式后必须有可见文本。 |
+| `nameplate_mode` | string | 否 | `scoreboard_team`；也可为 `disabled` | 头顶称号的服务端显示方式。`scoreboard_team` 使用原版队伍前缀，`disabled` 不显示头顶称号。非法值拒绝配置。 |
+| `team_conflict_policy` | string | 否 | `omnitools_priority`；也可为 `preserve_external_team` | 玩家已在外部计分板队伍中时的策略。前者暂时替换外部队伍并在卸下称号、禁用模块或正常停服时恢复；后者保留外部队伍且不显示该玩家的头顶称号。 |
+| `titles[].display` | string | 是 | 最多 128 字符 | 显示文本，支持 `§` 颜色代码；去除格式后必须有可见文本。 |
 | `titles[].rarity` | string | 是 | `common`、`rare`、`legendary` | 菜单稀有度。`rare` 和 `legendary` 出现在 Tab，`legendary` 也显示在头顶；非法值拒绝配置。 |
 | `titles[].effects` | string array | 否 | `[]` | 引用的效果 ID；不能重复。效果模块启用时必须存在对应定义。 |
 | `titles[].tooltip` | string array | 否 | `[]` | 菜单说明，每行最多 256 字符。 |
@@ -80,10 +84,12 @@
 ```json
 {
   "format_version": 1,
+  "nameplate_mode": "scoreboard_team",
+  "team_conflict_policy": "preserve_external_team",
   "titles": [
     {
       "id": "builder",
-      "display": "&b[建筑师]",
+      "display": "§b[建筑师]",
       "rarity": "rare",
       "effects": ["speed_1"],
       "tooltip": ["&7通过活动获得", "&a速度提升"]
@@ -102,4 +108,4 @@
 
 ## 8. 热重载与依赖
 
-重载成功后在线玩家的称号显示刷新，失去权限的称号菜单会关闭。`title_effects` 启用时称号引用必须通过校验；禁用称号效果会清理由其施加的效果而不删除称号数据。统一快照校验失败时旧显示规则保留。
+重载成功后在线玩家的称号显示刷新，失去权限的称号菜单会关闭。`title_effects` 启用时称号引用必须通过校验；禁用称号效果会清理由其施加的效果而不删除称号数据。计分板协议规定一个玩家同一时间只能属于一个队伍，无法保证与其他队伍模组同时完整显示。统一快照校验失败时旧显示规则保留。

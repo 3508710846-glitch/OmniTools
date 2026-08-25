@@ -6,9 +6,6 @@
     "ServerPlayerPermissionMixin",
     "ServerPlayerTabListMixin"
   ],
-  "client": [
-    "client.PlayerNameTagMixin"
-  ],
   "injectors": {
     "defaultRequire": 1
   }

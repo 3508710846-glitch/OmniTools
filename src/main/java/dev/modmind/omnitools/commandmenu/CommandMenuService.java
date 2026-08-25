@@ -1,5 +1,7 @@
 package dev.modmind.omnitools.commandmenu;
 
+import dev.modmind.omnitools.ServerText;
+
 import dev.modmind.omnitools.LegacyTitleText;
 import dev.modmind.omnitools.ModMindEntry;
 import dev.modmind.omnitools.config.ModuleId;
@@ -18,16 +20,16 @@ public final class CommandMenuService {
     public static boolean open(ServerPlayer player, String menuId) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.COMMAND_MENU)
                 || !ModMindEntry.hasCommandPermission(player, CommandAction.COMMAND_MENU_OPEN)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.command_menu.disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.command_menu.disabled"), true);
             return false;
         }
         CommandMenuDefinition definition = ModMindEntry.commandMenuConfig().menu(menuId);
         if (definition == null) {
-            player.displayClientMessage(Component.translatable("message.omnitools.command_menu.unknown", menuId), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.command_menu.unknown", menuId), true);
             return false;
         }
         if (!definition.permission().allows(player.createCommandSourceStack())) {
-            player.displayClientMessage(Component.translatable("message.omnitools.command_menu.no_permission"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.command_menu.no_permission"), true);
             return false;
         }
         player.openMenu(new net.minecraft.world.SimpleMenuProvider(

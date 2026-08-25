@@ -3,14 +3,11 @@
   "id": "omnitools",
   "version": "${version}",
   "name": "omnitools",
-  "description": "A persistent daily check-in GUI for Fabric.",
-  "environment": "*",
+  "description": "Server-side persistent gameplay tools for Fabric.",
+  "environment": "server",
   "entrypoints": {
     "main": [
       "dev.modmind.omnitools.ModMindEntry"
-    ],
-    "client": [
-      "dev.modmind.omnitools.ModMindClient"
     ]
   },
   "mixins": [

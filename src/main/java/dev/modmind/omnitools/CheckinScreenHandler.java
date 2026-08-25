@@ -1,11 +1,8 @@
 package dev.modmind.omnitools;
 
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.sounds.SoundEvents;
@@ -20,7 +17,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.ResolvableProfile;
-import net.minecraft.world.flag.FeatureFlags;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -42,11 +38,6 @@ public final class CheckinScreenHandler extends ChestMenu {
     public static final int PROFILE_SLOT = 4 * 9 + 4;
     public static final int ACHIEVEMENTS_SLOT = CONTAINER_SIZE - 1;
     private static final int NEXT_CHECKIN_SECONDS_DATA_SLOT = 1;
-    public static final MenuType<CheckinScreenHandler> TYPE = Registry.register(
-            BuiltInRegistries.MENU,
-            Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, "checkin"),
-            new MenuType<>(CheckinScreenHandler::new, FeatureFlags.DEFAULT_FLAGS));
-
     private final SimpleContainer checkinContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -57,17 +48,13 @@ public final class CheckinScreenHandler extends ChestMenu {
     private long clientCountdownDeadlineNanos;
     private long lastCountdownUpdateTick = Long.MIN_VALUE;
 
-    public static void register() {
-        // Loading this class registers TYPE before the client creates its screen.
-    }
-
     public CheckinScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, null);
     }
 
     private CheckinScreenHandler(int syncId, Inventory inventory, SimpleContainer container, ServerPlayer owner,
                                  LocalDate openedDate) {
-        super(TYPE, syncId, inventory, container, ROWS);
+        super(MenuType.GENERIC_9x5, syncId, inventory, container, ROWS);
         this.checkinContainer = container;
         this.ownerId = owner == null ? null : owner.getUUID();
         this.owner = owner;
@@ -143,7 +130,7 @@ public final class CheckinScreenHandler extends ChestMenu {
         int expectedSlot = currentDate.getDayOfMonth() - 1;
         boolean dateChanged = openedDate == null || !currentDate.equals(openedDate);
         if (dateChanged || slotId != expectedSlot) {
-            serverPlayer.displayClientMessage(Component.translatable(
+            serverPlayer.displayClientMessage(ServerText.translatable(
                     dateChanged ? "message.omnitools.invalid_date" : "message.omnitools.only_today"), true);
             if (dateChanged) {
                 refreshContents(serverPlayer, currentDate);
@@ -160,15 +147,15 @@ public final class CheckinScreenHandler extends ChestMenu {
         if (result.newlySigned()) {
             serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             serverPlayer.displayClientMessage(
-                    Component.translatable("message.omnitools.success", result.stats().todayOrdinal()), true);
+                    ServerText.translatable("message.omnitools.success", result.stats().todayOrdinal()), true);
             ModMindEntry.rewardService().grant(serverPlayer, result);
             Component broadcastMessage = result.stats().todayOrdinal() == 1
-                    ? Component.translatable("message.omnitools.broadcast.first", serverPlayer.getName())
-                    : Component.translatable("message.omnitools.broadcast", serverPlayer.getName(),
+                    ? ServerText.translatable("message.omnitools.broadcast.first", serverPlayer.getName())
+                    : ServerText.translatable("message.omnitools.broadcast", serverPlayer.getName(),
                     result.stats().todayOrdinal());
             serverPlayer.level().getServer().getPlayerList().broadcastSystemMessage(broadcastMessage, false);
         } else {
-            serverPlayer.displayClientMessage(Component.translatable("message.omnitools.already_signed"), true);
+            serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.already_signed"), true);
         }
     }
 
@@ -224,19 +211,19 @@ public final class CheckinScreenHandler extends ChestMenu {
                 if (signed) {
                     stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
                 }
-                stack.set(DataComponents.CUSTOM_NAME, Component.translatable(
+                stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable(
                         "gui.omnitools.day", day).withStyle(statusColor, ChatFormatting.BOLD));
                 List<Component> lore = new ArrayList<>();
-                lore.add(Component.translatable("gui.omnitools.date", date.getMonthValue(), day)
+                lore.add(ServerText.translatable("gui.omnitools.date", date.getMonthValue(), day)
                         .withStyle(ChatFormatting.GRAY));
-                lore.add(Component.translatable(statusKey).withStyle(statusColor));
+                lore.add(ServerText.translatable(statusKey).withStyle(statusColor));
                 if (day == date.getDayOfMonth()) {
                     appendRewardLore(owner, date.toEpochDay(), stats.monthlyDays(), lore);
                 }
                 stack.set(DataComponents.LORE, new ItemLore(lore));
             } else {
                 stack = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                stack.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.empty"));
+                stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.empty"));
             }
             checkinContainer.setItem(day - 1, stack);
         }
@@ -244,43 +231,43 @@ public final class CheckinScreenHandler extends ChestMenu {
         for (int slot = DATE_SLOT_COUNT; slot < CONTAINER_SIZE; slot++) {
             if (slot != PROFILE_SLOT) {
                 ItemStack filler = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                filler.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.empty"));
+                filler.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.empty"));
                 checkinContainer.setItem(slot, filler);
             }
         }
 
         ItemStack recordsButton = new ItemStack(Items.CLOCK);
-        recordsButton.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.records.button")
+        recordsButton.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.records.button")
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
         recordsButton.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.omnitools.records.button_hint").withStyle(ChatFormatting.GRAY))));
+                ServerText.translatable("gui.omnitools.records.button_hint").withStyle(ChatFormatting.GRAY))));
         checkinContainer.setItem(RECORDS_SLOT, recordsButton);
 
         ItemStack achievementsButton = new ItemStack(Items.NETHER_STAR);
-        achievementsButton.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.achievements.button")
+        achievementsButton.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.achievements.button")
                 .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD));
         achievementsButton.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.omnitools.achievements.button_hint").withStyle(ChatFormatting.GRAY))));
+                ServerText.translatable("gui.omnitools.achievements.button_hint").withStyle(ChatFormatting.GRAY))));
         checkinContainer.setItem(ACHIEVEMENTS_SLOT, achievementsButton);
 
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
-        profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.profile", owner.getName())
+        profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.profile", owner.getName())
                 .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD));
         String ordinalKey = stats.signedToday()
                 ? "gui.omnitools.profile.ordinal"
                 : "gui.omnitools.profile.ordinal_waiting";
         profile.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable(ordinalKey, stats.todayOrdinal()).withStyle(ChatFormatting.GOLD),
-                Component.translatable("gui.omnitools.profile.total", stats.totalDays())
+                ServerText.translatable(ordinalKey, stats.todayOrdinal()).withStyle(ChatFormatting.GOLD),
+                ServerText.translatable("gui.omnitools.profile.total", stats.totalDays())
                         .withStyle(ChatFormatting.AQUA),
-                Component.translatable("gui.omnitools.profile.streak", stats.streakDays())
+                ServerText.translatable("gui.omnitools.profile.streak", stats.streakDays())
                         .withStyle(ChatFormatting.LIGHT_PURPLE),
-                Component.translatable("gui.omnitools.profile.monthly", stats.monthlyDays())
+                ServerText.translatable("gui.omnitools.profile.monthly", stats.monthlyDays())
                         .withStyle(ChatFormatting.YELLOW),
-                Component.translatable("gui.omnitools.profile.balance", data.getBalance(owner.getUUID()))
+                ServerText.translatable("gui.omnitools.profile.balance", data.getBalance(owner.getUUID()))
                         .withStyle(ChatFormatting.GOLD),
-                Component.translatable(stats.signedToday()
+                ServerText.translatable(stats.signedToday()
                         ? "gui.omnitools.status.signed"
                         : "gui.omnitools.status.today")
                         .withStyle(stats.signedToday() ? ChatFormatting.GREEN : ChatFormatting.YELLOW))));
@@ -290,20 +277,20 @@ public final class CheckinScreenHandler extends ChestMenu {
     private static void openRecordsMenu(ServerPlayer player) {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinRecordsScreenHandler.createServer(syncId, inventory, player),
-                Component.translatable("gui.omnitools.records.title")));
+                ServerText.translatable("gui.omnitools.records.title")));
     }
 
     private static void openAchievementsMenu(ServerPlayer player) {
         if (!ModMindEntry.hasCommandPermission(player,
                 dev.modmind.omnitools.permissions.CommandAction.ACHIEVEMENTS_OPEN)
                 || !ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.ACHIEVEMENTS)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.permission_denied"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.permission_denied"), true);
             return;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         ModMindEntry.achievementService(), 0),
-                Component.translatable("gui.omnitools.achievement.title")));
+                ServerText.translatable("gui.omnitools.achievement.title")));
     }
 
     private static LocalDate today() {
@@ -325,21 +312,21 @@ public final class CheckinScreenHandler extends ChestMenu {
     private static void appendRewardList(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards,
                                          List<Component> lore, boolean monthly, int milestone) {
         if (monthly && !rewards.isEmpty()) {
-            lore.add(Component.translatable("gui.omnitools.reward.monthly_prefix", milestone)
+            lore.add(ServerText.translatable("gui.omnitools.reward.monthly_prefix", milestone)
                     .withStyle(ChatFormatting.YELLOW));
         }
         for (RewardDefinition reward : rewards) {
             switch (reward.type()) {
-                case CURRENCY -> lore.add(Component.translatable("gui.omnitools.reward.currency", reward.amount())
+                case CURRENCY -> lore.add(ServerText.translatable("gui.omnitools.reward.currency", reward.amount())
                         .withStyle(ChatFormatting.GOLD));
-                case ITEM -> lore.add(Component.translatable("gui.omnitools.reward.item",
+                case ITEM -> lore.add(ServerText.translatable("gui.omnitools.reward.item",
                                 reward.createItemStack().getHoverName(), reward.createItemStack().getCount())
                         .withStyle(ChatFormatting.AQUA));
-                case TITLE -> lore.add(Component.translatable("gui.omnitools.reward.title",
+                case TITLE -> lore.add(ServerText.translatable("gui.omnitools.reward.title",
                                 ModMindEntry.titleConfig().definition(reward.titleId())
                                 .map(TitleConfig.TitleDefinition::displayComponent).orElse(Component.literal(reward.titleId())))
                         .withStyle(ChatFormatting.LIGHT_PURPLE));
-                case COMMAND -> lore.add(Component.translatable("gui.omnitools.reward.command")
+                case COMMAND -> lore.add(ServerText.translatable("gui.omnitools.reward.command")
                         .withStyle(ChatFormatting.DARK_GRAY));
             }
         }
@@ -348,7 +335,7 @@ public final class CheckinScreenHandler extends ChestMenu {
             for (RewardDefinition reward : rewards) {
                 RewardClaimLedger.Entry entry = ledger.entry(event, reward.id());
                 if (entry.status() != RewardClaimLedger.EntryStatus.GRANTED) {
-                    lore.add(Component.translatable("gui.omnitools.reward.pending", entry.reason())
+                    lore.add(ServerText.translatable("gui.omnitools.reward.pending", entry.reason())
                             .withStyle(ChatFormatting.YELLOW));
                     break;
                 }

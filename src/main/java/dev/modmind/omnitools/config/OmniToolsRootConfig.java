@@ -18,6 +18,7 @@ import java.util.Map;
 
 /** Versioned root configuration and module enablement flags. */
 public record OmniToolsRootConfig(int formatVersion, boolean debug, String timezone,
+                                  String language,
                                   boolean allowCommandRewards, int maxCommandRewardLength,
                                   boolean placeholderApiEnabled, Map<ModuleId, Boolean> modules) {
     public static final int CURRENT_FORMAT_VERSION = 2;
@@ -34,6 +35,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             throw new JsonParseException("global.timezone is not a valid ZoneId: " + zone);
         }
         timezone = zone;
+        language = normalizeLanguage(language);
         if (maxCommandRewardLength < 1 || maxCommandRewardLength > 16_384) {
             throw new JsonParseException("global.reward_security.max_command_length must be between 1 and 16384");
         }
@@ -51,7 +53,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         for (ModuleId module : ModuleId.values()) {
             modules.put(module, module != ModuleId.PERMISSIONS);
         }
-        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", false, 1_024, true, modules);
+        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", "zh_cn",
+                false, 1_024, true, modules);
     }
 
     public boolean enabled(ModuleId module) {
@@ -66,7 +69,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         EnumMap<ModuleId, Boolean> updated = new EnumMap<>(ModuleId.class);
         updated.putAll(modules);
         updated.put(module, enabled);
-        return new OmniToolsRootConfig(formatVersion, debug, timezone, allowCommandRewards,
+        return new OmniToolsRootConfig(formatVersion, debug, timezone, language, allowCommandRewards,
                 maxCommandRewardLength, placeholderApiEnabled, updated);
     }
 
@@ -96,6 +99,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             }
             return new OmniToolsRootConfig(version, bool(global, "debug", false),
                     string(global, "timezone", "Asia/Shanghai"),
+                    string(global, "language", "zh_cn"),
                     bool(rewardSecurity, "allow_command_rewards", false),
                     integer(rewardSecurity, "max_command_length", 1_024),
                     bool(placeholderApi, "enabled", true), modules);
@@ -109,6 +113,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         JsonObject global = new JsonObject();
         global.addProperty("debug", config.debug());
         global.addProperty("timezone", config.timezone());
+        global.addProperty("language", config.language());
         JsonObject rewardSecurity = new JsonObject();
         rewardSecurity.addProperty("allow_command_rewards", config.allowCommandRewards());
         rewardSecurity.addProperty("max_command_length", config.maxCommandRewardLength());
@@ -171,5 +176,13 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         } catch (NumberFormatException exception) {
             throw new JsonParseException(key + " must be an integer");
         }
+    }
+
+    private static String normalizeLanguage(String value) {
+        String normalized = value == null ? "zh_cn" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!normalized.equals("zh_cn") && !normalized.equals("en_us")) {
+            throw new JsonParseException("global.language must be zh_cn or en_us");
+        }
+        return normalized;
     }
 }

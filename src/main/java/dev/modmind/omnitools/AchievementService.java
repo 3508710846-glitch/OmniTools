@@ -179,7 +179,7 @@ public final class AchievementService {
                 unlocked = true;
                 newlyUnlocked++;
                 if (announce) {
-                    player.displayClientMessage(Component.translatable(
+                    player.displayClientMessage(ServerText.translatable(
                             "message.omnitools.achievement.unlocked", achievement.display()), true);
                 }
             }

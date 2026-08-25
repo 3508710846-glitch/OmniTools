@@ -1,5 +1,7 @@
 package dev.modmind.omnitools.permissions;
 
+import dev.modmind.omnitools.ServerText;
+
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -61,7 +63,7 @@ public final class CommandPermissionService {
 
     public boolean deny(ServerPlayer player) {
         if (player != null) {
-            player.displayClientMessage(Component.translatable("message.omnitools.permission_denied"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.permission_denied"), true);
         }
         return false;
     }

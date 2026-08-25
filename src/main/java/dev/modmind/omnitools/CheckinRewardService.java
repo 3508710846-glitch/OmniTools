@@ -128,10 +128,10 @@ public final class CheckinRewardService {
 
     private static void showResult(ServerPlayer player, RewardGrantResult result, String event) {
         if (result.status() == RewardGrantResult.Status.SUCCESS && result.granted() > 0) {
-            player.sendSystemMessage(Component.translatable("message.omnitools.reward.granted",
+            player.sendSystemMessage(ServerText.translatable("message.omnitools.reward.granted",
                     result.granted(), CheckinData.get(player).getBalance(player.getUUID())));
         } else if (result.status() != RewardGrantResult.Status.SUCCESS) {
-            player.sendSystemMessage(Component.translatable("message.omnitools.reward.pending", event, result.reason()));
+            player.sendSystemMessage(ServerText.translatable("message.omnitools.reward.pending", event, result.reason()));
         }
     }
 }

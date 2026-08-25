@@ -6,9 +6,7 @@ import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -20,7 +18,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
-import net.minecraft.world.flag.FeatureFlags;
 
 import java.util.EnumMap;
 import java.util.List;
@@ -33,11 +30,6 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     public static final int ROWS = 3;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int RELOAD_SLOT = 22;
-    public static final MenuType<ModuleManagerScreenHandler> TYPE = net.minecraft.core.Registry.register(
-            BuiltInRegistries.MENU,
-            Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, "module_manager"),
-            new MenuType<>(ModuleManagerScreenHandler::new, FeatureFlags.DEFAULT_FLAGS));
-
     private static final Map<ModuleId, Integer> MODULE_SLOTS = moduleSlots();
     private static final Map<ModuleId, Item> MODULE_ICONS = Map.of(
             ModuleId.DAILY_CHECKIN, Items.CLOCK,
@@ -56,16 +48,12 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private final ServerPlayer owner;
     private long lastConfigRevision = Long.MIN_VALUE;
 
-    public static void register() {
-        // Loading this class registers TYPE before the client creates its screen.
-    }
-
     public ModuleManagerScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null);
     }
 
     private ModuleManagerScreenHandler(int syncId, Inventory inventory, SimpleContainer container, ServerPlayer owner) {
-        super(TYPE, syncId, inventory, container, ROWS);
+        super(MenuType.GENERIC_9x3, syncId, inventory, container, ROWS);
         this.moduleContainer = container;
         this.owner = owner;
         this.ownerId = owner == null ? null : owner.getUUID();
@@ -125,7 +113,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
                 .dependencyBlock(snapshot, module, targetState);
         if (block.isPresent()) {
-            player.displayClientMessage(Component.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW),
+            player.displayClientMessage(ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW),
                     true);
             refreshContents();
             return;
@@ -134,7 +122,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         OmniToolsConfigManager.ModuleUpdateResult result = ModMindEntry.moduleControlService()
                 .updateModuleEnabled(player.level().getServer(), module, targetState);
         if (result.success()) {
-            player.displayClientMessage(Component.translatable(targetState
+            player.displayClientMessage(ServerText.translatable(targetState
                     ? "message.omnitools.modules.enabled_result"
                     : "message.omnitools.modules.disabled_result", moduleName(module))
                     .withStyle(ChatFormatting.GREEN), true);
@@ -149,7 +137,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private void reloadFromDisk(ServerPlayer player) {
         OmniToolsConfigManager.ReloadResult result = ModMindEntry.moduleControlService().reload(player.level().getServer());
         if (result.success()) {
-            player.displayClientMessage(Component.translatable("message.omnitools.modules.reloaded")
+            player.displayClientMessage(ServerText.translatable("message.omnitools.modules.reloaded")
                     .withStyle(ChatFormatting.GREEN), true);
         } else {
             player.displayClientMessage(failureMessage(result.message()), true);
@@ -185,13 +173,13 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         }
         item.set(DataComponents.CUSTOM_NAME, moduleName(module).copy().withStyle(color, ChatFormatting.BOLD));
         List<Component> lore = new java.util.ArrayList<>();
-        lore.add(Component.translatable("gui.omnitools.modules.status", stateName(enabled)).withStyle(color));
-        lore.add(Component.translatable("gui.omnitools.modules.id", module.id()).withStyle(ChatFormatting.DARK_GRAY));
+        lore.add(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled)).withStyle(color));
+        lore.add(ServerText.translatable("gui.omnitools.modules.id", module.id()).withStyle(ChatFormatting.DARK_GRAY));
         if (block.isPresent()) {
-            lore.add(Component.translatable("gui.omnitools.modules.blocked").withStyle(ChatFormatting.YELLOW));
-            lore.add(Component.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW));
+            lore.add(ServerText.translatable("gui.omnitools.modules.blocked").withStyle(ChatFormatting.YELLOW));
+            lore.add(ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW));
         } else {
-            lore.add(Component.translatable("gui.omnitools.modules.toggle_hint").withStyle(ChatFormatting.GRAY));
+            lore.add(ServerText.translatable("gui.omnitools.modules.toggle_hint").withStyle(ChatFormatting.GRAY));
         }
         item.set(DataComponents.LORE, new ItemLore(lore));
         return item;
@@ -199,36 +187,36 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
 
     private static ItemStack reloadItem() {
         ItemStack item = new ItemStack(Items.RECOVERY_COMPASS);
-        item.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.modules.reload")
+        item.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.modules.reload")
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
         item.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.omnitools.modules.reload_hint").withStyle(ChatFormatting.GRAY))));
+                ServerText.translatable("gui.omnitools.modules.reload_hint").withStyle(ChatFormatting.GRAY))));
         return item;
     }
 
     private static ItemStack filler() {
         ItemStack item = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-        item.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.empty"));
+        item.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.empty"));
         return item;
     }
 
     private static Component moduleName(ModuleId module) {
-        return Component.translatable("gui.omnitools.modules.module." + module.id());
+        return ServerText.translatable("gui.omnitools.modules.module." + module.id());
     }
 
     private static Component stateName(boolean enabled) {
-        return Component.translatable(enabled ? "gui.omnitools.modules.enabled" : "gui.omnitools.modules.disabled");
+        return ServerText.translatable(enabled ? "gui.omnitools.modules.enabled" : "gui.omnitools.modules.disabled");
     }
 
     private static Component failureMessage(String reason) {
         if (reason == null || reason.isBlank()) {
-            return Component.translatable("message.omnitools.modules.update_failed_unknown").withStyle(ChatFormatting.RED);
+            return ServerText.translatable("message.omnitools.modules.update_failed_unknown").withStyle(ChatFormatting.RED);
         }
         if (reason.startsWith("gui.omnitools.modules.blocked.")) {
-            return Component.translatable(reason).withStyle(ChatFormatting.YELLOW);
+            return ServerText.translatable(reason).withStyle(ChatFormatting.YELLOW);
         }
         String safeReason = reason;
-        return Component.translatable("message.omnitools.modules.update_failed", Component.literal(safeReason))
+        return ServerText.translatable("message.omnitools.modules.update_failed", Component.literal(safeReason))
                 .withStyle(ChatFormatting.RED);
     }
 

@@ -1,17 +1,13 @@
 package dev.modmind.omnitools;
 
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.flag.FeatureFlags;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
@@ -46,11 +42,6 @@ public final class AchievementScreenHandler extends ChestMenu {
     public static final int PREVIOUS_PAGE_SLOT = 45;
     public static final int PROFILE_SLOT = 49;
     public static final int NEXT_PAGE_SLOT = 53;
-    public static final MenuType<AchievementScreenHandler> TYPE = Registry.register(
-            BuiltInRegistries.MENU,
-            Identifier.fromNamespaceAndPath(ModMindEntry.MOD_ID, "achievements"),
-            new MenuType<>(AchievementScreenHandler::new, FeatureFlags.DEFAULT_FLAGS));
-
     private final SimpleContainer achievementContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -59,17 +50,13 @@ public final class AchievementScreenHandler extends ChestMenu {
     private long lastRefreshTick = Long.MIN_VALUE;
     private int lastConfigRevision = Integer.MIN_VALUE;
 
-    public static void register() {
-        // Loading this class registers TYPE before the client creates its screen.
-    }
-
     public AchievementScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, null, 0);
     }
 
     private AchievementScreenHandler(int syncId, Inventory inventory, SimpleContainer container,
                                      ServerPlayer owner, AchievementService service, int page) {
-        super(TYPE, syncId, inventory, container, ROWS);
+        super(MenuType.GENERIC_9x6, syncId, inventory, container, ROWS);
         this.achievementContainer = container;
         this.owner = owner;
         this.ownerId = owner == null ? null : owner.getUUID();
@@ -130,16 +117,16 @@ public final class AchievementScreenHandler extends ChestMenu {
         AchievementConfig.AchievementDefinition achievement = achievements.get(achievementIndex);
         AchievementService.ClaimResult result = service.claim(serverPlayer, achievement.id());
         switch (result.status()) {
-            case CLAIMED -> serverPlayer.displayClientMessage(Component.translatable(
+            case CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.claimed", achievement.display(), result.grantedRewards(),
                     result.balance()), true);
-            case ALREADY_CLAIMED -> serverPlayer.displayClientMessage(Component.translatable(
+            case ALREADY_CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.already_claimed"), true);
-            case NOT_COMPLETED -> serverPlayer.displayClientMessage(Component.translatable(
+            case NOT_COMPLETED -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.not_completed"), true);
-            case UNKNOWN_ACHIEVEMENT -> serverPlayer.displayClientMessage(Component.translatable(
+            case UNKNOWN_ACHIEVEMENT -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.unknown"), true);
-            case PENDING, BLOCKED, FAILED -> serverPlayer.displayClientMessage(Component.translatable(
+            case PENDING, BLOCKED, FAILED -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.reward_pending", result.reason()), true);
         }
         refreshContents();
@@ -184,8 +171,8 @@ public final class AchievementScreenHandler extends ChestMenu {
 
         if (achievements.isEmpty()) {
             achievementContainer.setItem(22, namedItem(Items.BOOK,
-                    Component.translatable("gui.omnitools.achievement.empty_title").withStyle(ChatFormatting.GRAY),
-                    List.of(Component.translatable("gui.omnitools.achievement.empty_hint")
+                    ServerText.translatable("gui.omnitools.achievement.empty_title").withStyle(ChatFormatting.GRAY),
+                    List.of(ServerText.translatable("gui.omnitools.achievement.empty_hint")
                             .withStyle(ChatFormatting.DARK_GRAY))));
         }
 
@@ -198,15 +185,15 @@ public final class AchievementScreenHandler extends ChestMenu {
 
         if (page > 0) {
             achievementContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    Component.translatable("gui.omnitools.achievement.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(Component.translatable("gui.omnitools.achievement.previous_hint")
+                    ServerText.translatable("gui.omnitools.achievement.previous").withStyle(ChatFormatting.AQUA),
+                    List.of(ServerText.translatable("gui.omnitools.achievement.previous_hint")
                             .withStyle(ChatFormatting.GRAY))));
         }
         achievementContainer.setItem(PROFILE_SLOT, profileItem(achievements.size(), page + 1, pageCount));
         if (page + 1 < pageCount) {
             achievementContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    Component.translatable("gui.omnitools.achievement.next").withStyle(ChatFormatting.AQUA),
-                    List.of(Component.translatable("gui.omnitools.achievement.next_hint")
+                    ServerText.translatable("gui.omnitools.achievement.next").withStyle(ChatFormatting.AQUA),
+                    List.of(ServerText.translatable("gui.omnitools.achievement.next_hint")
                             .withStyle(ChatFormatting.GRAY))));
         }
         lastRefreshTick = owner.level().getServer().getTickCount();
@@ -229,7 +216,7 @@ public final class AchievementScreenHandler extends ChestMenu {
         appendConditionLore(achievement.condition(), progress, lore, color, 0);
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
-        lore.add(Component.translatable(stateTranslationKey(state)).withStyle(color));
+        lore.add(ServerText.translatable(stateTranslationKey(state)).withStyle(color));
         lore.add(Component.literal(achievement.id()).withStyle(ChatFormatting.DARK_GRAY));
         item.set(DataComponents.LORE, new ItemLore(lore));
         return item;
@@ -238,16 +225,16 @@ public final class AchievementScreenHandler extends ChestMenu {
     private ItemStack profileItem(int totalAchievements, int pageNumber, int pageCount) {
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
-        profile.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.achievement.profile")
+        profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.achievement.profile")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
         profile.set(DataComponents.LORE, new ItemLore(List.of(
-                Component.translatable("gui.omnitools.achievement.completed", service.unlockedCount(owner))
+                ServerText.translatable("gui.omnitools.achievement.completed", service.unlockedCount(owner))
                         .withStyle(ChatFormatting.AQUA),
-                Component.translatable("gui.omnitools.achievement.claimed", service.claimedCount(owner))
+                ServerText.translatable("gui.omnitools.achievement.claimed", service.claimedCount(owner))
                         .withStyle(ChatFormatting.GREEN),
-                Component.translatable("gui.omnitools.achievement.total", totalAchievements)
+                ServerText.translatable("gui.omnitools.achievement.total", totalAchievements)
                         .withStyle(ChatFormatting.GRAY),
-                Component.translatable("gui.omnitools.achievement.page", pageNumber, pageCount)
+                ServerText.translatable("gui.omnitools.achievement.page", pageNumber, pageCount)
                         .withStyle(ChatFormatting.DARK_GRAY))));
         return profile;
     }
@@ -288,13 +275,13 @@ public final class AchievementScreenHandler extends ChestMenu {
                     lore.add(prefix.copy().append(statLine(stat.requirements().get(0), progress.current(),
                             stat.atLeast())).withStyle(color));
                 } else {
-                    lore.add(prefix.copy().append(Component.translatable(
+                    lore.add(prefix.copy().append(ServerText.translatable(
                             "gui.omnitools.achievement.condition.stat_sum",
                             joinTargetNames(stat.requirements()), progress.current(), stat.atLeast()))
                             .withStyle(color));
                 }
             } else {
-                lore.add(prefix.copy().append(Component.translatable(
+                lore.add(prefix.copy().append(ServerText.translatable(
                         stat.match() == TargetMatch.EACH
                                 ? "gui.omnitools.achievement.match.each"
                                 : "gui.omnitools.achievement.match.any",
@@ -315,27 +302,27 @@ public final class AchievementScreenHandler extends ChestMenu {
                         sum.progressDivisor(), sum.progressUnit())).withStyle(color));
                 return;
             }
-            lore.add(prefix.copy().append(Component.translatable(
+            lore.add(prefix.copy().append(ServerText.translatable(
                     "gui.omnitools.achievement.condition.sum", joinTargetNames(sum.requirements()),
                     progress.current(), sum.atLeast())).withStyle(color));
             return;
         }
         if (condition instanceof AllCondition all) {
-            lore.add(prefix.copy().append(Component.translatable(
+            lore.add(prefix.copy().append(ServerText.translatable(
                     "gui.omnitools.achievement.condition.all", progress.current(), progress.target()))
                     .withStyle(color));
             appendChildren(all.children(), progress, lore, color, indent + 1);
             return;
         }
         if (condition instanceof AnyCondition any) {
-            lore.add(prefix.copy().append(Component.translatable(
+            lore.add(prefix.copy().append(ServerText.translatable(
                     "gui.omnitools.achievement.condition.any", progress.current(), progress.target()))
                     .withStyle(color));
             appendChildren(any.children(), progress, lore, color, indent + 1);
             return;
         }
         if (condition instanceof NotCondition not) {
-            lore.add(prefix.copy().append(Component.translatable(
+            lore.add(prefix.copy().append(ServerText.translatable(
                     "gui.omnitools.achievement.condition.not", progress.current(), progress.target()))
                     .withStyle(color));
             appendChildren(List.of(not.child()), progress, lore, color, indent + 1);
@@ -346,16 +333,16 @@ public final class AchievementScreenHandler extends ChestMenu {
         long currency = rewards.stream().filter(reward -> reward.type() == RewardType.CURRENCY)
                 .mapToLong(RewardDefinition::amount).sum();
         if (currency > 0L) {
-            lore.add(Component.translatable("gui.omnitools.achievement.reward_coins", currency)
+            lore.add(ServerText.translatable("gui.omnitools.achievement.reward_coins", currency)
                     .withStyle(ChatFormatting.GOLD));
         }
         for (RewardDefinition reward : rewards) {
             if (reward.type() == RewardType.ITEM) {
-                lore.add(Component.translatable("gui.omnitools.achievement.reward_item",
+                lore.add(ServerText.translatable("gui.omnitools.achievement.reward_item",
                         reward.createItemStack().getHoverName(), reward.createItemStack().getCount())
                         .withStyle(ChatFormatting.AQUA));
             } else if (reward.type() == RewardType.COMMAND) {
-                lore.add(Component.translatable("gui.omnitools.achievement.reward_command")
+                lore.add(ServerText.translatable("gui.omnitools.achievement.reward_command")
                         .withStyle(ChatFormatting.DARK_GRAY));
             }
         }
@@ -372,7 +359,7 @@ public final class AchievementScreenHandler extends ChestMenu {
         for (RewardDefinition reward : achievement.rewards()) {
             RewardClaimLedger.Entry entry = ledger.entry(event, reward.id());
             if (entry.status() != RewardClaimLedger.EntryStatus.GRANTED) {
-                lore.add(Component.translatable("gui.omnitools.reward.pending", entry.reason())
+                lore.add(ServerText.translatable("gui.omnitools.reward.pending", entry.reason())
                         .withStyle(ChatFormatting.YELLOW));
                 return;
             }
@@ -395,7 +382,7 @@ public final class AchievementScreenHandler extends ChestMenu {
             }
             displays.append(definitions.get(index).displayComponent());
         }
-        lore.add(Component.translatable("gui.omnitools.achievement.reward_titles", displays)
+        lore.add(ServerText.translatable("gui.omnitools.achievement.reward_titles", displays)
                 .withStyle(ChatFormatting.LIGHT_PURPLE));
         for (TitleConfig.TitleDefinition definition : definitions) {
             for (String tooltip : definition.tooltip()) {
@@ -424,13 +411,13 @@ public final class AchievementScreenHandler extends ChestMenu {
     }
 
     private static Component customProgressLine(long current, long target, long divisor, String unit) {
-        MutableComponent progress = Component.translatable("gui.omnitools.achievement.progress",
+        MutableComponent progress = ServerText.translatable("gui.omnitools.achievement.progress",
                 formatProgressValue(current, divisor), formatProgressValue(target, divisor));
         if (unit == null || unit.isBlank()) {
             return progress;
         }
         return progress.append(Component.literal(" "))
-                .append(Component.translatable("gui.omnitools.achievement.unit." + unit));
+                .append(ServerText.translatable("gui.omnitools.achievement.unit." + unit));
     }
 
     private static String formatProgressValue(long value, long divisor) {
@@ -458,14 +445,14 @@ public final class AchievementScreenHandler extends ChestMenu {
     }
 
     private Component statLine(AchievementConfig.Requirement requirement, long current, long target) {
-        return Component.translatable(requirement.type().translationKey(), targetName(requirement), current, target);
+        return ServerText.translatable(requirement.type().translationKey(), targetName(requirement), current, target);
     }
 
     private Component joinTargetNames(List<AchievementConfig.Requirement> requirements) {
         MutableComponent joined = Component.empty();
         for (int index = 0; index < requirements.size(); index++) {
             if (index > 0) {
-                joined.append(Component.translatable("gui.omnitools.achievement.target.separator"));
+                joined.append(ServerText.translatable("gui.omnitools.achievement.target.separator"));
             }
             joined.append(targetName(requirements.get(index)));
         }
@@ -495,7 +482,7 @@ public final class AchievementScreenHandler extends ChestMenu {
     }
 
     private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, Component.translatable("gui.omnitools.empty"), List.of());
+        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

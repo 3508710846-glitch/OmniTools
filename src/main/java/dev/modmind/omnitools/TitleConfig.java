@@ -39,9 +39,14 @@ public final class TitleConfig {
     private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.TITLES);
 
     private final Map<String, TitleDefinition> titles;
+    private final NameplateMode nameplateMode;
+    private final TeamConflictPolicy teamConflictPolicy;
 
-    private TitleConfig(Map<String, TitleDefinition> titles) {
+    private TitleConfig(Map<String, TitleDefinition> titles, NameplateMode nameplateMode,
+                        TeamConflictPolicy teamConflictPolicy) {
         this.titles = new LinkedHashMap<>(titles);
+        this.nameplateMode = nameplateMode;
+        this.teamConflictPolicy = teamConflictPolicy;
     }
 
     public static TitleConfig load() {
@@ -65,7 +70,7 @@ public final class TitleConfig {
     }
 
     public static TitleConfig empty() {
-        return new TitleConfig(Map.of());
+        return new TitleConfig(Map.of(), NameplateMode.SCOREBOARD_TEAM, TeamConflictPolicy.OMNITOOLS_PRIORITY);
     }
 
     public static Path path() {
@@ -78,6 +83,14 @@ public final class TitleConfig {
 
     public synchronized Optional<TitleDefinition> definition(String id) {
         return Optional.ofNullable(titles.get(normalizeId(id)));
+    }
+
+    public NameplateMode nameplateMode() {
+        return nameplateMode;
+    }
+
+    public TeamConflictPolicy teamConflictPolicy() {
+        return teamConflictPolicy;
     }
 
     public synchronized List<TitleDefinition> unlockedTitles(UUID playerId) {
@@ -165,6 +178,9 @@ public final class TitleConfig {
     }
 
     private static TitleConfig parse(JsonObject root) {
+        NameplateMode nameplateMode = NameplateMode.parse(optionalString(root, "nameplate_mode"));
+        TeamConflictPolicy teamConflictPolicy = TeamConflictPolicy.parse(
+                optionalString(root, "team_conflict_policy"));
         JsonArray titlesArray = requiredArray(root, "titles");
         Map<String, TitleDefinition> titleDefinitions = new LinkedHashMap<>();
         for (int index = 0; index < titlesArray.size(); index++) {
@@ -191,7 +207,7 @@ public final class TitleConfig {
             titleDefinitions.put(id, new TitleDefinition(id, display, rarity, effects, tooltip));
         }
 
-        return new TitleConfig(titleDefinitions);
+        return new TitleConfig(titleDefinitions, nameplateMode, teamConflictPolicy);
     }
 
     private static TitleConfig defaults() {
@@ -202,7 +218,7 @@ public final class TitleConfig {
                 List.of("speed_1"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u79fb\u52a8\u901f\u5ea6\u63d0\u5347")));
         definitions.put("legend", new TitleDefinition("legend", "\u00a76[\u00a7r\u4f20\u8bf4\u00a76] \u00a7r", TitleRarity.LEGENDARY,
                 List.of("resistance_1", "night_vision"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u6297\u6027\u63d0\u5347 I", "\u00a7a\u2714 \u6c38\u4e45\u591c\u89c6")));
-        return new TitleConfig(definitions);
+        return new TitleConfig(definitions, NameplateMode.SCOREBOARD_TEAM, TeamConflictPolicy.OMNITOOLS_PRIORITY);
     }
 
     private static TitleData data() {
@@ -219,6 +235,8 @@ public final class TitleConfig {
             Files.createDirectories(FILE.getParent());
             JsonObject root = new JsonObject();
             root.addProperty("format_version", 1);
+            root.addProperty("nameplate_mode", config.nameplateMode.serializedName());
+            root.addProperty("team_conflict_policy", config.teamConflictPolicy.serializedName());
             JsonArray definitions = new JsonArray();
             for (TitleDefinition title : config.titles.values()) {
                 JsonObject titleObject = new JsonObject();
@@ -353,6 +371,60 @@ public final class TitleConfig {
         SELECTED,
         ALREADY_SELECTED,
         NOT_OWNED
+    }
+
+    /** Controls the server-side mechanism used to render title prefixes above players. */
+    public enum NameplateMode {
+        SCOREBOARD_TEAM("scoreboard_team"),
+        DISABLED("disabled");
+
+        private final String serializedName;
+
+        NameplateMode(String serializedName) {
+            this.serializedName = serializedName;
+        }
+
+        public String serializedName() {
+            return serializedName;
+        }
+
+        public static NameplateMode parse(String value) {
+            if (value == null || value.isBlank()) {
+                return SCOREBOARD_TEAM;
+            }
+            return switch (value.trim().toLowerCase(Locale.ROOT)) {
+                case "scoreboard_team" -> SCOREBOARD_TEAM;
+                case "disabled" -> DISABLED;
+                default -> throw new IllegalArgumentException("Unknown title nameplate_mode: " + value);
+            };
+        }
+    }
+
+    /** Defines how OmniTools behaves when a player is already assigned to an external team. */
+    public enum TeamConflictPolicy {
+        OMNITOOLS_PRIORITY("omnitools_priority"),
+        PRESERVE_EXTERNAL_TEAM("preserve_external_team");
+
+        private final String serializedName;
+
+        TeamConflictPolicy(String serializedName) {
+            this.serializedName = serializedName;
+        }
+
+        public String serializedName() {
+            return serializedName;
+        }
+
+        public static TeamConflictPolicy parse(String value) {
+            if (value == null || value.isBlank()) {
+                return OMNITOOLS_PRIORITY;
+            }
+            return switch (value.trim().toLowerCase(Locale.ROOT)) {
+                case "omnitools_priority" -> OMNITOOLS_PRIORITY;
+                case "preserve_external_team" -> PRESERVE_EXTERNAL_TEAM;
+                default -> throw new IllegalArgumentException("Unknown title team_conflict_policy: " + value);
+            };
+        }
     }
 
 }

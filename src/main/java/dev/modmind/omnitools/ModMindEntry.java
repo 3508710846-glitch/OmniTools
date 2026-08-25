@@ -58,14 +58,6 @@ public final class ModMindEntry implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        CheckinScreenHandler.register();
-        CheckinRecordsScreenHandler.register();
-        OnlineTimeRewardScreenHandler.register();
-        ShopScreenHandler.register();
-        TitleScreenHandler.register();
-        CloudStorageScreenHandler.register();
-        AchievementScreenHandler.register();
-        ModuleManagerScreenHandler.register();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
             onlineTimeRewardService = new OnlineTimeRewardService();
@@ -81,6 +73,7 @@ public final class ModMindEntry implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             onlineTimeRewardService().flushAll(server);
             TitleEffectService.removeAll(server);
+            TitleDisplayService.clearAll(server);
             TitleData.unbind(server);
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
@@ -127,6 +120,7 @@ public final class ModMindEntry implements ModInitializer {
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            TitleDisplayService.onDisconnect(handler.getPlayer());
             achievementService().forgetMenuSnapshot(handler.getPlayer());
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
                 TitleEffectService.remove(handler.getPlayer());
@@ -299,6 +293,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static void applySnapshot(OmniToolsConfigSnapshot snapshot) {
         configSnapshot = snapshot;
+        ServerText.setLanguage(snapshot.root().language());
         COMMAND_PERMISSIONS.update(snapshot.commandPermissions());
         rewardService = CheckinRewardService.from(snapshot.rewards());
         shopConfig = snapshot.shop();
@@ -318,6 +313,9 @@ public final class ModMindEntry implements ModInitializer {
         }
         if (previous.enabled(ModuleId.SIDEBAR) && !current.enabled(ModuleId.SIDEBAR)) {
             sidebarService().clearAll(server);
+        }
+        if (previous.enabled(ModuleId.TITLES) && !current.enabled(ModuleId.TITLES)) {
+            TitleDisplayService.clearAll(server);
         }
         applySnapshot(current);
         PlaceholderBootstrap.registerIfAvailable();
@@ -418,43 +416,43 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int setSidebar(CommandSourceStack source, boolean visible) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            source.sendFailure(ServerText.translatable("command.omnitools.sidebar.player_only"));
             return 0;
         }
         if (!isModuleEnabled(ModuleId.SIDEBAR)) {
-            player.displayClientMessage(Component.translatable("command.omnitools.sidebar.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("command.omnitools.sidebar.module_disabled"), true);
             return 0;
         }
         sidebarService().setVisible(player, visible);
-        player.displayClientMessage(Component.translatable(visible
+        player.displayClientMessage(ServerText.translatable(visible
                 ? "command.omnitools.sidebar.enabled_result" : "command.omnitools.sidebar.disabled_result"), true);
         return 1;
     }
 
     private static int toggleSidebar(CommandSourceStack source) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            source.sendFailure(ServerText.translatable("command.omnitools.sidebar.player_only"));
             return 0;
         }
         if (!isModuleEnabled(ModuleId.SIDEBAR)) {
-            player.displayClientMessage(Component.translatable("command.omnitools.sidebar.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("command.omnitools.sidebar.module_disabled"), true);
             return 0;
         }
         boolean visible = !sidebarService().isVisible(player);
         sidebarService().setVisible(player, visible);
-        player.displayClientMessage(Component.translatable(visible
+        player.displayClientMessage(ServerText.translatable(visible
                 ? "command.omnitools.sidebar.enabled_result" : "command.omnitools.sidebar.disabled_result"), true);
         return 1;
     }
 
     private static int sidebarStatus(CommandSourceStack source) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("command.omnitools.sidebar.player_only"));
+            source.sendFailure(ServerText.translatable("command.omnitools.sidebar.player_only"));
             return 0;
         }
         boolean visible = sidebarService().isVisible(player);
-        source.sendSuccess(() -> Component.translatable("command.omnitools.sidebar.status",
-                Component.translatable(visible ? "command.omnitools.sidebar.enabled" : "command.omnitools.sidebar.disabled")), false);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.sidebar.status",
+                ServerText.translatable(visible ? "command.omnitools.sidebar.enabled" : "command.omnitools.sidebar.disabled")), false);
         return 1;
     }
 
@@ -511,7 +509,7 @@ public final class ModMindEntry implements ModInitializer {
             return 0;
         }
         int clearedPlayers = CheckinData.get(source.getServer()).clearToday();
-        source.sendSuccess(() -> Component.translatable(
+        source.sendSuccess(() -> ServerText.translatable(
                 "command.omnitools.clear.success", clearedPlayers), true);
         return 1;
     }
@@ -574,7 +572,7 @@ public final class ModMindEntry implements ModInitializer {
         }
         ServerPlayer player = source.getPlayerOrException();
         long balance = CheckinData.get(player).getBalance(player.getUUID());
-        source.sendSuccess(() -> Component.translatable(
+        source.sendSuccess(() -> ServerText.translatable(
                 "command.omnitools.balance.self", balance), false);
         return 1;
     }
@@ -588,7 +586,7 @@ public final class ModMindEntry implements ModInitializer {
         CheckinData data = CheckinData.get(context.getSource().getServer());
         for (NameAndId profile : profiles) {
             long balance = data.getBalance(profile.id());
-            context.getSource().sendSuccess(() -> Component.translatable(
+            context.getSource().sendSuccess(() -> ServerText.translatable(
                     "command.omnitools.balance.other", profile.name(), balance), true);
         }
         return profiles.size();
@@ -614,7 +612,7 @@ public final class ModMindEntry implements ModInitializer {
             }
             long finalChanged = changed;
             long finalBalance = balance;
-            context.getSource().sendSuccess(() -> Component.translatable(
+            context.getSource().sendSuccess(() -> ServerText.translatable(
                     add ? "command.omnitools.currency.add" : "command.omnitools.currency.remove",
                     finalChanged, profile.name(), finalBalance), true);
         }
@@ -630,7 +628,7 @@ public final class ModMindEntry implements ModInitializer {
         String titleId = StringArgumentType.getString(context, "title");
         Optional<TitleConfig.TitleDefinition> title = titleConfig().definition(titleId);
         if (title.isEmpty()) {
-            context.getSource().sendFailure(Component.translatable("command.omnitools.title.unknown", titleId));
+            context.getSource().sendFailure(ServerText.translatable("command.omnitools.title.unknown", titleId));
             return 0;
         }
 
@@ -638,13 +636,13 @@ public final class ModMindEntry implements ModInitializer {
         for (NameAndId profile : profiles) {
             if (give) {
                 TitleConfig.GrantResult result = titleConfig().grant(profile.id(), profile.name(), titleId);
-                context.getSource().sendSuccess(() -> Component.translatable(
+                context.getSource().sendSuccess(() -> ServerText.translatable(
                         result == TitleConfig.GrantResult.GRANTED
                                 ? "command.omnitools.title.give" : "command.omnitools.title.already_owned",
                         title.get().displayComponent(), profile.name()), true);
             } else {
                 TitleConfig.RevokeResult result = titleConfig().revoke(profile.id(), profile.name(), titleId);
-                context.getSource().sendSuccess(() -> Component.translatable(
+                context.getSource().sendSuccess(() -> ServerText.translatable(
                         result == TitleConfig.RevokeResult.REVOKED
                                 ? "command.omnitools.title.remove" : "command.omnitools.title.not_owned",
                         title.get().displayComponent(), profile.name()), true);
@@ -665,10 +663,10 @@ public final class ModMindEntry implements ModInitializer {
         }
         OmniToolsConfigManager.ReloadResult result = MODULE_CONTROL.reload(source.getServer());
         if (!result.success()) {
-            source.sendFailure(Component.translatable("command.omnitools.reload.failed"));
+            source.sendFailure(ServerText.translatable("command.omnitools.reload.failed"));
             return 0;
         }
-        source.sendSuccess(() -> Component.translatable("command.omnitools.reload.success",
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.reload.success",
                 configSnapshot.revision()), true);
         return 1;
     }
@@ -680,7 +678,7 @@ public final class ModMindEntry implements ModInitializer {
         if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
             achievementService().retryPending(player);
         }
-        player.displayClientMessage(Component.translatable("message.omnitools.reward.retry_complete"), true);
+        player.displayClientMessage(ServerText.translatable("message.omnitools.reward.retry_complete"), true);
         return 1;
     }
 
@@ -757,92 +755,92 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     private static void sendCheckinReminder(ServerPlayer player) {
-        Component action = Component.translatable("message.omnitools.join_reminder.action")
+        Component action = ServerText.translatable("message.omnitools.join_reminder.action")
                 .withStyle(style -> style
                         .withColor(ChatFormatting.GOLD)
                         .withUnderlined(true)
                         .withClickEvent(new ClickEvent.RunCommand("/omnitools")));
-        player.sendSystemMessage(Component.translatable("message.omnitools.join_reminder.prefix").append(action));
+        player.sendSystemMessage(ServerText.translatable("message.omnitools.join_reminder.prefix").append(action));
     }
 
     static int openCheckinMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CHECKIN_OPEN)
                 || !isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinScreenHandler.createServer(syncId, inventory, player),
-                Component.translatable("gui.omnitools.title")));
+                ServerText.translatable("gui.omnitools.title")));
         return 1;
     }
 
     static int openOnlineTimeRewardMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ONLINE_OPEN)
                 || !isModuleEnabled(ModuleId.ONLINE_REWARD)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> OnlineTimeRewardScreenHandler.createServer(syncId, inventory, player),
-                Component.translatable("gui.omnitools.online_reward.menu_title")));
+                ServerText.translatable("gui.omnitools.online_reward.menu_title")));
         return 1;
     }
 
     static int openShopMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.SHOP_OPEN)
                 || !isModuleEnabled(ModuleId.SHOP)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> ShopScreenHandler.createServer(syncId, inventory, player,
                         shopConfig(), 0),
-                Component.translatable("gui.omnitools.shop.title")));
+                ServerText.translatable("gui.omnitools.shop.title")));
         return 1;
     }
 
     static int openTitleMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.TITLE_OPEN)
                 || !isModuleEnabled(ModuleId.TITLES)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> TitleScreenHandler.createServer(syncId, inventory, player, titleConfig()),
-                Component.translatable("gui.omnitools.title.menu_title")));
+                ServerText.translatable("gui.omnitools.title.menu_title")));
         return 1;
     }
 
     static int openCloudStorageMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
                 || !isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
                         cloudStorageConfig(), 0),
-                Component.translatable("gui.omnitools.storage.title")));
+                ServerText.translatable("gui.omnitools.storage.title")));
         return 1;
     }
 
     static int openAchievementMenu(ServerPlayer player) {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ACHIEVEMENTS_OPEN)
                 || !isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
-            player.displayClientMessage(Component.translatable("message.omnitools.module_disabled"), true);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         achievementService(), 0),
-                Component.translatable("gui.omnitools.achievement.title")));
+                ServerText.translatable("gui.omnitools.achievement.title")));
         return 1;
     }
 
     private static int openCommandMenu(CommandSourceStack source, String menuId) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("message.omnitools.command_menu.player_only"));
+            source.sendFailure(ServerText.translatable("message.omnitools.command_menu.player_only"));
             return 0;
         }
         return CommandMenuService.open(player, menuId) ? 1 : 0;
@@ -850,7 +848,7 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int closeCommandMenu(CommandSourceStack source) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("message.omnitools.command_menu.player_only"));
+            source.sendFailure(ServerText.translatable("message.omnitools.command_menu.player_only"));
             return 0;
         }
         if (player.containerMenu instanceof CommandMenuScreenHandler) {
@@ -864,12 +862,12 @@ public final class ModMindEntry implements ModInitializer {
             return 0;
         }
         if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.translatable("message.omnitools.modules.player_only"));
+            source.sendFailure(ServerText.translatable("message.omnitools.modules.player_only"));
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> ModuleManagerScreenHandler.createServer(syncId, inventory, player),
-                Component.translatable("gui.omnitools.modules.title")));
+                ServerText.translatable("gui.omnitools.modules.title")));
         return 1;
     }
 }
