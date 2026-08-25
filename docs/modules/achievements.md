@@ -2,7 +2,7 @@
 
 ## 1. 功能简介
 
-成就模块使用原版玩家统计构建条件树，满足后永久解锁，并由玩家从成就界面领取一次性货币与称号奖励。条件检查每 10 tick 执行；已解锁成就不会再次计算原始统计。成就界面使用 OmniTools 的自定义菜单类型及客户端界面。
+成就模块使用原版玩家统计构建条件树，满足后永久解锁，并由玩家从成就界面领取一次性货币、物品、称号和受控服务器指令奖励。条件检查每 10 tick 执行；已解锁成就不会再次计算原始统计。成就界面使用 OmniTools 的自定义菜单类型及客户端界面。
 
 ## 2. 模块开关
 
@@ -38,22 +38,23 @@
         "match": "sum",
         "at_least": 1000
       },
-      "rewards": {
-        "coins": 500,
-        "titles": ["geologist"]
-      }
+      "rewards": [
+        { "id": "stone_coins", "type": "currency", "amount": 500 },
+        { "id": "stone_title", "type": "title", "title": "geologist" }
+      ]
     }
   ]
 }
 ```
 
-`format_version: 1` 的需求数组仍可读取；新配置应使用 v2 条件对象。格式错误时不会覆盖原文件，完整重载保留旧快照。
+`format_version: 1` 的需求数组仍可读取；新配置应使用 v2 条件对象。旧的奖励对象 `{ "coins": 500, "titles": ["geologist"] }` 也可读取，会转换为稳定 ID `legacy_<成就ID>_currency` 与 `legacy_<成就ID>_title_<称号ID>`。格式错误时不会覆盖原文件，完整重载保留旧快照。
 
 ## 4. 指令与权限
 
 | 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
 | --- | --- | --- | --- | --- |
 | `/omnitools achievements [open]` | `/checkin achievements [open]` | 打开成就并领取奖励 | `achievements.open` (`PLAYER`) | 是 |
+| `/omnitools rewards retry` | 无 | 重试自己的待处理签到和成就奖励 | `rewards.retry` (`PLAYER`) | 是 |
 
 ## 5. 配置字段
 
@@ -69,9 +70,13 @@
 | `description` | string | 是 | 最多 512 字符 | 成就说明。 |
 | `icon` | string | 是 | 有效、非空气物品 ID | 界面图标。 |
 | `requirements` | object（v2）或 array（v1/迁移形式） | 是 | 条件树 | 条件树；v1 使用旧数组，v2 数组按 `all` 解释。缺失、类型错误、空数组或混合 v1/v2 节点会拒绝候选配置。 |
-| `rewards` | object | 否 | `{ "coins": 0, "titles": [] }` | 一次性奖励；不是对象会拒绝候选配置。 |
-| `rewards.coins` | integer | 否 | `0`，`>= 0` | 一次性货币奖励。 |
-| `rewards.titles` | string array | 否 | `[]` | 一次性称号奖励；称号模块启用时必须引用现有称号 ID。 |
+| `rewards` | array（旧 object 兼容） | 否 | `[]` | 一次性奖励数组，按配置顺序发放；旧 `{ coins, titles }` 对象会转换为稳定遗留 ID。数组中重复 ID 会拒绝候选配置。 |
+| `rewards[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，同一成就唯一 | 稳定账本 ID；排序和重载不会重复发放。 |
+| `rewards[].type` | string | 是 | `currency`、`item`、`title`、`command` | 奖励类型；未知值拒绝配置。 |
+| `rewards[].amount` | integer | `currency` 是 | `>= 0` | 货币金额，使用 `long` 保存。 |
+| `rewards[].item`、`count`、`components` | string、integer、string/空 object | `item` 是 | `count` 为 `1-64` | 物品奖励；组件语法复用商店。无效物品、组件或单事件物品总数超过 2304 会拒绝配置。 |
+| `rewards[].title` | string | `title` 是 | 现有称号 ID | 称号奖励；称号模块关闭或 ID 不存在时拒绝候选配置。已拥有称号视为成功。 |
+| `rewards[].run_as`、`command` | string、string | `command` 是 | 仅 `console`；长度受根配置限制 | 受控指令奖励；只接受白名单占位符，禁止换行和未知占位符。根配置未开启指令奖励时拒绝候选配置。 |
 
 条件节点必须有 `type`。支持 `stat`、`sum`、`all`、`any`、`not`；未知类型、无效单位、无效注册表 ID 或违反下列约束都会拒绝整个候选配置。
 
@@ -134,7 +139,10 @@ v1 兼容格式中的 `requirements` 是非空数组，每项都必须为 `{ "ty
         "unit": "kilometers",
         "at_least": 10
       },
-      "rewards": { "coins": 100, "titles": [] }
+      "rewards": [
+        { "id": "walk_currency", "type": "currency", "amount": 100 },
+        { "id": "walk_boots", "type": "item", "item": "minecraft:leather_boots", "count": 1, "components": {} }
+      ]
     }
   ]
 }
@@ -154,12 +162,29 @@ v1 兼容格式中的 `requirements` 是非空数组，每项都必须为 `{ "ty
 
 修改配置后执行 `/omnitools reload`。若日志提示未知注册表 ID、错误单位、条件树过深或目标过多，修正对应字段后重载；旧成就列表保持有效。
 
+命令奖励必须同时修改根配置：
+
+```json
+{
+  "global": {
+    "reward_security": {
+      "allow_command_rewards": true,
+      "max_command_length": 1024
+    }
+  }
+}
+```
+
+然后可在奖励数组中使用 `{ "id": "announce", "type": "command", "run_as": "console", "command": "say {player_name} 完成了成就" }`。允许的替换变量只有 `{player_name}`、`{player_uuid}`、`{player_x}`、`{player_y}`、`{player_z}`、`{player_world}`。指令在账本先标记为已派发后执行，采用最多执行一次策略：服务器极端崩溃时可能漏执行，但不会在重试时重复执行。
+
 ## 7. 数据保存
 
-世界 `SavedData` 的 `AchievementData` 保存每位玩家已解锁和已领取的成就 ID。配置 JSON 不保存进度。领取时服务端再次检查完成状态并标记已领取，重复领取会被拒绝。
+世界 `SavedData` 的 `AchievementData` 保存每位玩家已解锁和已领取的成就 ID。独立 `RewardClaimLedger` 以 `achievement:<uuid>:<achievement_id>` 与奖励 ID 保存每条奖励的 `PENDING`、`GRANTED`、`BLOCKED`、`FAILED` 状态和失败原因。配置 JSON 不保存进度。
+
+领取时只要有物品背包空间不足、称号模块关闭等可恢复问题，成就保持“奖励待处理”而不是标记 `claimed`；再次点击、打开成就界面、玩家登录或执行 `/omnitools rewards retry` 会跳过已 `GRANTED` 的奖励并重试其余部分。物品只完整进入主背包，绝不掉落或部分发放。
 
 升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
 
 ## 8. 热重载与依赖
 
-成功重载替换条件树；已打开菜单在刷新时使用新配置。模块启用时立即检查在线玩家，禁用后停止周期检查并关闭菜单。奖励称号依赖 `titles` 模块与有效称号定义；候选快照任一配置错误时旧成就继续运行。
+成功重载替换条件树和奖励定义；已打开菜单在刷新时使用新配置。模块启用时立即检查在线玩家，禁用后停止周期检查并关闭菜单。奖励称号依赖 `titles` 模块与有效称号定义；模块管理 GUI 在签到或成就仍有称号奖励时拒绝关闭称号模块。候选快照任一配置错误时旧成就继续运行。

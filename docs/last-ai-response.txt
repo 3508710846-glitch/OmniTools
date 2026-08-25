@@ -1,0 +1,12 @@
+统一奖励机制已完成并验证。
+
+- 新增 `currency`、`item`、`title`、`command` 四类奖励与持久化账本，支持签到和成就共用、幂等补发、背包满时保留待领取。
+- 旧签到货币配置、旧成就 `coins/titles` 配置仍可读取。
+- 新增 `/omnitools rewards retry`，玩家登录、打开签到/成就界面时也会自动重试。
+- 指令奖励默认关闭，限控制台执行、白名单占位符与最大长度；发放具备审计日志和最多一次语义。
+- 校验称号依赖，含称号奖励时不能关闭称号模块。
+- 已更新签到、成就、权限、模块管理文档与中英文语言文本。
+
+验证通过：项目构建、资源 JSON、文档 JSON 示例、当前文档链接、`git diff --check`。产物位于 `D:\mod\qiandao\.modmind\minecraft\mods\modmind-current-project.jar`。
+
+受管 Minecraft 测试启动器返回 `spawn UNKNOWN`，未取得运行时启动日志；其余静态与构建验证均成功。

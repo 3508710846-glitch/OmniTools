@@ -47,7 +47,8 @@
     "command_menu.open": "PLAYER",
     "command_menu.close": "PLAYER",
     "sidebar.toggle": "PLAYER",
-    "sidebar.status": "PLAYER"
+    "sidebar.status": "PLAYER",
+    "rewards.retry": "PLAYER"
   }
 }
 ```
@@ -79,6 +80,7 @@
 | `/omnitools menu close` | 无 | 关闭命令菜单 | `command_menu.close` (`PLAYER`) | 是 |
 | `/omnitools sidebar on/off/toggle` | 无 | 修改个人侧边栏 | `sidebar.toggle` (`PLAYER`) | 是 |
 | `/omnitools sidebar status` | 无 | 查看个人侧边栏状态 | `sidebar.status` (`PLAYER`) | 是 |
+| `/omnitools rewards retry` | 无 | 重试自己的待处理签到和成就奖励 | `rewards.retry` (`PLAYER`) | 是 |
 
 ## 5. 配置字段
 

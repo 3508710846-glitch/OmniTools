@@ -4,6 +4,8 @@ import dev.modmind.omnitools.AchievementConfig;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
 import dev.modmind.omnitools.achievement.AnyCondition;
@@ -62,16 +64,7 @@ public final class ConfigValidator {
                 && !snapshot.titleEffects().definitions().isEmpty()) {
             throw new IllegalArgumentException("title_effects requires titles to be enabled");
         }
-        if (snapshot.enabled(ModuleId.ACHIEVEMENTS) && snapshot.enabled(ModuleId.TITLES)) {
-            for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
-                for (String titleId : achievement.rewards().titles()) {
-                    if (snapshot.titles().definition(titleId).isEmpty()) {
-                        throw new IllegalArgumentException("achievement " + achievement.id()
-                                + " references unknown title " + titleId);
-                    }
-                }
-            }
-        }
+        validateRewardDefinitions(snapshot);
         if (snapshot.enabled(ModuleId.CLOUD_STORAGE) && !snapshot.enabled(ModuleId.PERMISSIONS)) {
             // The built-in cloud_storage atom and administrator bypass are always available.
         }
@@ -84,6 +77,38 @@ public final class ConfigValidator {
         }
         if (sidebar.lines().size() > SidebarConfig.MAX_LINES) {
             throw new IllegalArgumentException("sidebar.lines contains too many entries");
+        }
+    }
+
+    private static void validateRewardDefinitions(OmniToolsConfigSnapshot snapshot) {
+        for (RewardDefinition reward : snapshot.rewards().dailyRewards()) {
+            validateReward(snapshot, reward, "daily reward");
+        }
+        snapshot.rewards().monthlyRewards().forEach((milestone, rewards) -> rewards.forEach(reward ->
+                validateReward(snapshot, reward, "monthly reward " + milestone)));
+        for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
+            for (RewardDefinition reward : achievement.rewards()) {
+                validateReward(snapshot, reward, "achievement " + achievement.id());
+            }
+        }
+    }
+
+    private static void validateReward(OmniToolsConfigSnapshot snapshot, RewardDefinition reward, String context) {
+        if (reward.type() == RewardType.TITLE) {
+            if (!snapshot.enabled(ModuleId.TITLES)) {
+                throw new IllegalArgumentException(context + " contains a title reward but titles is disabled");
+            }
+            if (snapshot.titles().definition(reward.titleId()).isEmpty()) {
+                throw new IllegalArgumentException(context + " references unknown title " + reward.titleId());
+            }
+        }
+        if (reward.type() == RewardType.COMMAND) {
+            if (!snapshot.root().allowCommandRewards()) {
+                throw new IllegalArgumentException(context + " contains a command reward but command rewards are disabled");
+            }
+            if (reward.command().length() > snapshot.root().maxCommandRewardLength()) {
+                throw new IllegalArgumentException(context + " command reward exceeds max_command_length");
+            }
         }
     }
 

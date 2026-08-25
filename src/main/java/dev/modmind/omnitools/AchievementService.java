@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardEvent;
+import dev.modmind.omnitools.reward.RewardGrantResult;
 import dev.modmind.omnitools.achievement.ConditionProgress;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
@@ -139,6 +142,10 @@ public final class AchievementService {
         State state;
         if (data.isClaimed(player.getUUID(), achievement.id())) {
             state = State.CLAIMED;
+        } else if (RewardClaimLedger.get(player).hasEvent(RewardEvent.achievement(player.getUUID(), achievement.id()))
+                && !RewardClaimLedger.get(player).allGranted(RewardEvent.achievement(player.getUUID(), achievement.id()),
+                achievement.rewards())) {
+            state = State.PENDING;
         } else if (data.isUnlocked(player.getUUID(), achievement.id()) || progress.completed()) {
             state = State.CLAIMABLE;
         } else {
@@ -177,8 +184,11 @@ public final class AchievementService {
                 }
             }
             if (evaluations != null) {
-                State state = data.isClaimed(playerId, achievement.id())
-                        ? State.CLAIMED : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS);
+                RewardEvent event = RewardEvent.achievement(playerId, achievement.id());
+                boolean pending = RewardClaimLedger.get(player).hasEvent(event)
+                        && !RewardClaimLedger.get(player).allGranted(event, achievement.rewards());
+                State state = data.isClaimed(playerId, achievement.id()) ? State.CLAIMED
+                        : (pending ? State.PENDING : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS));
                 evaluations.put(achievement.id(), new Evaluation(state, progress));
             }
         }
@@ -191,42 +201,58 @@ public final class AchievementService {
     public ClaimResult claim(ServerPlayer player, String achievementId) {
         Optional<AchievementConfig.AchievementDefinition> optional = config().definition(achievementId);
         if (optional.isEmpty()) {
-            return new ClaimResult(ClaimStatus.UNKNOWN_ACHIEVEMENT, 0L, 0);
+            return new ClaimResult(ClaimStatus.UNKNOWN_ACHIEVEMENT, 0L, 0, "");
         }
 
         AchievementConfig.AchievementDefinition achievement = optional.get();
         AchievementData data = AchievementData.get(player);
         if (data.isClaimed(player.getUUID(), achievement.id())) {
             return new ClaimResult(ClaimStatus.ALREADY_CLAIMED,
-                    CheckinData.get(player).getBalance(player.getUUID()), 0);
+                    CheckinData.get(player).getBalance(player.getUUID()), 0, "");
         }
         // A click can arrive before the next periodic check, so validate live statistics unless
         // the achievement was already unlocked and therefore remains permanently complete.
         StatisticEvaluationContext context = new StatisticEvaluationContext(player);
         if (!data.isUnlocked(player.getUUID(), achievement.id()) && !achievement.complete(context)) {
             return new ClaimResult(ClaimStatus.NOT_COMPLETED,
-                    CheckinData.get(player).getBalance(player.getUUID()), 0);
+                    CheckinData.get(player).getBalance(player.getUUID()), 0, "");
         }
         data.unlock(player.getUUID(), achievement.id());
 
-        AchievementConfig.Reward reward = achievement.rewards();
-        long balance = reward.coins() > 0L
-                ? CheckinData.get(player).addCurrency(player.getUUID(), reward.coins(),
-                player.getGameProfile().name())
-                : CheckinData.get(player).getBalance(player.getUUID());
-        int grantedTitles = 0;
-        if (ModMindEntry.isModuleEnabled(ModuleId.TITLES)) {
-            for (String titleId : reward.titles()) {
-                TitleConfig.GrantResult result = ModMindEntry.titleConfig().grant(
-                        player.getUUID(), player.getGameProfile().name(), titleId);
-                if (result == TitleConfig.GrantResult.GRANTED) {
-                    grantedTitles++;
-                }
-            }
+        RewardGrantResult grant = ModMindEntry.rewardGrantService().grant(player,
+                RewardEvent.achievement(player.getUUID(), achievement.id()), achievement.rewards());
+        if (!grant.complete()) {
+            return new ClaimResult(switch (grant.status()) {
+                case PENDING -> ClaimStatus.PENDING;
+                case BLOCKED -> ClaimStatus.BLOCKED;
+                case FAILED -> ClaimStatus.FAILED;
+                case SUCCESS -> throw new IllegalStateException("handled above");
+            }, CheckinData.get(player).getBalance(player.getUUID()), grant.granted(), grant.reason());
         }
         data.markClaimed(player.getUUID(), achievement.id());
         updateCachedClaimState(player.getUUID(), achievement.id());
-        return new ClaimResult(ClaimStatus.CLAIMED, balance, grantedTitles);
+        return new ClaimResult(ClaimStatus.CLAIMED, CheckinData.get(player).getBalance(player.getUUID()),
+                grant.granted(), "");
+    }
+
+    /** Retries only unlocked events that already have a pending, blocked or failed ledger entry. */
+    public void retryPending(ServerPlayer player) {
+        AchievementData data = AchievementData.get(player);
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        for (AchievementConfig.AchievementDefinition achievement : config().achievements()) {
+            if (data.isClaimed(player.getUUID(), achievement.id()) || !data.isUnlocked(player.getUUID(), achievement.id())) {
+                continue;
+            }
+            RewardEvent event = RewardEvent.achievement(player.getUUID(), achievement.id());
+            if (!ledger.hasEvent(event)) {
+                continue;
+            }
+            RewardGrantResult result = ModMindEntry.rewardGrantService().retry(player, event, achievement.rewards());
+            if (result.complete()) {
+                data.markClaimed(player.getUUID(), achievement.id());
+                updateCachedClaimState(player.getUUID(), achievement.id());
+            }
+        }
     }
 
     private void updateCachedClaimState(UUID playerId, String achievementId) {
@@ -286,6 +312,7 @@ public final class AchievementService {
     public enum State {
         IN_PROGRESS,
         CLAIMABLE,
+        PENDING,
         CLAIMED
     }
 
@@ -293,10 +320,13 @@ public final class AchievementService {
         CLAIMED,
         ALREADY_CLAIMED,
         NOT_COMPLETED,
-        UNKNOWN_ACHIEVEMENT
+        UNKNOWN_ACHIEVEMENT,
+        PENDING,
+        BLOCKED,
+        FAILED
     }
 
-    public record ClaimResult(ClaimStatus status, long balance, int grantedTitles) {
+    public record ClaimResult(ClaimStatus status, long balance, int grantedRewards, String reason) {
     }
 
     public record Evaluation(State state, ConditionProgress progress) {

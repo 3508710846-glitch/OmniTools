@@ -28,6 +28,10 @@ import dev.modmind.omnitools.achievement.NotCondition;
 import dev.modmind.omnitools.achievement.StatCondition;
 import dev.modmind.omnitools.achievement.SumCondition;
 import dev.modmind.omnitools.achievement.TargetMatch;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.reward.RewardType;
+import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -78,6 +82,7 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     public static AchievementScreenHandler createServer(int syncId, Inventory inventory, ServerPlayer owner,
                                                         AchievementService service, int page) {
+        service.retryPending(owner);
         return new AchievementScreenHandler(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), owner, service,
                 page);
     }
@@ -126,14 +131,16 @@ public final class AchievementScreenHandler extends ChestMenu {
         AchievementService.ClaimResult result = service.claim(serverPlayer, achievement.id());
         switch (result.status()) {
             case CLAIMED -> serverPlayer.displayClientMessage(Component.translatable(
-                    "message.omnitools.achievement.claimed", achievement.display(), achievement.rewards().coins(),
-                    result.grantedTitles(), result.balance()), true);
+                    "message.omnitools.achievement.claimed", achievement.display(), result.grantedRewards(),
+                    result.balance()), true);
             case ALREADY_CLAIMED -> serverPlayer.displayClientMessage(Component.translatable(
                     "message.omnitools.achievement.already_claimed"), true);
             case NOT_COMPLETED -> serverPlayer.displayClientMessage(Component.translatable(
                     "message.omnitools.achievement.not_completed"), true);
             case UNKNOWN_ACHIEVEMENT -> serverPlayer.displayClientMessage(Component.translatable(
                     "message.omnitools.achievement.unknown"), true);
+            case PENDING, BLOCKED, FAILED -> serverPlayer.displayClientMessage(Component.translatable(
+                    "message.omnitools.achievement.reward_pending", result.reason()), true);
         }
         refreshContents();
     }
@@ -220,14 +227,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         List<Component> lore = new ArrayList<>();
         lore.add(LegacyTitleText.parse(achievement.description()).copy().withStyle(ChatFormatting.GRAY));
         appendConditionLore(achievement.condition(), progress, lore, color, 0);
-        AchievementConfig.Reward reward = achievement.rewards();
-        if (reward.coins() > 0L) {
-            lore.add(Component.translatable("gui.omnitools.achievement.reward_coins", reward.coins())
-                    .withStyle(ChatFormatting.GOLD));
-        }
-        if (!reward.titles().isEmpty()) {
-            appendTitleRewards(reward.titles(), lore);
-        }
+        appendRewards(achievement.rewards(), lore);
+        appendPendingRewardReason(achievement, lore);
         lore.add(Component.translatable(stateTranslationKey(state)).withStyle(color));
         lore.add(Component.literal(achievement.id()).withStyle(ChatFormatting.DARK_GRAY));
         item.set(DataComponents.LORE, new ItemLore(lore));
@@ -258,6 +259,9 @@ public final class AchievementScreenHandler extends ChestMenu {
         }
         if (state == AchievementService.State.CLAIMABLE) {
             return ChatFormatting.GREEN;
+        }
+        if (state == AchievementService.State.PENDING) {
+            return ChatFormatting.YELLOW;
         }
         return hasProgress(progress)
                 ? ChatFormatting.RED : ChatFormatting.DARK_GRAY;
@@ -335,6 +339,43 @@ public final class AchievementScreenHandler extends ChestMenu {
                     "gui.omnitools.achievement.condition.not", progress.current(), progress.target()))
                     .withStyle(color));
             appendChildren(List.of(not.child()), progress, lore, color, indent + 1);
+        }
+    }
+
+    private void appendRewards(List<RewardDefinition> rewards, List<Component> lore) {
+        long currency = rewards.stream().filter(reward -> reward.type() == RewardType.CURRENCY)
+                .mapToLong(RewardDefinition::amount).sum();
+        if (currency > 0L) {
+            lore.add(Component.translatable("gui.omnitools.achievement.reward_coins", currency)
+                    .withStyle(ChatFormatting.GOLD));
+        }
+        for (RewardDefinition reward : rewards) {
+            if (reward.type() == RewardType.ITEM) {
+                lore.add(Component.translatable("gui.omnitools.achievement.reward_item",
+                        reward.createItemStack().getHoverName(), reward.createItemStack().getCount())
+                        .withStyle(ChatFormatting.AQUA));
+            } else if (reward.type() == RewardType.COMMAND) {
+                lore.add(Component.translatable("gui.omnitools.achievement.reward_command")
+                        .withStyle(ChatFormatting.DARK_GRAY));
+            }
+        }
+        appendTitleRewards(rewards.stream().filter(reward -> reward.type() == RewardType.TITLE)
+                .map(RewardDefinition::titleId).toList(), lore);
+    }
+
+    private void appendPendingRewardReason(AchievementConfig.AchievementDefinition achievement, List<Component> lore) {
+        RewardEvent event = RewardEvent.achievement(owner.getUUID(), achievement.id());
+        RewardClaimLedger ledger = RewardClaimLedger.get(owner);
+        if (!ledger.hasEvent(event) || ledger.allGranted(event, achievement.rewards())) {
+            return;
+        }
+        for (RewardDefinition reward : achievement.rewards()) {
+            RewardClaimLedger.Entry entry = ledger.entry(event, reward.id());
+            if (entry.status() != RewardClaimLedger.EntryStatus.GRANTED) {
+                lore.add(Component.translatable("gui.omnitools.reward.pending", entry.reason())
+                        .withStyle(ChatFormatting.YELLOW));
+                return;
+            }
         }
     }
 
@@ -444,6 +485,7 @@ public final class AchievementScreenHandler extends ChestMenu {
         return switch (state) {
             case IN_PROGRESS -> "gui.omnitools.achievement.in_progress";
             case CLAIMABLE -> "gui.omnitools.achievement.available";
+            case PENDING -> "gui.omnitools.achievement.pending";
             case CLAIMED -> "gui.omnitools.achievement.claimed_status";
         };
     }

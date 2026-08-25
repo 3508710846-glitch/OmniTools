@@ -82,7 +82,7 @@ public final class OmniToolsConfigManager {
     private OmniToolsConfigSnapshot buildCandidate(MinecraftServer server, OmniToolsRootConfig root)
             throws IOException {
         CheckinRewardConfig dailyRewards = root.enabled(ModuleId.DAILY_CHECKIN)
-                ? CheckinRewardConfig.load() : CheckinRewardConfig.empty();
+                ? CheckinRewardConfig.load(server.registryAccess()) : CheckinRewardConfig.empty();
         OnlineRewardConfig onlineRewards = root.enabled(ModuleId.ONLINE_REWARD)
                 ? OnlineRewardConfig.load() : OnlineRewardConfig.empty();
         CheckinRewardConfig rewards = CheckinRewardConfig.withOnlineRewards(dailyRewards, onlineRewards);
@@ -94,7 +94,7 @@ public final class OmniToolsConfigManager {
         CloudStorageConfig storage = root.enabled(ModuleId.CLOUD_STORAGE)
                 ? CloudStorageConfig.load() : CloudStorageConfig.defaultConfig();
         AchievementConfig achievements = root.enabled(ModuleId.ACHIEVEMENTS)
-                ? AchievementConfig.load() : AchievementConfig.empty();
+                ? AchievementConfig.load(server.registryAccess()) : AchievementConfig.empty();
         CommandMenuConfig commandMenus = root.enabled(ModuleId.COMMAND_MENU)
                 ? CommandMenuConfig.load() : CommandMenuConfig.empty();
         SidebarConfig sidebar = root.enabled(ModuleId.SIDEBAR)

@@ -37,10 +37,12 @@ import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
 import dev.modmind.omnitools.commandmenu.CommandMenuService;
 import dev.modmind.omnitools.sidebar.SidebarService;
+import dev.modmind.omnitools.reward.RewardGrantService;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
     private static CheckinRewardService rewardService;
+    private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService();
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
     private static TitleConfig titleConfig = TitleConfig.empty();
@@ -110,6 +112,10 @@ public final class ModMindEntry implements ModInitializer {
             }
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
                 achievementService().check(player);
+                achievementService().retryPending(player);
+            }
+            if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+                rewardService().retryPending(player);
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().onJoin(player);
@@ -152,7 +158,7 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                             CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
                             CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE,
-                            CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS))
+                            CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -179,6 +185,10 @@ public final class ModMindEntry implements ModInitializer {
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
                             .executes(context -> reloadRewards(context.getSource())))
+                    .then(Commands.literal("rewards")
+                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_RETRY))
+                            .then(Commands.literal("retry")
+                                    .executes(context -> retryRewards(context.getSource().getPlayerOrException()))))
                     .then(commandMenuCommand())
                     .then(moduleManagerCommand());
             dispatcher.register(command);
@@ -224,6 +234,10 @@ public final class ModMindEntry implements ModInitializer {
         return rewardService;
     }
 
+    public static RewardGrantService rewardGrantService() {
+        return REWARD_GRANT_SERVICE;
+    }
+
     static OnlineTimeRewardService onlineTimeRewardService() {
         if (onlineTimeRewardService == null) {
             onlineTimeRewardService = new OnlineTimeRewardService();
@@ -235,7 +249,7 @@ public final class ModMindEntry implements ModInitializer {
         return shopConfig;
     }
 
-    static TitleConfig titleConfig() {
+    public static TitleConfig titleConfig() {
         return titleConfig;
     }
 
@@ -656,6 +670,17 @@ public final class ModMindEntry implements ModInitializer {
         }
         source.sendSuccess(() -> Component.translatable("command.omnitools.reload.success",
                 configSnapshot.revision()), true);
+        return 1;
+    }
+
+    private static int retryRewards(ServerPlayer player) {
+        if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+            rewardService().retryPending(player);
+        }
+        if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+            achievementService().retryPending(player);
+        }
+        player.displayClientMessage(Component.translatable("message.omnitools.reward.retry_complete"), true);
         return 1;
     }
 

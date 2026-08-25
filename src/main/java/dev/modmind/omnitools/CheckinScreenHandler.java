@@ -26,8 +26,13 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
+import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.reward.RewardEvent;
+import dev.modmind.omnitools.reward.RewardType;
 
 public final class CheckinScreenHandler extends ChestMenu {
     public static final int ROWS = 5;
@@ -73,6 +78,7 @@ public final class CheckinScreenHandler extends ChestMenu {
     }
 
     public static CheckinScreenHandler createServer(int syncId, Inventory inventory, ServerPlayer owner) {
+        ModMindEntry.rewardService().retryPending(owner);
         LocalDate openedDate = today();
         return new CheckinScreenHandler(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), owner, openedDate);
     }
@@ -220,10 +226,14 @@ public final class CheckinScreenHandler extends ChestMenu {
                 }
                 stack.set(DataComponents.CUSTOM_NAME, Component.translatable(
                         "gui.omnitools.day", day).withStyle(statusColor, ChatFormatting.BOLD));
-                stack.set(DataComponents.LORE, new ItemLore(List.of(
-                        Component.translatable("gui.omnitools.date", date.getMonthValue(), day)
-                                .withStyle(ChatFormatting.GRAY),
-                        Component.translatable(statusKey).withStyle(statusColor))));
+                List<Component> lore = new ArrayList<>();
+                lore.add(Component.translatable("gui.omnitools.date", date.getMonthValue(), day)
+                        .withStyle(ChatFormatting.GRAY));
+                lore.add(Component.translatable(statusKey).withStyle(statusColor));
+                if (day == date.getDayOfMonth()) {
+                    appendRewardLore(owner, date.toEpochDay(), stats.monthlyDays(), lore);
+                }
+                stack.set(DataComponents.LORE, new ItemLore(lore));
             } else {
                 stack = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
                 stack.set(DataComponents.CUSTOM_NAME, Component.translatable("gui.omnitools.empty"));
@@ -298,6 +308,52 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     private static LocalDate today() {
         return CheckinData.today();
+    }
+
+    private static void appendRewardLore(ServerPlayer player, long day, int monthlyDays, List<Component> lore) {
+        List<RewardDefinition> rewards = ModMindEntry.rewardService().dailyRewards();
+        appendRewardList(player, RewardEvent.checkinDaily(player.getUUID(), day), rewards, lore, false, 0);
+        java.time.YearMonth month = java.time.YearMonth.from(LocalDate.ofEpochDay(day));
+        for (java.util.Map.Entry<Integer, List<RewardDefinition>> entry : ModMindEntry.rewardService().monthlyRewards().entrySet()) {
+            if (monthlyDays >= entry.getKey()) {
+                appendRewardList(player, RewardEvent.checkinMonthly(player.getUUID(), month, entry.getKey()),
+                        entry.getValue(), lore, true, entry.getKey());
+            }
+        }
+    }
+
+    private static void appendRewardList(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards,
+                                         List<Component> lore, boolean monthly, int milestone) {
+        if (monthly && !rewards.isEmpty()) {
+            lore.add(Component.translatable("gui.omnitools.reward.monthly_prefix", milestone)
+                    .withStyle(ChatFormatting.YELLOW));
+        }
+        for (RewardDefinition reward : rewards) {
+            switch (reward.type()) {
+                case CURRENCY -> lore.add(Component.translatable("gui.omnitools.reward.currency", reward.amount())
+                        .withStyle(ChatFormatting.GOLD));
+                case ITEM -> lore.add(Component.translatable("gui.omnitools.reward.item",
+                                reward.createItemStack().getHoverName(), reward.createItemStack().getCount())
+                        .withStyle(ChatFormatting.AQUA));
+                case TITLE -> lore.add(Component.translatable("gui.omnitools.reward.title",
+                                ModMindEntry.titleConfig().definition(reward.titleId())
+                                .map(TitleConfig.TitleDefinition::displayComponent).orElse(Component.literal(reward.titleId())))
+                        .withStyle(ChatFormatting.LIGHT_PURPLE));
+                case COMMAND -> lore.add(Component.translatable("gui.omnitools.reward.command")
+                        .withStyle(ChatFormatting.DARK_GRAY));
+            }
+        }
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        if (!rewards.isEmpty() && ledger.hasEvent(event) && !ledger.allGranted(event, rewards)) {
+            for (RewardDefinition reward : rewards) {
+                RewardClaimLedger.Entry entry = ledger.entry(event, reward.id());
+                if (entry.status() != RewardClaimLedger.EntryStatus.GRANTED) {
+                    lore.add(Component.translatable("gui.omnitools.reward.pending", entry.reason())
+                            .withStyle(ChatFormatting.YELLOW));
+                    break;
+                }
+            }
+        }
     }
 
     private void updateCheckinDeadline(LocalDate date) {

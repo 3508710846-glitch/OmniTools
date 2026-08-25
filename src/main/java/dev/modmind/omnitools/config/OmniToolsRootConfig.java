@@ -18,7 +18,8 @@ import java.util.Map;
 
 /** Versioned root configuration and module enablement flags. */
 public record OmniToolsRootConfig(int formatVersion, boolean debug, String timezone,
-                                boolean placeholderApiEnabled, Map<ModuleId, Boolean> modules) {
+                                  boolean allowCommandRewards, int maxCommandRewardLength,
+                                  boolean placeholderApiEnabled, Map<ModuleId, Boolean> modules) {
     public static final int CURRENT_FORMAT_VERSION = 2;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -33,6 +34,9 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             throw new JsonParseException("global.timezone is not a valid ZoneId: " + zone);
         }
         timezone = zone;
+        if (maxCommandRewardLength < 1 || maxCommandRewardLength > 16_384) {
+            throw new JsonParseException("global.reward_security.max_command_length must be between 1 and 16384");
+        }
         EnumMap<ModuleId, Boolean> copy = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
             copy.put(module, modules == null || !modules.containsKey(module)
@@ -47,7 +51,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         for (ModuleId module : ModuleId.values()) {
             modules.put(module, module != ModuleId.PERMISSIONS);
         }
-        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", true, modules);
+        return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", false, 1_024, true, modules);
     }
 
     public boolean enabled(ModuleId module) {
@@ -62,7 +66,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         EnumMap<ModuleId, Boolean> updated = new EnumMap<>(ModuleId.class);
         updated.putAll(modules);
         updated.put(module, enabled);
-        return new OmniToolsRootConfig(formatVersion, debug, timezone, placeholderApiEnabled, updated);
+        return new OmniToolsRootConfig(formatVersion, debug, timezone, allowCommandRewards,
+                maxCommandRewardLength, placeholderApiEnabled, updated);
     }
 
     public static OmniToolsRootConfig load(Path path) throws IOException {
@@ -79,6 +84,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             JsonObject root = element.getAsJsonObject();
             int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
             JsonObject global = object(root, "global");
+            JsonObject rewardSecurity = object(global, "reward_security");
             JsonObject integrations = object(root, "integrations");
             JsonObject placeholderApi = object(integrations, "placeholder_api");
             JsonObject moduleObject = object(root, "modules");
@@ -90,6 +96,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             }
             return new OmniToolsRootConfig(version, bool(global, "debug", false),
                     string(global, "timezone", "Asia/Shanghai"),
+                    bool(rewardSecurity, "allow_command_rewards", false),
+                    integer(rewardSecurity, "max_command_length", 1_024),
                     bool(placeholderApi, "enabled", true), modules);
         }
     }
@@ -101,6 +109,10 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         JsonObject global = new JsonObject();
         global.addProperty("debug", config.debug());
         global.addProperty("timezone", config.timezone());
+        JsonObject rewardSecurity = new JsonObject();
+        rewardSecurity.addProperty("allow_command_rewards", config.allowCommandRewards());
+        rewardSecurity.addProperty("max_command_length", config.maxCommandRewardLength());
+        global.add("reward_security", rewardSecurity);
         root.add("global", global);
         JsonObject integrations = new JsonObject();
         JsonObject placeholderApi = new JsonObject();

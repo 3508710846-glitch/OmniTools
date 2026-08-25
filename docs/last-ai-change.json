@@ -1,0 +1,153 @@
+{
+  "prompt": "可将签到和成就的奖励统一为一套“奖励定义 + 发放服务 + 持久化账本”机制。这样四种奖励的配置、校验、展示、失败重试都只实现一次，签到与成就只负责定义“何时触发”。\n\n## 目标结构\n\n新增 `reward` 包：\n\n```text\nreward/\n├── RewardType.java           // CURRENCY / ITEM / TITLE / COMMAND\n├── RewardDefinition.java     // 一条配置化奖励\n├── RewardEvent.java          // 一次玩家奖励事件\n├── RewardGrantService.java   // 统一发奖入口\n├── RewardGrantResult.java    // SUCCESS / PENDING / BLOCKED / FAILED\n└── RewardClaimLedger.java    // 奖励状态与失败原因的持久化账本\n```\n\n改造现有：\n\n- [CheckinRewardConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java)\n- [CheckinRewardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRewardService.java)\n- [AchievementConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)\n- [AchievementService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java)\n- [CheckinData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java)\n- [AchievementData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementData.java)\n- [ConfigValidator.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)\n\n## 统一奖励配置\n\n每条奖励必须有稳定且唯一的 `id`，不可根据数组下标识别。这样服主调整奖励顺序、重载配置或玩家断线后，系统仍能准确判断哪条奖励已经发放。\n\n```json\n{\n  \"id\": \"stone_expert_currency\",\n  \"type\": \"currency\",\n  \"amount\": 500\n}\n```\n\n```json\n{\n  \"id\": \"stone_expert_item\",\n  \"type\": \"item\",\n  \"item\": \"minecraft:diamond\",\n  \"count\": 2,\n  \"components\": {}\n}\n```\n\n```json\n{\n  \"id\": \"stone_expert_title\",\n  \"type\": \"title\",\n  \"title\": \"geologist\"\n}\n```\n\n```json\n{\n  \"id\": \"stone_expert_announce\",\n  \"type\": \"command\",\n  \"run_as\": \"console\",\n  \"command\": \"say {player_name} 完成了石头专家成就\"\n}\n```\n\n物品的 `components` 复用当前商店模块已有的物品组件解析逻辑，不新增另一套格式。\n\n## 签到配置\n\n将当前仅支持 `dailyCoins`、`monthlyRewards` 的格式升级为：\n\n```json\n{\n  \"format_version\": 2,\n  \"daily\": {\n    \"rewards\": [\n      { \"id\": \"daily_currency\", \"type\": \"currency\", \"amount\": 100 },\n      { \"id\": \"daily_bread\", \"type\": \"item\", \"item\": \"minecraft:bread\", \"count\": 3 }\n    ]\n  },\n  \"monthly\": {\n    \"5\": [\n      { \"id\": \"month_5_currency\", \"type\": \"currency\", \"amount\": 500 }\n    ],\n    \"10\": [\n      { \"id\": \"month_10_title\", \"type\": \"title\", \"title\": \"loyal_player\" }\n    ],\n    \"25\": [\n      {\n        \"id\": \"month_25_command\",\n        \"type\": \"command\",\n        \"run_as\": \"console\",\n        \"command\": \"give {player_name} minecraft:emerald 8\"\n      }\n    ]\n  }\n}\n```\n\n兼容旧配置：读取到 `dailyCoins` 时转换为每日 `currency` 奖励；读取到 `monthlyRewards` 时转换为对应里程碑的 `currency` 奖励。旧文件不应因升级失效。\n\n签到本身仍只能每日一次；奖励未能发放时，签到记录保留，奖励进入“待发放”状态，而不是允许玩家重复签到。\n\n## 成就配置\n\n将当前：\n\n```json\n\"rewards\": {\n  \"coins\": 500,\n  \"titles\": [\"geologist\"]\n}\n```\n\n升级为：\n\n```json\n\"rewards\": [\n  { \"id\": \"stone_coins\", \"type\": \"currency\", \"amount\": 500 },\n  { \"id\": \"stone_diamond\", \"type\": \"item\", \"item\": \"minecraft:diamond\", \"count\": 2 },\n  { \"id\": \"stone_title\", \"type\": \"title\", \"title\": \"geologist\" },\n  {\n    \"id\": \"stone_command\",\n    \"type\": \"command\",\n    \"run_as\": \"console\",\n    \"command\": \"say {player_name} 完成了成就：石头专家\"\n  }\n]\n```\n\n保持现有语义：成就达成后由玩家在成就 GUI 点击领取。只有全部奖励成功后，才将该成就标记为 `claimed`；物品奖励待发放时显示“待领取”，可再次点击重试。\n\n## 发奖与账本规则\n\n奖励事件 ID：\n\n```text\ncheckin:<uuid>:daily:<epoch_day>\ncheckin:<uuid>:monthly:<year_month>:<milestone>\nachievement:<uuid>:<achievement_id>\n```\n\n账本按“事件 ID + 奖励 ID”保存：\n\n```text\nPENDING    等待发放或等待重试\nGRANTED    已完成，永不重复发放\nBLOCKED    前置模块关闭、背包不足等可恢复问题\nFAILED     配置错误等不可恢复问题\n```\n\n处理顺序：\n\n1. 创建或读取该事件的账本。\n2. 依配置顺序处理每条未完成奖励。\n3. 已是 `GRANTED` 的奖励跳过。\n4. 全部完成后，签到月度记录或成就 `claimed` 才最终确认。\n5. 玩家登录、打开签到/成就 GUI、点击领取时自动重试待处理奖励。\n6. 增加玩家命令，例如 `/omnitools rewards retry`，用于主动重试。\n\n物品默认采用“仅放入背包”策略。背包空间不足时不得掉落在地面、不得吞掉奖励、不得标记完成，应保留为 `PENDING`。这比直接掉落更适合服务端长期运行。\n\n## 四类奖励的约束\n\n- `currency`：调用现有货币数据接口；金额使用 `long`，拒绝负数和溢出。\n- `item`：校验物品注册表 ID、数量范围、组件格式；单条数量及单事件总数量设置上限。\n- `title`：校验称号 ID 存在；若称号已拥有，视为该条奖励成功，不重复授予。\n- `command`：首版只允许 `run_as: \"console\"`，不允许以玩家身份执行。\n\n指令奖励必须默认关闭。在总配置增加：\n\n```json\n\"global\": {\n  \"reward_security\": {\n    \"allow_command_rewards\": false,\n    \"max_command_length\": 1024\n  }\n}\n```\n\n仅在服主显式开启后接受 `command` 奖励。限制允许的占位符：\n\n```text\n{player_name} {player_uuid} {player_x} {player_y} {player_z} {player_world}\n```\n\n拒绝换行、未知占位符、空命令和超长命令。指令具有外部副作用，无法做到崩溃场景下的绝对事务回滚；应在执行前将账本记为“已派发”，采用“最多执行一次”策略，宁可极端崩溃时漏执行，也不重复执行 `give`、权限修改等危险指令。\n\n## 模块依赖与热重载\n\n称号奖励依赖 `titles` 模块。`ConfigValidator` 应拒绝以下候选配置：\n\n- 签到或成就引用了不存在的称号 ID。\n- 存在称号奖励，但 `titles` 模块被关闭。\n- 存在指令奖励，但 `allow_command_rewards` 未开启。\n- 奖励 ID 重复、类型未知、物品无效、数量非法。\n\n模块管理 GUI 关闭称号模块时，也必须检查签到和成就是否仍引用称号奖励；存在引用则拒绝关闭并提示原因。配置热重载校验失败时继续使用旧配置快照，不能让运行中的奖励表变为空。\n\n## 实施阶段\n\n1. 新增统一奖励模型、账本和配置校验，先支持货币与称号，保持旧配置兼容。\n2. 将每日签到、月度签到接入统一发奖服务，并实现物品背包不足后的重试。\n3. 将成就领取接入统一服务，废弃旧的 `coins + titles` 专用发奖路径。\n4. 加入受控指令奖励、总开关、占位符白名单和审计日志。\n5. 更新签到与成就 GUI：展示四类奖励、已领取、待领取、失败原因。\n6. 更新 [daily-checkin.md](D:/mod/qiandao/docs/modules/daily-checkin.md) 与 [achievements.md](D:/mod/qiandao/docs/modules/achievements.md)，提供旧格式迁移表与完整示例。\n\n验收重点：四类奖励均可用于每日签到、月度签到和成就；背包满不丢奖；重试不重复发货币、物品或称号；称号模块关闭不静默吞奖；指令奖励默认禁用；无效热重载不影响旧配置继续运行。",
+  "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
+  "backend": "quota",
+  "createdAt": "2026-08-25T03:57:59.485Z",
+  "summary": "统一奖励机制已完成并验证。\n\n- 新增 `currency`、`item`、`title`、`command` 四类奖励与持久化账本，支持签到和成就共用、幂等补发、背包满时保留待领取。\n- 旧签到货币配置、旧成就 `coins/titles` 配置仍可读取。\n- 新增 `/omnitools rewards retry`，玩家登录、打开签到/成就界面时也会自动重试。\n- 指令奖励默认关闭，限控制台执行、白名单占位符与最大长度；发放具备审计日志和最多一次语义。\n- 校验称号依赖，含称号奖励时不能关闭称号模块。\n- 已更新签到、成就、权限、模块管理文档与中英文语言文本。\n\n验证通过：项目构建、资源 JSON、文档 JSON 示例、当前文档链接、`git diff --check`。产物位于 `D:\\mod\\qiandao\\.modmind\\minecraft\\mods\\modmind-current-project.jar`。\n\n受管 Minecraft 测试启动器返回 `spawn UNKNOWN`，未取得运行时启动日志；其余静态与构建验证均成功。",
+  "finalResponse": "统一奖励机制已完成并验证。\n\n- 新增 `currency`、`item`、`title`、`command` 四类奖励与持久化账本，支持签到和成就共用、幂等补发、背包满时保留待领取。\n- 旧签到货币配置、旧成就 `coins/titles` 配置仍可读取。\n- 新增 `/omnitools rewards retry`，玩家登录、打开签到/成就界面时也会自动重试。\n- 指令奖励默认关闭，限控制台执行、白名单占位符与最大长度；发放具备审计日志和最多一次语义。\n- 校验称号依赖，含称号奖励时不能关闭称号模块。\n- 已更新签到、成就、权限、模块管理文档与中英文语言文本。\n\n验证通过：项目构建、资源 JSON、文档 JSON 示例、当前文档链接、`git diff --check`。产物位于 `D:\\mod\\qiandao\\.modmind\\minecraft\\mods\\modmind-current-project.jar`。\n\n受管 Minecraft 测试启动器返回 `spawn UNKNOWN`，未取得运行时启动日志；其余静态与构建验证均成功。",
+  "intent": "engineering",
+  "tasks": [
+    "复核统一奖励模型、账本与配置兼容性",
+    "修正审阅发现的奖励流程问题",
+    "执行内容、构建与文档校验"
+  ],
+  "files": [
+    {
+      "path": "docs/modules/achievements.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/daily-checkin.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/module-management.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/permissions.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/AchievementConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/AchievementService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModuleControlService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardEvent.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantResult.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardType.java",
+      "purpose": "外部代理修改"
+    }
+  ],
+  "tests": [
+    "已使用 ModMind 托管构建",
+    "已使用 ModMind Minecraft 测试"
+  ],
+  "warnings": [],
+  "snapshotId": "2026-08-25T02-45-58-642Z",
+  "buildVerified": true,
+  "runtimeVerified": true,
+  "workflow": {
+    "required": [
+      "implementation",
+      "validate",
+      "build",
+      "runtime_test"
+    ],
+    "completed": [
+      "project_info",
+      "plan",
+      "build",
+      "validate",
+      "implementation",
+      "runtime_test",
+      "todo_complete"
+    ],
+    "missing": [],
+    "evidence": {
+      "project_info": "modmind_project_info returned active project metadata",
+      "plan": "modmind_update_todo published the ordered plan",
+      "build": "modmind_build_project completed successfully",
+      "validate": "modmind_validate_content completed successfully",
+      "todo_complete": "All Todo items are completed after the other required stages"
+    }
+  }
+}

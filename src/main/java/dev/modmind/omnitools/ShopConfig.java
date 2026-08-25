@@ -105,7 +105,7 @@ public final class ShopConfig {
                 throw new JsonParseException("Shop slot " + index + " is configured more than once");
             }
             long price = nonNegativeLong(product, "price");
-            ItemStack stack = parseStack(product, registries);
+            ItemStack stack = parseItemStack(product, registries);
             if (stack.isEmpty()) {
                 throw new JsonParseException("Shop entry " + entryIndex + " cannot use an empty item stack");
             }
@@ -114,7 +114,11 @@ public final class ShopConfig {
         return new ShopConfig(products);
     }
 
-    private static ItemStack parseStack(JsonObject product, HolderLookup.Provider registries)
+    /**
+     * Shared parser for administrator-configured item stacks. Reward definitions deliberately use
+     * this exact component syntax instead of maintaining a second item-component implementation.
+     */
+    public static ItemStack parseItemStack(JsonObject product, HolderLookup.Provider registries)
             throws CommandSyntaxException {
         JsonElement nbtElement = product.get("nbt");
         if (nbtElement != null) {
@@ -128,13 +132,29 @@ public final class ShopConfig {
 
         String item = requiredString(product, "item");
         int count = positiveInt(product, "count");
-        String components = optionalString(product, "components");
+        String components = optionalComponents(product);
         StringReader reader = new StringReader(item + (components == null ? "" : components));
         ItemParser.ItemResult result = new ItemParser(registries).parse(reader);
         if (reader.canRead()) {
             throw new JsonParseException("Unexpected text in item or components for " + item);
         }
         return new ItemInput(result.item(), result.components()).createItemStack(count, false);
+    }
+
+    private static String optionalComponents(JsonObject object) {
+        JsonElement element = object.get("components");
+        if (element == null) {
+            return null;
+        }
+        // An empty object is a convenient no-component spelling for JSON generators. Non-empty
+        // components continue to use the vanilla item-parser text accepted by existing shop files.
+        if (element.isJsonObject() && element.getAsJsonObject().isEmpty()) {
+            return null;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException("components must be a vanilla item-component string or an empty object");
+        }
+        return element.getAsString();
     }
 
     private static int nonNegativeInt(JsonObject object, String key) {

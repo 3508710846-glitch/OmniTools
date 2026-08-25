@@ -153,6 +153,22 @@ public final class CheckinData extends SavedData {
     }
 
     public synchronized boolean claimMonthlyReward(UUID playerId, YearMonth month, int days, String playerName) {
+        if (hasClaimedMonthlyReward(playerId, month, days)) {
+            return false;
+        }
+        markMonthlyRewardClaimed(playerId, month, days, playerName);
+        return true;
+    }
+
+    public synchronized boolean hasClaimedMonthlyReward(UUID playerId, YearMonth month, int days) {
+        if (days <= 0) {
+            throw new IllegalArgumentException("Monthly reward threshold must be positive");
+        }
+        PlayerRecord record = players.get(playerId);
+        return record != null && record.claimedMonthlyRewards.contains(month + ":" + days);
+    }
+
+    public synchronized boolean markMonthlyRewardClaimed(UUID playerId, YearMonth month, int days, String playerName) {
         if (days <= 0) {
             throw new IllegalArgumentException("Monthly reward threshold must be positive");
         }

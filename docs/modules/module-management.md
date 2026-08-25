@@ -17,7 +17,14 @@
 ```json
 {
   "format_version": 2,
-  "global": { "debug": false, "timezone": "Asia/Shanghai" },
+  "global": {
+    "debug": false,
+    "timezone": "Asia/Shanghai",
+    "reward_security": {
+      "allow_command_rewards": false,
+      "max_command_length": 1024
+    }
+  },
   "integrations": { "placeholder_api": { "enabled": true } },
   "modules": {
     "daily_checkin": { "enabled": true },
@@ -50,6 +57,8 @@
 | `format_version` | integer | 否 | `2`（旧版 `1` 可读），必须为正整数 | 根配置格式版本；类型或范围错误会拒绝候选快照。 |
 | `global.debug` | boolean | 否 | `false` | 全局调试标志。 |
 | `global.timezone` | string | 否 | `Asia/Shanghai` | 有效 Java `ZoneId`，影响签到和在线时长跨日。 |
+| `global.reward_security.allow_command_rewards` | boolean | 否 | `false` | 是否允许签到和成就配置 `command` 奖励；关闭时包含该类型奖励的候选快照被拒绝。 |
+| `global.reward_security.max_command_length` | integer | 否 | `1024`，`1-16384` | 允许的奖励命令最大长度；超出范围或被奖励定义超过时拒绝候选快照。 |
 | `integrations.placeholder_api.enabled` | boolean | 否 | `true` | 可选 Placeholder API 集成总开关，不属于模块列表。 |
 | `modules.<id>.enabled` | boolean | 否 | 除 `permissions` 外 `true` | 模块运行时开关。 |
 
@@ -67,4 +76,4 @@
 
 统一流程是：读取全部启用模块配置，构造候选快照，完整校验，校验成功后原子发布，再执行运行时补偿。任一失败时不写正式配置、不替换快照。
 
-切换成功后命令树刷新，失效菜单关闭；在线奖励停用前 `flushAll`；称号显示刷新；称号效果禁用时移除效果；成就启用时立即检查；侧边栏立即刷新或清除。模块 GUI 中，`title_effects` 启用要求先启用 `titles`；关闭 `titles` 前若效果定义非空会被拒绝。`permissions` 关闭回退源码默认角色。
+切换成功后命令树刷新，失效菜单关闭；在线奖励停用前 `flushAll`；称号显示刷新；称号效果禁用时移除效果；成就启用时立即检查；侧边栏立即刷新或清除。模块 GUI 中，`title_effects` 启用要求先启用 `titles`；关闭 `titles` 前若效果定义非空，或签到/成就仍包含称号奖励，都会被拒绝。`permissions` 关闭回退源码默认角色。

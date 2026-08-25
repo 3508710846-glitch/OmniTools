@@ -18,6 +18,9 @@ import dev.modmind.omnitools.achievement.SumCondition;
 import dev.modmind.omnitools.achievement.TargetMatch;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.reward.RewardType;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.stats.Stats;
@@ -63,7 +66,7 @@ public final class AchievementConfig {
         this.byId = Collections.unmodifiableMap(indexed);
     }
 
-    public static AchievementConfig load() {
+    public static AchievementConfig load(HolderLookup.Provider registries) {
         if (!Files.exists(FILE)) {
             AchievementConfig defaults = defaults();
             write(defaults);
@@ -74,7 +77,7 @@ public final class AchievementConfig {
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("Root value must be an object");
             }
-            return parse(root.getAsJsonObject());
+            return parse(root.getAsJsonObject(), registries);
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
             System.err.println("[omnitools] Could not load " + FILE + ": " + exception.getMessage()
                     + ". The configuration snapshot will not be replaced.");
@@ -98,7 +101,7 @@ public final class AchievementConfig {
         return Optional.ofNullable(byId.get(normalizeId(id)));
     }
 
-    private static AchievementConfig parse(JsonObject root) {
+    private static AchievementConfig parse(JsonObject root, HolderLookup.Provider registries) {
         int version = integer(root, "format_version", 1);
         if (version < 1 || version > CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported achievement format_version: " + version);
@@ -156,9 +159,9 @@ public final class AchievementConfig {
                 throw new JsonParseException("Achievement " + id
                         + " must contain at least one positive statistic condition");
             }
-            Reward reward = parseReward(achievement.get("rewards"), id);
+            List<RewardDefinition> rewards = parseRewards(achievement.get("rewards"), id, registries);
             definitions.add(new AchievementDefinition(id, display, description, iconId, icon,
-                    parsed.requirements(), parsed.condition(), reward));
+                    parsed.requirements(), parsed.condition(), rewards));
         }
         return new AchievementConfig(definitions);
     }
@@ -476,16 +479,24 @@ public final class AchievementConfig {
         return new Requirement(type, targetId, count, target);
     }
 
-    private static Reward parseReward(JsonElement element, String achievementId) {
+    private static List<RewardDefinition> parseRewards(JsonElement element, String achievementId,
+                                                        HolderLookup.Provider registries) {
         if (element == null) {
-            return new Reward(0L, List.of());
+            return List.of();
+        }
+        if (element.isJsonArray()) {
+            return RewardDefinition.parseArray(element, "rewards for achievement " + achievementId, registries);
         }
         if (!element.isJsonObject()) {
-            throw new JsonParseException("rewards for achievement " + achievementId + " must be an object");
+            throw new JsonParseException("rewards for achievement " + achievementId + " must be an array or legacy object");
         }
+        // Legacy coins/titles object is converted to stable synthetic ids for existing servers.
         JsonObject reward = element.getAsJsonObject();
         long coins = nonNegativeLong(reward, "coins", 0L);
-        List<String> titles = new ArrayList<>();
+        List<RewardDefinition> rewards = new ArrayList<>();
+        if (coins > 0L) {
+            rewards.add(RewardDefinition.currency("legacy_" + achievementId + "_currency", coins));
+        }
         JsonElement titlesElement = reward.get("titles");
         if (titlesElement != null) {
             if (!titlesElement.isJsonArray()) {
@@ -499,12 +510,13 @@ public final class AchievementConfig {
                 if (!ID_PATTERN.matcher(titleId).matches()) {
                     throw new JsonParseException("Invalid title id " + titleId + " in achievement " + achievementId);
                 }
-                if (!titles.contains(titleId)) {
-                    titles.add(titleId);
+                String rewardId = "legacy_" + achievementId + "_title_" + titleId;
+                if (rewards.stream().noneMatch(existing -> existing.id().equals(rewardId))) {
+                    rewards.add(RewardDefinition.title(rewardId, titleId));
                 }
             }
         }
-        return new Reward(coins, titles);
+        return List.copyOf(rewards);
     }
 
     private static AchievementConfig defaults() {
@@ -514,7 +526,8 @@ public final class AchievementConfig {
         AchievementDefinition definition = new AchievementDefinition(
                 "stone_breaker", "石匠", "挖掘石头 1000 个", "minecraft:stone", icon,
                 List.of(requirement), new StatCondition(List.of(requirement), 1000L),
-                new Reward(500L, List.of("geologist")));
+                List.of(RewardDefinition.currency("stone_coins", 500L),
+                        RewardDefinition.title("stone_title", "geologist")));
         return new AchievementConfig(List.of(definition));
     }
 
@@ -539,11 +552,18 @@ public final class AchievementConfig {
                 condition.addProperty("match", "sum");
                 condition.addProperty("at_least", definition.conditionThreshold());
                 achievement.add("requirements", condition);
-                JsonObject rewards = new JsonObject();
-                rewards.addProperty("coins", definition.rewards().coins());
-                JsonArray titles = new JsonArray();
-                definition.rewards().titles().forEach(titles::add);
-                rewards.add("titles", titles);
+                JsonArray rewards = new JsonArray();
+                for (RewardDefinition reward : definition.rewards()) {
+                    JsonObject rewardObject = new JsonObject();
+                    rewardObject.addProperty("id", reward.id());
+                    rewardObject.addProperty("type", reward.type().serializedName());
+                    if (reward.type() == RewardType.CURRENCY) {
+                        rewardObject.addProperty("amount", reward.amount());
+                    } else if (reward.type() == RewardType.TITLE) {
+                        rewardObject.addProperty("title", reward.titleId());
+                    }
+                    rewards.add(rewardObject);
+                }
                 achievement.add("rewards", rewards);
                 achievements.add(achievement);
             }
@@ -879,16 +899,12 @@ public final class AchievementConfig {
         }
     }
 
-    public record Reward(long coins, List<String> titles) {
-        public Reward {
-            titles = List.copyOf(titles == null ? List.of() : titles);
-        }
-    }
-
     public record AchievementDefinition(String id, String display, String description, String iconId, Item icon,
-                                        List<Requirement> requirements, AchievementCondition condition, Reward rewards) {
+                                        List<Requirement> requirements, AchievementCondition condition,
+                                        List<RewardDefinition> rewards) {
         public AchievementDefinition {
             requirements = List.copyOf(requirements);
+            rewards = List.copyOf(rewards == null ? List.of() : rewards);
             if (condition == null) {
                 throw new IllegalArgumentException("Achievement condition cannot be null");
             }
