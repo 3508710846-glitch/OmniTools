@@ -24,6 +24,7 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
     public static final int MAX_ITEM_COUNT = 64;
     public static final int MAX_EVENT_ITEM_COUNT = 2_304;
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{([^{}]+)}");
+    private static final Pattern TEXT_PLACEHOLDER = Pattern.compile("%[^%\\r\\n]+%");
     private static final Set<String> ALLOWED_PLACEHOLDERS = Set.of(
             "player_name", "player_uuid", "player_x", "player_y", "player_z", "player_world");
 
@@ -130,6 +131,9 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         }
         if (command.indexOf('\n') >= 0 || command.indexOf('\r') >= 0) {
             throw new JsonParseException(context + ".command must not contain a line break");
+        }
+        if (TEXT_PLACEHOLDER.matcher(command).find()) {
+            throw new JsonParseException(context + ".command must not use text placeholders; use {player_*} values only");
         }
         Matcher matcher = PLACEHOLDER.matcher(command);
         while (matcher.find()) {

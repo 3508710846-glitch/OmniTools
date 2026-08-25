@@ -1,95 +1,106 @@
 # 侧边栏
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-侧边栏为每位玩家发送独立的原版 `SIDEBAR` scoreboard 数据包，可显示自定义标题、文字和占位符。它不修改全局 `ServerScoreboard`，原版客户端无需安装 OmniTools。
+侧边栏使用原版计分板向单个玩家发送标题和多行文本，可显示 OmniTools 进度与可选 Placeholder API 文本。原版客户端无需资源包或 HUD 模组。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-`config/omnitools/config.json`：
+模块 ID 为 `sidebar`。它可读取签到、在线、称号、成就和货币占位符，但这些模块关闭时返回安全回退值。第三方文本占位符需要可选 Placeholder API。
+
+## 3. 模块开关配置
+
+```json
+{ "modules": { "sidebar": { "enabled": true } } }
+```
+
+禁用会清除 OmniTools 自己的侧边栏显示和刷新任务，不删除玩家可见性偏好。
+
+## 4. 初始配置文件位置
+
+首次启动生成 `config/omnitools/sidebar/config.json`。修改后执行 `/omnitools reload`。
+
+## 5. 最小可用配置
 
 ```json
 {
-  "modules": {
-    "sidebar": { "enabled": true }
-  }
+  "format_version": 2,
+  "default_visible": true,
+  "refresh_interval_ticks": 20,
+  "title": "&bOmniTools",
+  "conflict_policy": "skip",
+  "lines": [{ "id": "balance", "text": "&e余额: &f%omnitools:balance_formatted%" }]
 }
 ```
 
-禁用时服务端为所有在线玩家清除侧边栏，个人显示偏好不删除；重新启用后按原偏好恢复。
-
-## 3. 初始配置
-
-首次加载生成 `config/omnitools/sidebar/config.json`：
+## 6. 完整配置示例
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "default_visible": true,
   "refresh_interval_ticks": 20,
   "title": "&b&lOmniTools",
-  "conflict_policy": "warn",
+  "conflict_policy": "restore",
   "lines": [
-    { "id": "player", "text": "&f玩家：&b%omnitools:title_plain%" },
-    { "id": "balance", "text": "&e货币：&f%omnitools:balance_formatted%" },
-    { "id": "checkin", "text": "&a签到天数：&f%omnitools:checkin_total_days%" },
-    { "id": "streak", "text": "&6连续签到：&f%omnitools:checkin_streak_days%" },
-    { "id": "online", "text": "&d今日在线：&f%omnitools:online_today_hms%" },
-    { "id": "achievement", "text": "&b成就：&f%omnitools:achievements_unlocked%/%omnitools:achievements_total%" }
+    { "id": "title", "text": "&f称号: &b%omnitools:title_plain%" },
+    { "id": "balance", "text": "&e货币: &f%omnitools:balance_formatted%" },
+    { "id": "checkin", "text": "&a签到: &f%omnitools:checkin_total_days% 天" },
+    { "id": "online", "text": "&d在线: &f%omnitools:online_today_hms%" }
   ]
 }
 ```
 
-文件缺失时创建默认示例。格式错误时不覆盖原文件，完整重载保留旧侧边栏快照与当前显示。
+## 7. 配置字段表
 
-## 4. 指令与权限
-
-| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
 | --- | --- | --- | --- | --- |
-| `/omnitools sidebar on` | 无 | 显示自己的侧边栏 | `sidebar.toggle` (`PLAYER`) | 是 |
-| `/omnitools sidebar off` | 无 | 隐藏自己的侧边栏 | `sidebar.toggle` (`PLAYER`) | 是 |
-| `/omnitools sidebar toggle` | 无 | 切换显示状态 | `sidebar.toggle` (`PLAYER`) | 是 |
-| `/omnitools sidebar status` | 无 | 查看自己的显示状态 | `sidebar.status` (`PLAYER`) | 是 |
+| `format_version` | integer | 否 | 当前 `2` | reload |
+| `default_visible` | boolean | 否 | `true` | reload |
+| `refresh_interval_ticks` | integer | 是 | 范围 `5-600` | reload |
+| `title` | string | 是 | 输入与纯文本均最多 64 字符 | reload |
+| `conflict_policy` | string | 是 | `skip`、`replace`、`restore` | reload |
+| `lines` | array | 是 | 最多 15 行 | reload |
+| `lines[].id` | string | 是 | 唯一，`[A-Za-z0-9_-]{1,32}` | reload |
+| `lines[].text` | string | 是 | 非空，输入最多 256 字符 | reload |
 
-## 5. 配置字段
+旧 v1 的 `warn` 和 `disabled` 会兼容映射为保守的 `skip`。不要把它们用于新配置。
 
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | number | 否 | `1`，正整数 | 配置格式标记。 |
-| `default_visible` | boolean | 否 | `true` | 没有个人偏好记录的新玩家是否默认显示。 |
-| `refresh_interval_ticks` | integer | 否 | `20`，范围 `5-600` | 刷新间隔；文本未变化时不发送更新。 |
-| `title` | string | 否 | `""` | 标题，支持 `&` 颜色，格式化前后均最多 64 字符。 |
-| `conflict_policy` | string | 否 | `warn`；可写 `warn`、`replace`、`disabled` | 当前版本会读取、校验并保存该字段，但尚未据此改变渲染行为；原版协议也不能可靠检测其他模组侧边栏占用。 |
-| `lines` | array | 是 | 最多 15 项 | 自上而下的显示行。 |
-| `lines[].id` | string | 是 | `[A-Za-z0-9_-]{1,32}`，唯一 | 行的稳定 ID。 |
-| `lines[].text` | string | 是 | 非空，最多 256 输入字符 | 显示文字，支持颜色与占位符；渲染后的纯文本最多 40 字符。 |
+## 8. 指令、别名和权限节点
 
-## 6. 使用示例
+| 指令 | 别名 | 权限节点 | 默认角色 |
+| --- | --- | --- | --- |
+| `/omnitools sidebar toggle` | 无 | `sidebar.toggle` | PLAYER |
+| `/omnitools sidebar status` | 无 | `sidebar.status` | PLAYER |
+| `/omnitools reload` | 无 | `config.reload` | ADMIN |
 
-自定义固定文字与内置占位符：
+## 9. GUI 操作说明
 
-```json
-{
-  "format_version": 1,
-  "default_visible": true,
-  "refresh_interval_ticks": 40,
-  "title": "&6我的服务器",
-  "conflict_policy": "warn",
-  "lines": [
-    { "id": "welcome", "text": "&e欢迎来到服务器" },
-    { "id": "money", "text": "&a余额：%omnitools:balance_formatted%" }
-  ]
-}
-```
+侧边栏不使用 GUI。玩家通过 `toggle` 变更自己的可见性偏好；管理员使用模块管理 GUI 或根配置控制模块状态。设置会在重连、重生和维度切换时由服务端恢复。
 
-保存后执行 `/omnitools reload`。未知、未安装或解析失败的第三方占位符显示 `-` 并记录警告；配置字段非法时修正 JSON 后重载，旧显示不会被清空。
+## 10. 占位符列表及用途
 
-## 7. 数据保存
+支持全部 17 个 `%omnitools:<id>%` 占位符；内置简写 `%<id>%` 也可用于侧边栏。可选 API 启用后可解析第三方文本占位符；未知值显示 `-` 并只记录一次警告。详见[Placeholder API](../guides/placeholder-api.md)。
 
-世界 `SavedData` 的 `SidebarPreferenceData` 保存 `玩家 UUID -> 是否显示`。JSON 只保存呈现规则。玩家重连、重生和切换维度时服务端重建或刷新个人侧边栏。
+## 11. 数据保存位置和升级影响
 
-升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
+呈现规则在模块 JSON；每名玩家的显示偏好保存到世界 `SidebarPreferenceData`。升级或禁用模块不删除偏好，重新启用会按新配置重新渲染。
 
-## 8. 热重载与依赖
+## 12. 与其他模块的联动
 
-成功重载立即重渲染在线玩家；模块禁用清除所有侧边栏。它可读取签到、在线奖励、称号和成就的内置占位符，但这些模块关闭时会返回各自的回退值。一个玩家的原版 `SIDEBAR` 槽位只有一个，其他模组随后覆盖时最终显示以后发送的数据为准。`conflict_policy` 目前不会可靠检测或阻止这种覆盖。完整候选快照失败时旧侧边栏继续运行。
+侧边栏读取其他模块的占位符，但不强依赖它们。`skip` 在存在外部显示目标时不覆盖；`replace` 明确使用 OmniTools 显示；`restore` 在 OmniTools 清理时恢复先前目标。原版每名玩家只有一个侧边栏显示位，仍应与其他侧边栏模组协调。
+
+## 13. 常见错误及解决方法
+
+| 现象 | 处理 |
+| --- | --- |
+| 不显示侧边栏 | 检查模块开关、个人 toggle 状态和 `skip` 是否因外部目标跳过。 |
+| 显示被其他模组覆盖 | 选择合适的冲突策略，或协调另一侧边栏模组的刷新顺序。 |
+| 文本为 `-` | 检查第三方 API 是否安装、占位符拼写与集成开关。 |
+
+## 14. 可复制的验收清单
+
+- [ ] 玩家可切换显示，重连后偏好保留。
+- [ ] 5、20、600 tick 的合法刷新周期按配置工作。
+- [ ] `skip`、`replace`、`restore` 三种冲突策略分别符合预期。
+- [ ] 未安装 Placeholder API 时内置文本与侧边栏仍正常。

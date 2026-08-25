@@ -114,10 +114,10 @@ public final class CommandMenuScreenHandler extends ChestMenu {
             return;
         }
         for (int slot = 0; slot < size; slot++) {
-            menuContainer.setItem(slot, definition.page().fillerStack());
+            menuContainer.setItem(slot, definition.page().fillerStack(owner));
         }
         for (CommandMenuItem item : definition.page().items().values()) {
-            menuContainer.setItem(item.slot(), item.displayStack());
+            menuContainer.setItem(item.slot(), item.displayStack(owner));
         }
         lastRevision = ModMindEntry.configSnapshot().revision();
     }

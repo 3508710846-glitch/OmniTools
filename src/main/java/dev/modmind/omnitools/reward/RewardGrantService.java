@@ -25,6 +25,7 @@ public final class RewardGrantService {
         int granted = 0;
         int alreadyGranted = 0;
         for (RewardDefinition reward : rewards) {
+            ledger.registerReward(event, reward.id(), reward.type(), player.getGameProfile().name());
             RewardClaimLedger.Entry entry = ledger.entry(event, reward.id());
             if (entry.status() == RewardClaimLedger.EntryStatus.GRANTED) {
                 alreadyGranted++;
@@ -55,6 +56,52 @@ public final class RewardGrantService {
 
     public RewardGrantResult retry(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards) {
         return grant(player, event, rewards);
+    }
+
+    /**
+     * Retries exactly one persisted item delivery from the player's reward inbox. This intentionally
+     * uses the ledger snapshot rather than a live configuration definition, because a configuration
+     * reload must not change a reward that was already promised to a player.
+     */
+    public RewardGrantResult retryQueuedItem(ServerPlayer player, RewardEvent event, String rewardId) {
+        if (player == null || event == null || !player.getUUID().equals(event.playerId())) {
+            return RewardGrantResult.failed(0, 0, "reward event belongs to another player");
+        }
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        RewardClaimLedger.Entry entry = ledger.entry(event, rewardId);
+        if (entry.status() == RewardClaimLedger.EntryStatus.GRANTED) {
+            return RewardGrantResult.success(0, 1);
+        }
+        if (entry.status() == RewardClaimLedger.EntryStatus.FAILED) {
+            return RewardGrantResult.failed(0, 0, entry.reason());
+        }
+        if (entry.status() != RewardClaimLedger.EntryStatus.PENDING) {
+            String reason = entry.reason().isBlank() ? "item_delivery_not_retryable" : entry.reason();
+            return RewardGrantResult.blocked(0, 0, reason);
+        }
+        ItemStack pending = ledger.queuedItem(event, rewardId);
+        if (pending.isEmpty()) {
+            ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.FAILED, "missing_item_snapshot");
+            return RewardGrantResult.failed(0, 0, "missing_item_snapshot");
+        }
+        if (!canFitFully(player, pending)) {
+            ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.PENDING, "inventory_full");
+            return RewardGrantResult.pending(0, 0, "inventory_full");
+        }
+        try {
+            // See grantItem: this boundary must stay conservative after a process interruption.
+            ledger.beginApplying(event, rewardId, "inbox_item_delivery");
+            insertFully(player, pending);
+            ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.GRANTED, "");
+            return RewardGrantResult.success(1, 0);
+        } catch (RuntimeException exception) {
+            ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.BLOCKED,
+                    "item_delivery_outcome_unknown");
+            System.err.println("[omnitools] Reward inbox delivery requires manual resolution: event="
+                    + event.id() + ", reward=" + rewardId + ", player=" + player.getUUID() + " ("
+                    + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
+            return RewardGrantResult.blocked(0, 0, "item_delivery_outcome_unknown");
+        }
     }
 
     public void reconcileStartup(MinecraftServer server) {
@@ -286,7 +333,7 @@ public final class RewardGrantService {
         }
     }
 
-    private sealed interface EventSource permits DailySource, MonthlySource, AchievementSource {
+    private sealed interface EventSource permits DailySource, MonthlySource, AchievementSource, OnlineSource {
         UUID playerId();
 
         boolean isPermanentlyProven(MinecraftServer server);
@@ -303,6 +350,9 @@ public final class RewardGrantService {
                 }
                 if (parts.length == 3 && parts[0].equals("achievement")) {
                     return new AchievementSource(UUID.fromString(parts[1]), parts[2]);
+                }
+                if (parts.length == 4 && parts[0].equals("online")) {
+                    return new OnlineSource(UUID.fromString(parts[1]), Long.parseLong(parts[2]), parts[3]);
                 }
             } catch (RuntimeException ignored) {
                 // Unknown keys are retained for inspection rather than being treated as disposable.
@@ -329,6 +379,13 @@ public final class RewardGrantService {
         @Override
         public boolean isPermanentlyProven(MinecraftServer server) {
             return AchievementData.get(server).isClaimed(playerId, achievementId);
+        }
+    }
+
+    private record OnlineSource(UUID playerId, long day, String milestoneId) implements EventSource {
+        @Override
+        public boolean isPermanentlyProven(MinecraftServer server) {
+            return CheckinData.get(server).hasClaimedOnlineTimeReward(playerId, day, milestoneId);
         }
     }
 }

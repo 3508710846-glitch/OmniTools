@@ -17,5 +17,7 @@ class RewardEventTest {
                 RewardEvent.checkinMonthly(PLAYER, YearMonth.of(2026, 8), 10).id());
         assertEquals("achievement:" + PLAYER + ":stone_expert",
                 RewardEvent.achievement(PLAYER, "Stone_Expert").id());
+        assertEquals("online:" + PLAYER + ":20691:online_60m",
+                RewardEvent.online(PLAYER, 20691L, "Online_60M").id());
     }
 }

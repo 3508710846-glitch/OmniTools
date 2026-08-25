@@ -10,6 +10,10 @@ import java.util.regex.Pattern;
 
 /** Shared restrictions for configurable command-menu and reward command execution. */
 public record CommandSecurityConfig(List<String> allowedRoots, int maxCommandLength, int cooldownTicks) {
+    public static final String PERMISSIVE_ROOT = "*";
+    public static final int DEFAULT_MAX_COMMAND_LENGTH = 1_024;
+    public static final int DEFAULT_COOLDOWN_TICKS = 10;
+    public static final int LEGACY_COOLDOWN_TICKS = 0;
     private static final Pattern ROOT = Pattern.compile("[a-z0-9:_-]{1,64}");
 
     public CommandSecurityConfig {
@@ -22,7 +26,7 @@ public record CommandSecurityConfig(List<String> allowedRoots, int maxCommandLen
         Set<String> roots = new LinkedHashSet<>();
         for (String root : allowedRoots == null ? List.<String>of() : allowedRoots) {
             String normalized = root == null ? "" : root.trim().toLowerCase(Locale.ROOT);
-            if (!(normalized.equals("*") || ROOT.matcher(normalized).matches())) {
+            if (!(normalized.equals(PERMISSIVE_ROOT) || ROOT.matcher(normalized).matches())) {
                 throw new JsonParseException("global.command_security.allowed_roots contains an invalid root: " + root);
             }
             roots.add(normalized);
@@ -32,12 +36,18 @@ public record CommandSecurityConfig(List<String> allowedRoots, int maxCommandLen
 
     /** New installations permit no configurable commands until the owner explicitly lists roots. */
     public static CommandSecurityConfig defaults() {
-        return new CommandSecurityConfig(List.of(), 1_024, 0);
+        return new CommandSecurityConfig(List.of(), DEFAULT_MAX_COMMAND_LENGTH, DEFAULT_COOLDOWN_TICKS);
     }
 
     /** Only used by the root migrator to preserve an already deployed configuration. */
     public static CommandSecurityConfig legacyCompatible() {
-        return new CommandSecurityConfig(List.of("*"), 1_024, 0);
+        return new CommandSecurityConfig(List.of(PERMISSIVE_ROOT), DEFAULT_MAX_COMMAND_LENGTH,
+                LEGACY_COOLDOWN_TICKS);
+    }
+
+    /** A wildcard root preserves legacy behavior but permits every command root. */
+    public boolean isPermissive() {
+        return allowedRoots.contains(PERMISSIVE_ROOT);
     }
 
     public boolean allows(String command) {
@@ -51,6 +61,6 @@ public record CommandSecurityConfig(List<String> allowedRoots, int maxCommandLen
         }
         int separator = normalized.indexOf(' ');
         String root = (separator < 0 ? normalized : normalized.substring(0, separator)).toLowerCase(Locale.ROOT);
-        return allowedRoots.contains("*") || allowedRoots.contains(root);
+        return isPermissive() || allowedRoots.contains(root);
     }
 }

@@ -1,0 +1,21 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "chest_keeper",
+      "display": "仓储管理员",
+      "description": "打开箱子 50 次",
+      "icon": "minecraft:chest",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:open_chest",
+        "unit": "count",
+        "at_least": 50
+      },
+      "rewards": [
+        { "id": "chest_keeper_currency", "type": "currency", "amount": 75 }
+      ]
+    }
+  ]
+}

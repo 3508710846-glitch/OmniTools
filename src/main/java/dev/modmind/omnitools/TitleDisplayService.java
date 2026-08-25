@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -46,12 +47,13 @@ public final class TitleDisplayService {
         if (team != null && !isManagedTeam(team)) {
             playerName = PlayerTeam.formatNameForTeam(team, playerName);
         }
-        return playerName.copy().append(Component.literal(" ")).append(selected.get().displayComponent());
+        return playerName.copy().append(Component.literal(" "))
+                .append(TextTemplateRenderer.render(player, selected.get().display()));
     }
 
     public static Component chatName(ServerPlayer player, TitleConfig.TitleDefinition title) {
         return Component.empty()
-                .append(title.displayComponent())
+                .append(TextTemplateRenderer.render(player, title.display()))
                 .append(Component.literal(player.getGameProfile().name()).withStyle(ChatFormatting.RESET));
     }
 
@@ -130,7 +132,7 @@ public final class TitleDisplayService {
         if (team == null) {
             team = scoreboard.addPlayerTeam(teamName);
         }
-        team.setPlayerPrefix(title.displayComponent());
+        team.setPlayerPrefix(TextTemplateRenderer.render(player, title.display()));
         team.setPlayerSuffix(Component.empty());
         scoreboard.onTeamChanged(team);
         scoreboard.addPlayerToTeam(holder, team);

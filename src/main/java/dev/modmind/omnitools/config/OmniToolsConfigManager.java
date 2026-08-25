@@ -84,7 +84,7 @@ public final class OmniToolsConfigManager {
         CheckinRewardConfig dailyRewards = root.enabled(ModuleId.DAILY_CHECKIN)
                 ? CheckinRewardConfig.load(server.registryAccess()) : CheckinRewardConfig.empty();
         OnlineRewardConfig onlineRewards = root.enabled(ModuleId.ONLINE_REWARD)
-                ? OnlineRewardConfig.load() : OnlineRewardConfig.empty();
+                ? OnlineRewardConfig.load(server.registryAccess()) : OnlineRewardConfig.empty();
         CheckinRewardConfig rewards = CheckinRewardConfig.withOnlineRewards(dailyRewards, onlineRewards);
         ShopConfig shop = root.enabled(ModuleId.SHOP)
                 ? ShopConfig.load(server.registryAccess()) : ShopConfig.empty();

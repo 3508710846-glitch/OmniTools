@@ -1,0 +1,21 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "world_walker",
+      "display": "探索者",
+      "description": "累计步行 5 公里",
+      "icon": "minecraft:map",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:walk_one_cm",
+        "unit": "kilometers",
+        "at_least": 5
+      },
+      "rewards": [
+        { "id": "world_walker_currency", "type": "currency", "amount": 125 }
+      ]
+    }
+  ]
+}

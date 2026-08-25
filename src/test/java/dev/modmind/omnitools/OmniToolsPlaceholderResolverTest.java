@@ -12,4 +12,12 @@ class OmniToolsPlaceholderResolverTest {
         assertTrue(OmniToolsPlaceholderResolver.IDS.contains("balance"));
         assertTrue(OmniToolsPlaceholderResolver.IDS.contains("achievements_total"));
     }
+
+    @Test
+    void usesSafeFallbackValuesWithoutAPlayerOrPlaceholderApi() {
+        assertEquals("0", OmniToolsPlaceholderResolver.resolve(null, "balance").getString());
+        assertEquals("00:00:00", OmniToolsPlaceholderResolver.resolve(null, "online_today_hms").getString());
+        assertEquals("false", OmniToolsPlaceholderResolver.resolve(null, "checkin_today").getString());
+        assertEquals("0", OmniToolsPlaceholderResolver.resolve(null, "third_party:unknown").getString());
+    }
 }

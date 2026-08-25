@@ -1,26 +1,38 @@
-# 指令权限
+# 权限
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-权限模块为每个 `CommandAction` 配置最低角色，并提供云端存储原生权限节点和称号命令权限效果的安全开关。它是覆盖层，不会替代源码中的默认权限。
+权限模块为每个 `CommandAction` 配置最低角色，并可为云存储保留原生权限节点。它是覆盖层：关闭时回退到代码中的安全默认角色，不会无条件放行命令。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-根配置为 `config/omnitools/config.json`：
+模块 ID 为 `permissions`，默认关闭。它影响签到、在线奖励、商店、称号、成就、云存储、命令菜单、侧边栏、奖励与配置管理命令；不保存玩家业务数据。
+
+## 3. 模块开关配置
+
+```json
+{ "modules": { "permissions": { "enabled": true } } }
+```
+
+禁用后，所有动作立即回退到内置默认角色，已打开但失去权限的 GUI 会关闭。重新启用时加载本模块配置。
+
+## 4. 初始配置文件位置
+
+启用后首次加载生成 `config/omnitools/permissions/config.json`。修改后需要 `/omnitools reload`。
+
+## 5. 最小可用配置
 
 ```json
 {
-  "modules": {
-    "permissions": { "enabled": false }
-  }
+  "format_version": 1,
+  "allow_title_command_grants": false,
+  "commands": {}
 }
 ```
 
-根配置默认关闭权限模块。关闭时所有动作回退到 `CommandAction` 的源码默认角色，不会无条件放行；重新启用后读取权限配置覆盖项。已有配置和玩家数据保留。
+空 `commands` 使用每个动作的内置默认角色。
 
-## 3. 初始配置
-
-启用后首次加载生成 `config/omnitools/permissions/config.json`。以下是完整的首次生成配置，所有角色均来自 `CommandAction` 的源码默认值：
+## 6. 完整配置示例
 
 ```json
 {
@@ -32,89 +44,58 @@
     "shop.open": "PLAYER",
     "title.open": "PLAYER",
     "achievements.open": "PLAYER",
-    "storage.open": {
-      "role": "ADMIN",
-      "allow_native_node": true
-    },
-    "currency.balance.self": "PLAYER",
-    "currency.balance.other": "ADMIN",
+    "storage.open": { "role": "ADMIN", "allow_native_node": true },
     "currency.add": "ADMIN",
-    "currency.remove": "ADMIN",
-    "checkin.clear": "ADMIN",
-    "title.grant": "ADMIN",
-    "title.revoke": "ADMIN",
     "config.reload": "ADMIN",
-    "command_menu.open": "PLAYER",
-    "command_menu.close": "PLAYER",
-    "sidebar.toggle": "PLAYER",
-    "sidebar.status": "PLAYER",
-    "rewards.retry": "PLAYER"
+    "diagnose": "ADMIN",
+    "rewards.admin": "ADMIN"
   }
 }
 ```
 
-文件缺失时生成默认配置；错误时不采用新配置，旧快照继续运行。
+## 7. 配置字段表
 
-## 4. 指令与权限
-
-角色对应原版权限等级：`PLAYER`=0、`MODERATOR`=1、`ADMIN`=2、`OWNER`=4。以下是源码中的全部动作：
-
-| 指令入口 | 别名 | 用途 | 默认权限 | 仅玩家 |
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
 | --- | --- | --- | --- | --- |
-| `/omnitools`、`/omnitools open` | `/checkin` | 签到菜单 | `checkin.open` (`PLAYER`) | 是 |
-| `/omnitools online [rewards]` | `/checkin online [rewards]` | 在线奖励菜单 | `online.open` (`PLAYER`) | 是 |
-| `/omnitools shop [open]` | `/checkin shop [open]` | 商店 | `shop.open` (`PLAYER`) | 是 |
-| `/omnitools title [open]` | `/checkin title [open]`、`/title [open]` | 称号菜单 | `title.open` (`PLAYER`) | 是 |
-| `/omnitools achievements [open]` | `/checkin achievements [open]` | 成就菜单和领取 | `achievements.open` (`PLAYER`) | 是 |
-| `/omnitools storage [open]` | `/checkin storage [open]`、`/cloudstorage [open]`、`/cstorage [open]` | 云端存储 | `storage.open` (`ADMIN`) | 是 |
-| `/omnitools currency`、`/money` | `/checkin currency` | 查询自己的余额 | `currency.balance.self` (`PLAYER`) | 是 |
-| `/omnitools currency balance|get [玩家]` | `/checkin currency balance|get [玩家]`、`/money balance|get [玩家]`、`/omnitools balance [玩家]`、`/checkin balance [玩家]`、`/balance [玩家]` | 查询余额 | 自己：`currency.balance.self`；他人：`currency.balance.other` (`ADMIN`) | 自己查询是 |
-| `/omnitools currency add <玩家> <数量>`、`/omnitools add ...` | `/checkin currency add ...`、`/money add ...` | 增加货币 | `currency.add` (`ADMIN`) | 否 |
-| `/omnitools currency remove|deduct|take <玩家> <数量>`、`/omnitools remove ...` | `/checkin currency remove|deduct|take ...`、`/money remove|deduct|take ...` | 扣除货币 | `currency.remove` (`ADMIN`) | 否 |
-| `/omnitools clear [today]` | `/checkin clear [today]` | 清除当天签到 | `checkin.clear` (`ADMIN`) | 否 |
-| `/omnitools title give|add ...` | `/checkin title give|add ...`、`/title give|add ...` | 授予称号 | `title.grant` (`ADMIN`) | 否 |
-| `/omnitools title remove|take ...` | `/checkin title remove|take ...`、`/title remove|take ...` | 回收称号 | `title.revoke` (`ADMIN`) | 否 |
-| `/omnitools reload` | 无 | 完整配置重载 | `config.reload` (`ADMIN`) | 否 |
-| `/omnitools modules` | 无 | 打开模块管理 GUI | `config.reload` (`ADMIN`) | 是 |
-| `/omnitools menu open` | `/omnitools menu`、`main` | 打开命令菜单 | `command_menu.open` (`PLAYER`) | 是 |
-| `/omnitools menu close` | 无 | 关闭命令菜单 | `command_menu.close` (`PLAYER`) | 是 |
-| `/omnitools sidebar on/off/toggle` | 无 | 修改个人侧边栏 | `sidebar.toggle` (`PLAYER`) | 是 |
-| `/omnitools sidebar status` | 无 | 查看个人侧边栏状态 | `sidebar.status` (`PLAYER`) | 是 |
-| `/omnitools rewards retry` | 无 | 重试自己的待处理签到和成就奖励 | `rewards.retry` (`PLAYER`) | 是 |
+| `format_version` | integer | 否 | 首次生成 `1` | reload |
+| `allow_title_command_grants` | boolean | 否 | `false` | reload |
+| `commands` | object | 否 | 空对象使用代码默认角色 | reload |
+| `commands.<action>` | string 或 object | 否 | `PLAYER`、`MODERATOR`、`ADMIN`、`OWNER` | reload |
+| `commands.storage.open.allow_native_node` | boolean | 否 | `true` | reload |
 
-## 5. 配置字段
+支持的动作：`checkin.open`、`online.open`、`shop.open`、`title.open`、`achievements.open`、`storage.open`、`currency.balance.self`、`currency.balance.other`、`currency.add`、`currency.remove`、`checkin.clear`、`title.grant`、`title.revoke`、`config.reload`、`diagnose`、`command_menu.open`、`command_menu.close`、`sidebar.toggle`、`sidebar.status`、`rewards.retry`、`rewards.admin`。
 
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | number | 否 | `1` | 正整数。 |
-| `allow_title_command_grants` | boolean | 否 | `false` | 是否允许称号效果授予 `omnitools:command.*` 节点。 |
-| `commands` | object | 是 | 每个动作使用源码默认角色 | 根字段缺失或未知动作 ID 会拒绝配置。单个已知动作可省略，省略后回退该动作的源码默认角色。 |
-| `commands.<action>` | string/object | 否 | 对应默认角色 | 覆盖单个动作最低角色。 |
-| `commands.storage.open.allow_native_node` | boolean | 否 | `true` | 是否允许 `omnitools:cloud_storage` 原生节点绕过角色门槛。 |
+## 8. 指令、别名和权限节点
 
-## 6. 使用示例
+角色对应原版权限等级：`PLAYER=0`、`MODERATOR=1`、`ADMIN=2`、`OWNER=4`。每个模块页列出它使用的动作。原生节点仅为 `omnitools:cloud_storage`，需在 `storage.open` 中允许；称号的 PERMISSION 效果还受 `allow_title_command_grants` 控制。
 
-将在线奖励交给管理员、保留玩家自查余额：
+## 9. GUI 操作说明
 
-```json
-{
-  "format_version": 1,
-  "allow_title_command_grants": false,
-  "commands": {
-    "online.open": "ADMIN",
-    "currency.balance.self": "PLAYER"
-  }
-}
-```
+权限没有玩家 GUI。管理员通过模块管理 GUI 启用或禁用本模块；各业务 GUI 在权限失效时由服务端关闭，玩家不能通过旧窗口绕过权限。
 
-修改后执行 `/omnitools reload`。非法动作 ID、角色或字段会被拒绝；失败时旧权限快照继续生效。
+## 10. 占位符列表及用途
 
-## 7. 数据保存
+权限模块没有专属占位符。可用所有通用占位符的文本展示不等于获得对应命令权限，见[Placeholder API](../guides/placeholder-api.md)。
 
-权限 JSON 只保存角色覆盖和安全开关，不保存玩家进度。模块关闭不会删除权限文件或世界 `SavedData`。
+## 11. 数据保存位置和升级影响
 
-升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
+规则保存在 `permissions/config.json`，不保存玩家业务数据。禁用或升级不会重置任何货币、签到、称号、成就、存储或奖励账本。
 
-## 8. 热重载与依赖
+## 12. 与其他模块的联动
 
-重载成功后在线玩家命令树刷新，已打开但失去权限的菜单关闭；模块 GUI 每次打开和点击都会再次检查 `config.reload`。关闭权限模块后即时回退源码默认角色。权限配置错误时不会变成无条件放行。
+所有注册命令都会查询本模块；云存储可使用原生节点；称号权限效果受总开关保护。命令菜单和奖励命令的白名单仍由根 `command_security` 管理，不由本模块放宽。
+
+## 13. 常见错误及解决方法
+
+| 现象 | 处理 |
+| --- | --- |
+| 玩家无法使用命令 | 检查动作名称、角色等级、模块开关和原版 OP 等级。 |
+| 设置无效 | 使用大写角色名；修复 JSON 后 reload。 |
+| 称号没有授予权限 | 检查 `allow_title_command_grants`、PERMISSION 效果和节点白名单。 |
+
+## 14. 可复制的验收清单
+
+- [ ] PLAYER 无法使用管理员命令，ADMIN 可使用配置管理与账本命令。
+- [ ] `storage.open` 的原生节点按开关工作。
+- [ ] 禁用权限模块后，命令回退到内置默认角色。
+- [ ] 权限改变后已失效的 GUI 被关闭。

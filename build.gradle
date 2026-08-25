@@ -28,7 +28,8 @@ dependencies {
 // MODMIND DEPENDENCIES START
     runtimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
     implementation 'org.junit.jupiter:junit-jupiter:5.11.4'
-    modImplementation files('libs/modmind/placeholder-api-2.8.2+1.21.10.jar')
+    // Placeholder API is loaded reflectively; production servers must not require it.
+    modCompileOnly files('libs/modmind/placeholder-api-2.8.2+1.21.10.jar')
 // MODMIND DEPENDENCIES END
 }
 

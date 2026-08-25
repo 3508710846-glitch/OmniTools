@@ -89,6 +89,26 @@ public final class SidebarService {
         return SidebarPreferenceData.get(player).visible(player.getUUID(), ModMindEntry.sidebarConfig().defaultVisible());
     }
 
+    /** Returns the current in-memory conflict state without sending packets or changing preferences. */
+    public DiagnosticStatus diagnosticStatus() {
+        int visiblePlayers = 0;
+        int managedPlayers = 0;
+        int skippedByConflict = 0;
+        for (PlayerState state : states.values()) {
+            if (state.visible) {
+                visiblePlayers++;
+            }
+            if (state.objective != null) {
+                managedPlayers++;
+            }
+            if (state.skippedByConflict) {
+                skippedByConflict++;
+            }
+        }
+        return new DiagnosticStatus(ModMindEntry.sidebarConfig().conflictPolicy(), visiblePlayers,
+                managedPlayers, skippedByConflict);
+    }
+
     public void refreshAll(MinecraftServer server) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.SIDEBAR)) {
             clearAll(server);
@@ -248,5 +268,9 @@ public final class SidebarService {
         private String dimensionId = "";
         private Objective restoreObjective;
         private boolean skippedByConflict;
+    }
+
+    public record DiagnosticStatus(SidebarConfig.ConflictPolicy policy, int visiblePlayers,
+                                   int managedPlayers, int skippedByConflict) {
     }
 }

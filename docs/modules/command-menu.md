@@ -1,158 +1,130 @@
 # 命令菜单
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-命令菜单让服主用 JSON 配置原版 27 或 54 格箱子菜单。每个格子可配置图标、名称、Lore、光效、左右键动作；所有点击、跳转和命令均由服务端执行。它使用原版 `GENERIC_9x3` 或 `GENERIC_9x6`，原版客户端无需安装 OmniTools。
+命令菜单将可配置的物品、Lore、左右键动作和子菜单组织为原版箱子 GUI。它适合提供传送、帮助或服务器功能入口；所有点击、权限和命令校验均在服务端完成。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-根配置为 `config/omnitools/config.json`：
+模块 ID 为 `command_menu`。控制台命令动作还依赖根配置的命令白名单、最大长度、冷却和 `allow_console_commands`；玩家可见文本可使用内置与可选第三方占位符。
 
-```json
-{
-  "modules": {
-    "command_menu": { "enabled": true }
-  }
-}
-```
-
-禁用后命令菜单入口拒绝且已打开菜单关闭，配置文件保留。重新启用后重新读取注册表和菜单文件。
-
-## 3. 初始配置
-
-首次加载创建：
-
-```text
-config/omnitools/command_menu/config.json
-config/omnitools/command_menu/menus/
-```
-
-注册表默认为空：
+## 3. 模块开关配置
 
 ```json
-{
-  "format_version": 1,
-  "menus": [],
-  "allow_console_commands": false
-}
+{ "modules": { "command_menu": { "enabled": true } } }
 ```
 
-没有注册菜单时不会生成示例菜单。注册菜单但其文件缺失时，会创建以下空 27 格页面。任一文件错误时不覆盖原文件，旧快照继续运行。
+禁用会关闭所有命令菜单并拒绝打开、跳转和执行动作，配置文件与玩家数据不受影响。
 
-```json
-{
-  "format_version": 1,
-  "title": "空菜单",
-  "size": 27,
-  "items": []
-}
-```
+## 4. 初始配置文件位置
 
-## 4. 指令与权限
+注册表首次生成在 `config/omnitools/command_menu/config.json`，页面文件位于 `config/omnitools/command_menu/menus/`。修改任一文件后执行 `/omnitools reload`。
 
-| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
-| --- | --- | --- | --- | --- |
-| `/omnitools menu` | 无 | 打开 ID 为 `main` 的菜单 | `command_menu.open` (`PLAYER`) | 是 |
-| `/omnitools menu open <id>` | 无 | 打开指定菜单 | `command_menu.open` (`PLAYER`) | 是 |
-| `/omnitools menu main` | 无 | 打开 `main` 菜单 | `command_menu.open` (`PLAYER`) | 是 |
-| `/omnitools menu close` | 无 | 关闭当前命令菜单 | `command_menu.close` (`PLAYER`) | 是 |
-
-打开时还必须满足注册表中该菜单的 `permission`。子菜单跳转会再次检查目标菜单权限。
-
-## 5. 配置字段
-
-注册表 `command_menu/config.json`：
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | number | 否 | `1`，正整数 | 格式标记。 |
-| `menus` | array | 是 | `[]` | 菜单注册项。 |
-| `menus[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，唯一 | 菜单跳转 ID。 |
-| `menus[].file` | string | 是 | 单层 `.json` 文件名 | 仅允许 `menus/` 内安全文件名，禁止路径与 `..`。 |
-| `menus[].permission` | string | 是 | `PLAYER`/`MODERATOR`/`ADMIN`/`OWNER` | 菜单级角色门槛。 |
-| `allow_console_commands` | boolean | 否 | `false` | 是否允许 `run_as: "console"`。 |
-
-菜单页 `command_menu/menus/<file>.json`：
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | number | 否 | `1`，正整数 | 格式标记。 |
-| `title` | string | 是 | 非空 | 菜单标题，支持 `&` 颜色。 |
-| `size` | integer | 否 | `27`，仅 `27` 或 `54` | 箱子大小。 |
-| `filler` | object | 否 | 空气 | 填充未配置格；字段规则见下表。 |
-| `items` | array | 否 | `[]`，最多 54 项 | 按格子配置的按钮。 |
-| `items[].slot` | integer | 是 | 0 到 `size - 1`，唯一 | 格子位置。 |
-| `items[].item` | string | 是 | 有效且非空气物品 ID | 按钮图标。 |
-| `items[].amount` | integer | 否 | `1`，`1-64` | 图标数量。 |
-| `items[].name` | string | 否 | 无 | 自定义名称。 |
-| `items[].lore` | string array | 否 | `[]` | Lore，最多原版允许的行数。 |
-| `items[].glow` | boolean | 否 | `false` | 是否显示附魔光效。 |
-| `left_click`、`right_click` | array | 否 | `[]`，各最多 8 项 | 对应鼠标键动作。 |
-
-`filler` 使用与按钮相同的显示字段，但没有槽位、光效或点击动作：
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `filler.item` | string | 是 | 有效且非空气物品 ID | 未配置按钮的填充物；无效或空气 ID 会拒绝配置。 |
-| `filler.amount` | integer | 否 | `1`，`1-64` | 填充物数量；范围外或非整数会拒绝配置。 |
-| `filler.name` | string | 否 | 无 | 填充物显示名称，支持 `&` 颜色代码；非字符串会拒绝配置。 |
-| `filler.lore` | string array | 否 | `[]`，最多原版允许的 Lore 行数 | 填充物说明；任一元素不是字符串或行数过多会拒绝配置。 |
-
-每个 `items[].left_click[]` 或 `items[].right_click[]` 动作对象的字段如下：
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `type` | string | 是 | `open_menu`、`close_menu`、`message`、`command` | 动作类型；未知值拒绝配置。 |
-| `menu` | string | `type=open_menu` 时是 | 已注册菜单 ID | 直接跳转目标菜单；目标不存在拒绝配置。 |
-| `text` | string | `type=message` 时是 | 非空 | 向点击者显示服务端解析后的文本。 |
-| `command` | string | `type=command` 时是 | 非空，最多 1024 字符 | 仅执行配置中固定的命令文本。 |
-| `run_as` | string | 否，仅 `command` 使用 | `player`；可为 `player` 或 `console` | 控制台命令需要 `allow_console_commands: true`；非法值拒绝配置。 |
-
-命令替换变量仅允许 `{player_name}`、`{player_uuid}`、`{player_x}`、`{player_y}`、`{player_z}`、`{player_world}`。`open_menu` 和 `close_menu` 执行后会停止本次点击的后续动作。普通左/右键以外的 Shift、拖拽、双击和数字键操作均由服务端拒绝。
-
-## 6. 使用示例
+## 5. 最小可用配置
 
 注册表：
 
 ```json
 {
   "format_version": 1,
-  "menus": [
-    { "id": "main", "file": "main.json", "permission": "PLAYER" }
-  ],
+  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }],
   "allow_console_commands": false
 }
 ```
 
-`menus/main.json`：
+页面 `menus/main.json`：
+
+```json
+{ "format_version": 1, "title": "服务器菜单", "size": 27, "items": [] }
+```
+
+## 6. 完整配置示例
+
+注册表：
 
 ```json
 {
   "format_version": 1,
-  "title": "&6服务器菜单",
+  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }],
+  "allow_console_commands": true
+}
+```
+
+页面 `menus/main.json`：
+
+```json
+{
+  "format_version": 1,
+  "title": "&b服务器菜单",
   "size": 27,
+  "filler": { "item": "minecraft:black_stained_glass_pane", "amount": 1, "name": " " },
   "items": [
     {
       "slot": 13,
-      "item": "minecraft:clock",
-      "name": "&e每日签到",
-      "left_click": [
-        { "type": "command", "run_as": "player", "command": "omnitools open" },
-        { "type": "close_menu" }
-      ]
+      "item": "minecraft:compass",
+      "amount": 1,
+      "name": "&e返回大厅",
+      "lore": ["&7点击执行 /spawn"],
+      "left_click": [{ "type": "command", "run_as": "console", "command": "spawn" }],
+      "right_click": [{ "type": "close_menu" }]
     }
   ]
 }
 ```
 
-修改后运行 `/omnitools reload`。缺失目标菜单、越界槽位、无效物品或未授权控制台命令会拒绝配置；旧菜单继续可用。
+示例只有在根配置白名单包含 `spawn` 时才可执行。
 
-## 7. 数据保存
+## 7. 配置字段表
 
-命令菜单只保存 JSON 定义，不保存玩家进度。当前打开的菜单是临时服务端容器；玩家退出或菜单关闭后不保留状态。
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
+| --- | --- | --- | --- | --- |
+| `config.json.format_version` | integer | 否 | 首次生成 `1` | reload |
+| `menus` | object array | 是 | 每项具有唯一 `id`、安全 `.json` `file` 和 `permission` 角色 | reload |
+| `allow_console_commands` | boolean | 否 | `false` | reload |
+| 页面 `title` | string | 是 | 服务端渲染文本 | reload |
+| 页面 `size` | integer | 是 | `27` 或 `54` | reload |
+| `filler` | object | 否 | `item`、`amount`、`name`、`lore` | reload |
+| `items[].slot` | integer | 是 | 唯一且小于 `size` | reload |
+| `item`、`amount`、`name`、`lore`、`glow` | 物品字段 | 是/否 | 有效物品；数量 1-64 | reload |
+| `left_click`、`right_click` | array | 否 | 每侧最多 8 个动作 | reload |
+| 动作 `type` | string | 是 | `open_menu`、`close_menu`、`command`、`message` | reload |
+| 动作字段 | object | 按类型 | open 使用 `menu`；command 使用 `run_as` 与 `command`；message 使用 `message` | reload |
 
-升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
+## 8. 指令、别名和权限节点
 
-## 8. 热重载与依赖
+| 指令 | 别名 | 权限节点 | 默认角色 |
+| --- | --- | --- | --- |
+| `/omnitools menu`（打开 `main`）或 `/omnitools menu open <id>` | 无 | `command_menu.open` | PLAYER |
+| `/omnitools menu close` | 无 | `command_menu.close` | PLAYER |
+| `/omnitools reload` | 无 | `config.reload` | ADMIN |
 
-成功重载刷新命令树和已打开页面；被删除的菜单、禁用模块或失去权限的玩家菜单会关闭。页面大小变化时会关闭并重新打开同一菜单。普通和 Shift/拖拽/双击/数字键等非普通点击均被服务端拒绝，快速移动返回空。统一快照失败时当前菜单不关闭。
+## 9. GUI 操作说明
+
+菜单使用原版 3 行或 6 行箱子。配置的左右键动作由服务端执行；`open_menu` 在已注册页面间跳转，`close` 关闭窗口。玩家不能拿走配置物品，点击频率受根 `cooldown_ticks` 限制。
+
+## 10. 占位符列表及用途
+
+标题、物品名称、Lore 和提示文本会使用统一文本渲染器，可使用 17 个内置占位符与可选 API 文本占位符。控制台命令 `value` 不会解析第三方文本占位符，只接受受控变量。
+
+## 11. 数据保存位置和升级影响
+
+菜单定义在 `config/omnitools/command_menu/`，不保存玩家业务进度。升级旧配置时，未曾存在的命令菜单模块会保持禁用；现有菜单文件会保留。
+
+## 12. 与其他模块的联动
+
+菜单可打开服务器命令可达的其他模块入口，并可显示货币、称号、签到、在线或成就占位符。命令安全属于根配置与奖励系统共享规则。
+
+## 13. 常见错误及解决方法
+
+| 现象 | 处理 |
+| --- | --- |
+| 菜单没有打开 | 检查模块开关、`command_menu.open` 权限、菜单 ID 和注册表文件名。 |
+| 控制台命令被拒绝 | 设置 `allow_console_commands: true`，并将命令根加入根白名单。 |
+| reload 失败 | 检查重复槽位、页面尺寸、物品 ID、未知子菜单或动作数量。 |
+
+## 14. 可复制的验收清单
+
+- [ ] 27 格和 54 格页面均可打开，左右键动作正确。
+- [ ] 子菜单跳转与关闭正常，UI 物品不能取走。
+- [ ] 白名单外的控制台命令无法执行。
+- [ ] 关闭模块后已打开菜单立即关闭。

@@ -1,85 +1,37 @@
 # 称号
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-称号模块管理称号定义、玩家拥有的称号和当前佩戴称号。佩戴称号会影响聊天名称、Tab 列表和头顶显示；可选的称号效果由 [title-effects.md](title-effects.md) 管理。称号选择界面为原版箱子 GUI，原版客户端无需安装 OmniTools。头顶称号使用原版计分板队伍前缀。
+称号模块管理称号定义、玩家拥有状态与当前佩戴。佩戴后的文本可显示在聊天、Tab 列表和头顶；头顶显示使用服务端原版计分板队伍前缀，不要求客户端模组。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-根配置为 `config/omnitools/config.json`：
+模块 ID 为 `titles`。`title_effects` 的效果定义与签到、在线奖励、成就的 `title` 奖励都会引用它。效果定义非空时不能关闭本模块。
+
+## 3. 模块开关配置
 
 ```json
-{
-  "modules": {
-    "titles": { "enabled": true }
-  }
-}
+{ "modules": { "titles": { "enabled": true } } }
 ```
 
-禁用后称号菜单和称号聊天/Tab/头顶显示停止，已保存的拥有与选择状态不删除。若称号效果模块启用且效果定义非空，不能直接禁用称号模块。
+禁用会关闭称号 GUI，移除 OmniTools 的聊天、Tab 与头顶显示；玩家拥有与选择状态仍保留。
 
-## 3. 初始配置
+## 4. 初始配置文件位置
 
-首次加载生成 `config/omnitools/titles/config.json`。以下是首次生成的完整默认配置；三个称号分别引用默认效果 `health_2`、`speed_1`、`resistance_1`/`night_vision`：
+首次启动生成 `config/omnitools/titles/config.json`。修改后执行 `/omnitools reload`。
+
+## 5. 最小可用配置
 
 ```json
 {
   "format_version": 1,
-  "nameplate_mode": "scoreboard_team",
-  "team_conflict_policy": "omnitools_priority",
   "titles": [
-    {
-      "id": "geologist",
-      "display": "\u00a77[\u00a7r地质学家\u00a77] \u00a7r",
-      "rarity": "common",
-      "effects": ["health_2"],
-      "tooltip": ["\u00a77佩戴效果：", "\u00a7c\u2665 生命上限 +4"]
-    },
-    {
-      "id": "architect",
-      "display": "\u00a7b[\u00a7r建筑师\u00a7b] \u00a7r",
-      "rarity": "rare",
-      "effects": ["speed_1"],
-      "tooltip": ["\u00a77佩戴效果：", "\u00a7a\u2714 移动速度提升"]
-    },
-    {
-      "id": "legend",
-      "display": "\u00a76[\u00a7r传说\u00a76] \u00a7r",
-      "rarity": "legendary",
-      "effects": ["resistance_1", "night_vision"],
-      "tooltip": ["\u00a77佩戴效果：", "\u00a7a\u2714 抗性提升 I", "\u00a7a\u2714 永久夜视"]
-    }
+    { "id": "builder", "display": "&b[建筑师] ", "rarity": "rare" }
   ]
 }
 ```
 
-文件缺失时创建完整默认列表；格式错误时不覆盖原文件，旧快照继续运行。
-
-## 4. 指令与权限
-
-| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
-| --- | --- | --- | --- | --- |
-| `/omnitools title [open]` | `/checkin title [open]`、`/title [open]` | 打开称号菜单 | `title.open` (`PLAYER`) | 是 |
-| `/omnitools title give|add <玩家> <称号ID>` | `/checkin title give|add ...`、`/title give|add ...` | 授予称号 | `title.grant` (`ADMIN`) | 否 |
-| `/omnitools title remove|take <玩家> <称号ID>` | `/checkin title remove|take ...`、`/title remove|take ...` | 回收称号 | `title.revoke` (`ADMIN`) | 否 |
-
-玩家在菜单中选择已拥有称号；授予或回收在线玩家时会立即刷新显示和效果。
-
-## 5. 配置字段
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | 任意 JSON 值（当前未读取） | 否 | 首次生成写入 `1` | 当前读取器忽略该字段；它仅作为生成文件的格式标记。 |
-| `titles` | array | 是 | 默认 3 项 | 称号列表。 |
-| `titles[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，唯一 | 稳定称号 ID，命令和奖励引用它。 |
-| `nameplate_mode` | string | 否 | `scoreboard_team`；也可为 `disabled` | 头顶称号的服务端显示方式。`scoreboard_team` 使用原版队伍前缀，`disabled` 不显示头顶称号。非法值拒绝配置。 |
-| `team_conflict_policy` | string | 否 | `omnitools_priority`；也可为 `preserve_external_team` | 玩家已在外部计分板队伍中时的策略。前者暂时替换外部队伍并在卸下称号、禁用模块或正常停服时恢复；后者保留外部队伍且不显示该玩家的头顶称号。 |
-| `titles[].display` | string | 是 | 最多 128 字符 | 显示文本，支持 `§` 颜色代码；去除格式后必须有可见文本。 |
-| `titles[].rarity` | string | 是 | `common`、`rare`、`legendary` | 菜单稀有度。`rare` 和 `legendary` 出现在 Tab，`legendary` 也显示在头顶；非法值拒绝配置。 |
-| `titles[].effects` | string array | 否 | `[]` | 引用的效果 ID；不能重复。效果模块启用时必须存在对应定义。 |
-| `titles[].tooltip` | string array | 否 | `[]` | 菜单说明，每行最多 256 字符。 |
-
-## 6. 使用示例
+## 6. 完整配置示例
 
 ```json
 {
@@ -89,23 +41,64 @@
   "titles": [
     {
       "id": "builder",
-      "display": "§b[建筑师]",
+      "display": "&b[建筑师] ",
       "rarity": "rare",
       "effects": ["speed_1"],
-      "tooltip": ["&7通过活动获得", "&a速度提升"]
+      "tooltip": ["&7活动奖励", "&a移动速度提升"]
     }
   ]
 }
 ```
 
-先确保被引用的效果 ID 有效，再执行 `/omnitools reload`。若出现未知效果或重复 ID，按日志修正；旧称号配置继续运行。
+## 7. 配置字段表
 
-## 7. 数据保存
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
+| --- | --- | --- | --- | --- |
+| `format_version` | integer | 否 | 首次生成 `1` | reload |
+| `nameplate_mode` | string | 否 | `scoreboard_team` 或 `disabled` | reload |
+| `team_conflict_policy` | string | 否 | `omnitools_priority` 或 `preserve_external_team` | reload |
+| `titles` | array | 是 | 称号列表 | reload |
+| `titles[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，唯一 | reload |
+| `display` | string | 是 | 最多 128 字符，支持 `&` 颜色 | reload |
+| `rarity` | string | 是 | `common`、`rare`、`legendary` | reload |
+| `effects` | string array | 否 | 已定义效果 ID，不能重复 | reload |
+| `tooltip` | string array | 否 | 每行最多 256 字符 | reload |
 
-世界 `SavedData` 的 `TitleData` 保存玩家名称映射、已拥有称号、当前选择和个人效果开关。称号 JSON 仅保存定义；删除定义不会主动清除已有数据。
+## 8. 指令、别名和权限节点
 
-升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
+| 指令 | 别名 | 权限节点 | 默认角色 |
+| --- | --- | --- | --- |
+| `/omnitools title [open]` | `/checkin title [open]`、`/title [open]` | `title.open` | PLAYER |
+| `/omnitools title give|add <player> <titleId>` | `/title give|add ...` | `title.grant` | ADMIN |
+| `/omnitools title remove|take <player> <titleId>` | `/title remove|take ...` | `title.revoke` | ADMIN |
 
-## 8. 热重载与依赖
+## 9. GUI 操作说明
 
-重载成功后在线玩家的称号显示刷新，失去权限的称号菜单会关闭。`title_effects` 启用时称号引用必须通过校验；禁用称号效果会清理由其施加的效果而不删除称号数据。计分板协议规定一个玩家同一时间只能属于一个队伍，无法保证与其他队伍模组同时完整显示。统一快照校验失败时旧显示规则保留。
+称号菜单展示玩家拥有的称号、稀有度、说明和效果。点击拥有的称号进行佩戴或切换个人效果开关；玩家不能取走菜单物品。授予、回收和 reload 后在线玩家立即刷新。
+
+## 10. 占位符列表及用途
+
+`%omnitools:title_id%`、`title`、`title_plain` 和 `title_effects_enabled` 可用于侧边栏及其他可配置文本。未佩戴或模块关闭时返回空文本或 `false`。
+
+## 11. 数据保存位置和升级影响
+
+玩家名称映射、拥有称号、当前选择和个人效果开关保存在世界 `TitleData`。删除 JSON 定义不会自动删除既有玩家数据；升级前不要重命名已被奖励或命令引用的称号 ID。
+
+## 12. 与其他模块的联动
+
+称号效果引用 `title_effects`。签到、在线奖励和成就可以授予称号；侧边栏可显示当前称号。头顶显示与外部队伍系统有原版协议层面的单队伍限制。
+
+## 13. 常见错误及解决方法
+
+| 现象 | 处理 |
+| --- | --- |
+| 头顶没有称号 | 检查 `nameplate_mode`、是否已佩戴，以及外部队伍冲突策略。 |
+| reload 失败 | 检查重复 ID、无效稀有度、过长文本或不存在的效果 ID。 |
+| 奖励称号被阻塞 | 启用本模块并定义相同称号 ID，然后在奖励箱重试。 |
+
+## 14. 可复制的验收清单
+
+- [ ] 授予、选择和回收称号后，GUI、聊天和 Tab 同步刷新。
+- [ ] 两种外部队伍冲突策略均符合预期。
+- [ ] 称号奖励只能引用存在的 ID。
+- [ ] 禁用模块时显示清理，SavedData 保留。

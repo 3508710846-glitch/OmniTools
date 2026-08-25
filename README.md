@@ -1,49 +1,41 @@
 # OmniTools
 
-OmniTools 是面向 Fabric 服务器的模块化实用工具模组。它提供每日签到、在线奖励、商店与货币、称号、成就、云端存储、命令菜单、侧边栏和可配置的指令权限。
+OmniTools 是面向 Fabric 服务器的模块化管理工具，提供每日签到、在线奖励、商店与货币、称号、成就、云存储、命令菜单、侧边栏和权限控制。
 
-| 项目 | 版本或要求 |
+| 要求 | 版本 |
 | --- | --- |
 | Minecraft | `1.21.11` |
-| Fabric Loader | `>= 0.19.3` |
-| Fabric API | `0.141.6+1.21.11` |
+| Fabric Loader | `0.19.3` 或更高版本 |
+| Fabric API | 与服务端 Minecraft 版本匹配 |
 | Java | `21` |
-| OmniTools | `2.0.1` |
 
-OmniTools 是纯服务端模组：配置、玩家数据、命令校验和全部业务 GUI 都在服务端执行。签到、在线奖励、商店、称号、成就、云端存储、命令菜单和模块管理均使用原版箱子界面；侧边栏使用原版 scoreboard 数据包。玩家可使用完全未安装 OmniTools 的原版或 Fabric 客户端连接，无需资源包、客户端模组或自定义网络包。
+## 纯服务端
 
-自定义文本由服务端按 `config/omnitools/config.json` 的 `global.language`（`zh_cn` 或 `en_us`）解析后发送。头顶称号使用原版计分板队伍前缀；一个玩家同时只能属于一个计分板队伍，和其他队伍系统发生冲突时由称号配置中的策略决定处理方式。
+OmniTools 只安装在服务器。玩家可用未安装 OmniTools 的原版或 Fabric 客户端进入，无需资源包、客户端模组或自定义网络包。所有业务菜单均使用原版箱子容器，侧边栏使用原版计分板。
 
 ## 安装
 
-1. 使用 Java 21 启动 Fabric 1.21.11 服务端。
+1. 使用 Java 21 启动 Fabric `1.21.11` 服务端。
 2. 将 OmniTools 和 Fabric API 放入服务器的 `mods/` 目录。
-3. 首次启动服务器。OmniTools 会在 `config/omnitools/` 创建根配置和已启用模块的初始配置。
-4. 修改配置后，由管理员执行 `/omnitools reload`。该命令只会在全部已启用模块配置校验通过时发布新配置。
+3. 启动一次服务器；根配置与已启用模块的配置会生成在 `config/omnitools/`。
+4. 修改配置后，以管理员身份执行 `/omnitools reload`。配置校验失败时，服务器继续使用上一份有效快照。
 
-Fabric Placeholder API 是可选依赖。只有需要向其他模组提供占位符或在侧边栏使用第三方占位符时才安装它，详见[Placeholder API](docs/modules/placeholder-api.md)。
+Placeholder API 是可选依赖。只有需要向其他模组暴露占位符，或在配置文本中解析第三方占位符时才安装它。详情见[Placeholder API 指南](docs/guides/placeholder-api.md)。
 
 ## 快速开始
 
-首次启动后，玩家可使用 `/omnitools` 或 `/checkin` 打开签到界面。服主先检查 `config/omnitools/config.json` 中的时区与模块开关，再按模块文档修改相应配置，最后执行 `/omnitools reload`。配置校验失败时，服务器会继续使用上一份有效配置。
+检查 `config/omnitools/config.json` 中的时区、语言、命令白名单和模块开关，再按模块文档修改各自的 `config.json`。新安装默认禁止可配置命令执行；仅在明确列出允许的命令根后才会执行命令菜单或奖励指令。
 
-生产服升级模组、修改配置或切换模块前，请备份世界目录和 `config/omnitools/`。配置 JSON 只保存规则；玩家进度由世界 `SavedData` 保存。
+玩家可使用 `/omnitools` 或 `/checkin` 打开签到界面。管理员可使用 `/omnitools modules` 管理模块，使用 `/omnitools diagnose` 查看当前配置、集成和运行状态。
 
-## 模块文档
+## 文档
 
-| 模块 | 文档 |
-| --- | --- |
-| 每日签到 | [daily-checkin.md](docs/modules/daily-checkin.md) |
-| 在线奖励 | [online-reward.md](docs/modules/online-reward.md) |
-| 商店与货币 | [shop-and-currency.md](docs/modules/shop-and-currency.md) |
-| 称号 | [titles.md](docs/modules/titles.md) |
-| 称号效果 | [title-effects.md](docs/modules/title-effects.md) |
-| 成就 | [achievements.md](docs/modules/achievements.md) |
-| 云端存储 | [cloud-storage.md](docs/modules/cloud-storage.md) |
-| 指令权限 | [permissions.md](docs/modules/permissions.md) |
-| 命令菜单 | [command-menu.md](docs/modules/command-menu.md) |
-| 侧边栏 | [sidebar.md](docs/modules/sidebar.md) |
-| 模块管理与重载 | [module-management.md](docs/modules/module-management.md) |
-| Placeholder API | [placeholder-api.md](docs/modules/placeholder-api.md) |
+从[文档总索引](docs/index.md)进入模块参考、配置示例、升级和排障指南。升级生产服务器、变更奖励 ID 或修改数据保留策略前，请先阅读[升级指南](docs/guides/upgrade-guide.md)和[备份与恢复](docs/guides/backup-and-recovery.md)。
 
-排查问题时请保留服务器日志、相关配置文件和复现步骤。规划记录已归档在 `docs/archive/`，不代表已实现功能。
+## 常见问题
+
+- 原版客户端打开菜单：所有 OmniTools 菜单都是原版容器；若收到网络协议错误，请保留服务端日志、客户端报错和触发命令。
+- 配置没有生效：执行 `/omnitools reload` 并检查日志。失败不会替换运行中的旧配置。
+- 奖励未到账：先打开 `/omnitools rewards open` 检查奖励箱；管理员再使用奖励账本工具排查，见[奖励一致性](docs/guides/reward-consistency.md)。
+
+发布版本与变更记录以仓库的 `CHANGELOG.md` 和构建产物元数据为准。

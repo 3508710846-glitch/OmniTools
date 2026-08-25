@@ -6,12 +6,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import dev.modmind.omnitools.LegacyTitleText;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.permissions.CommandRole;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -119,7 +116,8 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
             throw new JsonParseException("menu " + id + " size must be 27 or 54");
         }
         ItemStack filler = new ItemStack(net.minecraft.world.item.Items.AIR);
-        List<Component> fillerLore = List.of();
+        String fillerName = null;
+        List<String> fillerLore = List.of();
         JsonElement fillerElement = root.get("filler");
         if (fillerElement != null) {
             if (!fillerElement.isJsonObject()) {
@@ -128,9 +126,8 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
             JsonObject fillerObject = fillerElement.getAsJsonObject();
             String itemId = requiredString(fillerObject, "item", "menu " + id + ".filler");
             filler = createStack(itemId, amount(fillerObject, "amount", 1), "menu " + id + ".filler");
-            String name = optionalString(fillerObject, "name", null, "menu " + id + ".filler");
+            fillerName = optionalString(fillerObject, "name", null, "menu " + id + ".filler");
             fillerLore = parseLore(fillerObject, "menu " + id + ".filler");
-            filler = applyText(filler, name, fillerLore, false);
         }
 
         Map<Integer, CommandMenuItem> items = new LinkedHashMap<>();
@@ -149,13 +146,13 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
             ItemStack stack = createStack(requiredString(itemObject, "item", context),
                     amount(itemObject, "amount", 1), context);
             String name = optionalString(itemObject, "name", null, context);
-            List<Component> lore = parseLore(itemObject, context);
+            List<String> lore = parseLore(itemObject, context);
             boolean glow = booleanValue(itemObject, "glow", false);
             List<CommandMenuAction> left = parseActions(itemObject, "left_click", context, allowConsole);
             List<CommandMenuAction> right = parseActions(itemObject, "right_click", context, allowConsole);
-            items.put(slot, new CommandMenuItem(slot, applyText(stack, name, lore, glow), left, right));
+            items.put(slot, new CommandMenuItem(slot, stack, name, lore, glow, left, right));
         }
-        return new CommandMenuPageConfig(id, LegacyTitleText.parse(colored(title)), size, filler, items, fillerLore);
+        return new CommandMenuPageConfig(id, title, size, filler, fillerName, fillerLore, items);
     }
 
     private static List<CommandMenuAction> parseActions(JsonObject object, String key, String context,
@@ -202,39 +199,21 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
         return new ItemStack(item, amount);
     }
 
-    private static ItemStack applyText(ItemStack stack, String name, List<Component> lore, boolean glow) {
-        ItemStack result = stack.copy();
-        if (name != null) {
-            result.set(DataComponents.CUSTOM_NAME, LegacyTitleText.parse(colored(name)));
-        }
-        if (!lore.isEmpty()) {
-            result.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lore));
-        }
-        if (glow) {
-            result.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-        }
-        return result;
-    }
-
-    private static List<Component> parseLore(JsonObject object, String context) {
+    private static List<String> parseLore(JsonObject object, String context) {
         JsonArray array = array(object, "lore", false);
-        List<Component> lore = new ArrayList<>();
+        List<String> lore = new ArrayList<>();
         for (int index = 0; index < array.size(); index++) {
             JsonElement element = array.get(index);
             if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
                 throw new JsonParseException(context + ".lore[" + index + "] must be a string");
             }
-            lore.add(LegacyTitleText.parse(colored(element.getAsString())));
+            lore.add(element.getAsString());
         }
         if (lore.size() > net.minecraft.world.item.component.ItemLore.MAX_LINES) {
             throw new JsonParseException(context + ".lore may contain at most "
                     + net.minecraft.world.item.component.ItemLore.MAX_LINES + " lines");
         }
         return List.copyOf(lore);
-    }
-
-    private static String colored(String value) {
-        return value.replace('&', '\u00a7');
     }
 
     private static void validateFileName(String file) {

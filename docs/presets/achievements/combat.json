@@ -1,0 +1,20 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "zombie_hunter",
+      "display": "僵尸猎手",
+      "description": "击杀 100 只僵尸",
+      "icon": "minecraft:iron_sword",
+      "requirements": {
+        "type": "stat",
+        "stat": "entity_killed",
+        "targets": ["minecraft:zombie"],
+        "at_least": 100
+      },
+      "rewards": [
+        { "id": "zombie_hunter_currency", "type": "currency", "amount": 150 }
+      ]
+    }
+  ]
+}

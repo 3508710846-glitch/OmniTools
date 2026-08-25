@@ -1021,3 +1021,369 @@ slot(day) = ((monthStartOffset + day - 1) / 7) * 9
    `docs/modules/` 按模块说明“功能、依赖、指令、完整配置、占位符、迁移、常见故障”；另增统一升级指南、数据备份与恢复指南、奖励一致性说明。
 
 建议严格按 A → B → C → D 实施，每阶段独立构建、启动验证并保留可回滚配置备份。本轮仅做了只读核查，未执行构建或测试。
+
+---
+
+## Development request 2026/8/25 19:11:48
+
+目标
+
+保持原版客户端可直接连接，不引入客户端代码或自定义网络包。
+不重置任何 SavedData、货币、签到、成就、称号与奖励账本。
+配置热重载失败时继续使用旧快照。
+新安装安全默认，旧服升级不破坏既有命令菜单。
+阶段 1：命令安全与诊断，工作量 S
+
+现有 CommandSecurityConfig.defaults() 已是“默认拒绝”，但已迁移的运行配置为 allowed_roots: ["*"]、冷却为 0。保留旧服兼容行为，但增加启动与重载警告：
+
+检测到 * 时提示“宽松模式”，列出受影响的命令菜单和指令奖励数量。
+新配置示例改为显式白名单，例如 spawn、home、warp，并建议 cooldown_ticks: 10。
+新增 /omnitools diagnose，输出配置版本、模块状态、Placeholder API 可用性、宽松命令白名单、未处理奖励数量、侧边栏冲突状态。
+将命令菜单中硬编码英文提示统一改为 ServerText，与全局语言设置一致。
+涉及：CommandSecurityConfig.java、ConfigMigration.java。
+
+验收：新安装配置无法执行任意控制台命令；旧服保持可用但会显示风险提示；diagnose 不修改任何数据。
+
+---
+
+## Development request 2026/8/25 19:46:03
+
+阶段 2：奖励处理体验，工作量 M
+
+奖励账本已具备 PENDING -> APPLYING -> GRANTED/BLOCKED/FAILED，并已有 /omnitools rewards retry|inspect|resolve。下一步不应重造命令，而是补齐 GUI 和玩家入口：
+
+增加 /omnitools rewards open 玩家奖励箱，仅展示自己待领取/待重试的物品奖励。
+背包空间不足时，点击物品再次尝试投递；成功后更新同一条账本记录。
+增加管理员原版箱子 GUI：按状态筛选奖励、显示事件 ID、玩家、奖励类型、阻塞原因与解析后的指令。
+管理员操作只允许“标记已处理”或“标记失败”；对 item_delivery_outcome_unknown、command_dispatch_outcome_unknown 仍禁止自动重放。
+对账日志记录操作者、旧状态、新状态和时间。
+复用：RewardClaimLedger.java、RewardGrantService.java、ModMindEntry.java。
+
+验收：背包满时奖励不丢失；崩溃边界的物品和指令奖励不会被静默自动重放；服主可完整定位并结案异常。
+
+---
+
+## Development request 2026/8/25 20:13:11
+
+阶段 3：统一文本与占位符，工作量 M
+
+TextTemplateRenderer 已用于侧边栏和命令菜单消息，应扩展到所有服主可配置的玩家可见文本：
+
+签到 GUI、奖励详情、在线奖励、商店名称/Lore、成就名称/描述、称号说明、命令菜单标题和物品 Lore。
+统一顺序：内置 OmniTools 占位符 → 可选 Fabric Placeholder API → 颜色格式解析。
+保留每玩家每 tick 缓存；未知占位符显示安全回退值并仅记录一次警告。
+禁止将第三方文本占位符用于“控制台命令内容”，命令仍只接受受控的 {player_name} 等变量。
+验收：不开 Placeholder API 时所有模块正常显示；安装 API 后，配置文本可使用玩家、世界和服务器占位符；不改变奖励或命令执行语义。
+
+---
+
+## Development request 2026/8/25 20:31:46
+
+阶段 4：
+在线奖励接入统一奖励，工作量 M
+
+在线奖励目前应升级为与签到、成就相同的 RewardDefinition 列表：
+
+每个时长里程碑支持货币、物品、称号、指令。
+事件 ID 使用 online:<uuid>:<epoch_day>:<milestone>，继续交给现有 RewardGrantService 与账本。
+旧货币配置自动迁移为单条 currency 奖励，避免升级后重复领取。
+GUI 显示奖励预览、已领取、待领取、模块依赖阻塞原因。
+称号和指令奖励继续受现有标题模块校验、命令总开关和命令白名单约束。
+
+---
+
+## Development request 2026/8/25 20:51:24
+
+阶段 5：发布验证与文档，工作量 M
+
+扩展现有测试：配置 v1/v2/v3 迁移、命令白名单、奖励状态转换、占位符回退、成就调度预算、模块热重载。
+加入隔离服务器烟雾测试：启动、原版客户端连接、打开所有原版 Chest GUI、关闭/重开模块、无 Placeholder API 环境。
+更新 README、升级指南、奖励一致性文档；为成就提供“采集、战斗、探索、距离、容器交互”预设 JSON。
+
+---
+
+## Development request 2026/8/25 21:20:32
+
+**任务：对五阶段成果进行完整自检**
+
+请不要先修改代码，先生成一份 `PASS / WARN / FAIL` 报告。每个结论必须附带检查命令、文件路径或日志证据。
+
+**一、静态结构检查**
+
+1. 检查 `fabric.mod.json`：
+   - 环境为 `server`。
+   - 仅注册服务端入口。
+   - 不存在客户端入口、自定义网络载荷、自定义 `MenuType`。
+2. 检查十个模块是否都有：
+   - 根配置开关。
+   - 独立配置文件。
+   - 权限节点。
+   - 禁用后的运行时处理。
+3. 检查可选 Placeholder API：
+   - 依赖为编译期或可选依赖。
+   - 未安装时服务器仍能启动。
+   - 已安装时内置占位符能注册。
+4. 检查是否残留旧 `qiandao` 命名、旧配置路径或客户端类。
+
+**二、配置与热重载检查**
+
+验证：
+
+- `config/omnitools/config.json` 当前格式版本为 3。
+- v1/v2 配置能迁移到 v3，并生成备份。
+- 新模块不会在旧配置升级后静默启用。
+- 配置错误时保留旧快照。
+- 模块禁用后关闭 GUI、停止任务、清理侧边栏和称号效果。
+- 模块重新启用后能恢复运行。
+- `/omnitools reload` 与模块管理 GUI 状态一致。
+
+重点文件：
+
+- `OmniToolsRootConfig.java`
+- `ConfigMigration.java`
+- `OmniToolsConfigManager.java`
+- `ModuleControlService.java`
+
+**三、奖励系统检查**
+
+分别验证签到、成就、在线奖励是否都支持：
+
+- 货币
+- 物品
+- 称号
+- 指令
+
+检查账本状态流转：
+
+```text
+PENDING -> APPLYING -> GRANTED
+                    -> BLOCKED / FAILED
+```
+
+重点场景：
+
+- 背包满时物品进入奖励箱，不丢失。
+- 重连或重载不会重复发放。
+- 指令奖励受总开关和命令白名单限制。
+- 崩溃后的 `APPLYING` 项不会自动危险重放。
+- 玩家奖励箱和管理员奖励账本 GUI 可打开。
+- `retry / inspect / resolve` 权限正确。
+
+重点文件：
+
+- `RewardGrantService.java`
+- `RewardClaimLedger.java`
+- `RewardInboxScreenHandler.java`
+- `RewardLedgerScreenHandler.java`
+
+**四、成就系统检查**
+
+验证：
+
+- 原版统计类型映射正确。
+- `all / any / not / sum` 逻辑正确。
+- 目标组、标签和通配符正确展开。
+- 距离、时间、伤害单位换算正确。
+- 成就检查遵守玩家数和条件数预算。
+- 配置热重载后调度队列清空并重建。
+- 成就预设 JSON 均能通过配置校验。
+
+**五、文本与占位符检查**
+
+统计并验证：
+
+- 当前 17 个 OmniTools 内置占位符。
+- Placeholder API 未安装时安全回退。
+- 已安装时第三方占位符可用于侧边栏和配置文本。
+- 签到、在线奖励、商店、成就、称号、命令菜单文本使用统一渲染器。
+- 未知占位符只警告一次，不导致服务器报错。
+- 命令执行仍使用受控变量，不能直接使用任意第三方文本替换命令。
+
+**六、纯服务端兼容性检查**
+
+必须测试：
+
+- 无 OmniTools 客户端连接。
+- 无 Placeholder API 启动。
+- 有 Placeholder API 启动。
+- 打开签到、在线奖励、商店、称号、成就、云存储、命令菜单和模块管理 GUI。
+- 翻页、返回、领取、关闭和模块禁用后的界面行为。
+- 侧边栏 `skip / replace / restore` 策略。
+
+当前记录显示服务端启动和构建已通过，但客户端自动启动曾出现 `spawn UNKNOWN`，因此原版客户端逐个点击 GUI 仍应标记为“待人工验收”，不能直接判定全部通过。
+
+**七、自动化验证**
+
+工作台应执行并记录：
+
+```text
+gradlew test
+gradlew build
+内容校验
+服务端启动烟雾测试
+无 Placeholder API 启动测试
+配置迁移测试
+奖励状态机测试
+模块热重载测试
+```
+
+最终报告必须包含：
+
+```text
+已通过：
+警告：
+失败：
+待人工验证：
+涉及文件：
+建议修复优先级：
+```
+
+---
+
+## Development request 2026/8/25 21:41:10
+
+下面方案可直接转交工作台执行，目标是让文档结构清晰、内容不重复，并与当前 OmniTools 代码和配置保持一致。
+
+**一、现状整理**
+
+当前已有：
+
+- `README.md`：项目首页、安装、快速开始、模块链接。
+- `docs/modules/`：十个模块文档。
+- `docs/upgrade-guide.md`：配置升级说明。
+- `docs/backup-and-recovery.md`：备份恢复说明。
+- `docs/reward-consistency.md`：奖励账本和异常处理。
+- `docs/presets/achievements/`：五组成就预设。
+- `docs/idea.md`、`docs/archive/idea.md`：设计记录。
+- `docs/last-ai-change.json`、`docs/last-ai-response.txt`：工作台内部记录，不应出现在用户导航中。
+
+主要问题是：模块文档章节不统一，配置、指令、权限、占位符和故障处理分散，README 仍承担过多入口说明，缺少统一文档索引。
+
+**二、目标目录**
+
+建议采用以下结构：
+
+```text
+README.md                         # 只保留首页介绍和快速入口
+
+docs/
+├── index.md                      # 文档总索引
+├── modules/
+│   ├── daily-checkin.md
+│   ├── online-reward.md
+│   ├── shop-and-currency.md
+│   ├── titles.md
+│   ├── title-effects.md
+│   ├── achievements.md
+│   ├── cloud-storage.md
+│   ├── permissions.md
+│   ├── command-menu.md
+│   └── sidebar.md
+├── guides/
+│   ├── module-management.md
+│   ├── placeholder-api.md
+│   ├── upgrade-guide.md
+│   ├── backup-and-recovery.md
+│   └── reward-consistency.md
+├── presets/
+│   └── achievements/
+└── archive/
+    ├── idea.md
+    └── agent-records/
+```
+
+`docs/modules/` 保持现有文件名，避免破坏已有链接；新增 `docs/index.md` 作为统一入口。
+
+`docs/last-ai-change.json` 和 `docs/last-ai-response.txt` 只作为工作台内部记录，不放入用户文档导航。
+
+**三、README 重写范围**
+
+README 只保留：
+
+1. OmniTools 简介。
+2. Minecraft、Fabric、Java 版本要求。
+3. 纯服务端特性说明。
+4. 安装步骤。
+5. 首次启动和 `/omnitools reload`。
+6. 文档总索引链接。
+7. 常见问题入口。
+8. 版本和变更日志链接。
+
+不要在 README 中重复完整配置字段、奖励状态机或成就条件语法。
+
+**四、每个模块统一章节**
+
+所有 `docs/modules/*.md` 按以下顺序重写：
+
+1. 模块用途和适用场景。
+2. 模块依赖与关联模块。
+3. 模块开关配置。
+4. 初始配置文件位置。
+5. 最小可用配置。
+6. 完整配置示例。
+7. 配置字段表：类型、必填、默认值、范围、重载方式。
+8. 指令、别名和权限节点。
+9. GUI 操作说明。
+10. 占位符列表及用途。
+11. 数据保存位置和升级影响。
+12. 与其他模块的联动。
+13. 常见错误及解决方法。
+14. 可复制的验收清单。
+
+模块内容应具体对应当前实现，例如：
+
+- 签到：六行周历、奖励详情页、月度奖励、签到记录。
+- 在线奖励：在线时长、里程碑、奖励账本。
+- 成就：原版统计、`all/any/not/sum`、目标组、预设文件。
+- 命令菜单：菜单注册、页面配置、按钮动作、命令安全白名单。
+- 侧边栏：刷新周期、占位符、冲突策略。
+- 权限：服主、管理员、玩家三种角色和每条指令的默认权限。
+
+**五、公共指南内容**
+
+`guides/` 只放跨模块内容：
+
+- `module-management.md`：模块状态、热重载、依赖关系和失败回滚。
+- `placeholder-api.md`：17 个 OmniTools 占位符、第三方 Placeholder API、安装与禁用行为。
+- `reward-consistency.md`：`PENDING/APPLYING/GRANTED/BLOCKED/FAILED` 状态和异常处理。
+- `upgrade-guide.md`：旧 `qiandao` 配置迁移、根配置版本、备份文件。
+- `backup-and-recovery.md`：世界数据、`config/omnitools/` 和奖励账本的备份恢复。
+
+模块文档只保留相关链接，不复制这些公共规则。
+
+**六、配置文档规范**
+
+所有示例必须：
+
+- 使用 `config/omnitools/` 路径。
+- 明确区分根配置和模块配置。
+- 标注“首次启动生成”“修改后需要 reload”。
+- 同时提供最小配置和完整配置。
+- 与代码中的当前格式版本一致。
+- 不直接把 `run/config` 运行时文件当作唯一示例来源。
+- 所有 JSON 使用 UTF-8、合法 JSON 和统一缩进。
+
+**七、工作台执行阶段**
+
+1. 清点现有文档，建立旧路径到新路径的映射。
+2. 创建 `docs/index.md`，精简 README。
+3. 按统一模板重写十个模块文档。
+4. 整理公共指南和奖励、升级、备份说明。
+5. 将成就预设加入成就文档，并逐个标注用途。
+6. 统一所有 Markdown 链接、标题层级和术语。
+7. 搜索并清理面向用户文档中的旧 `qiandao`、过时版本号和旧配置路径。
+8. 检查 JSON 示例、命令名称、权限节点和代码实际实现是否一致。
+9. 执行 Markdown 链接检查、JSON 解析检查和文档内容校验。
+10. 最后生成文档变更摘要和未覆盖功能清单。
+
+**验收标准**
+
+- 用户从 README 三次点击内可到达任意模块文档。
+- 每个模块都有指令、权限、配置、GUI、占位符和故障处理章节。
+- 不存在重复且互相矛盾的配置说明。
+- 文档中不再使用旧项目名称或旧配置路径。
+- 所有示例可以直接复制并通过配置校验。
+- 文档明确区分“已实现”“可选依赖”和“规划功能”。
+- 工作台最终输出修改文件清单、链接检查结果、JSON 校验结果和剩余风险。
+
+本轮仅整理文档重构方案，未修改文件。

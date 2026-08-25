@@ -6,9 +6,15 @@ import dev.modmind.omnitools.PlaceholderBootstrap;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemLore;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -38,6 +44,36 @@ public final class TextTemplateRenderer {
         return TICK_CACHE.computeIfAbsent(key, ignored -> renderUncached(player, template));
     }
 
+    /**
+     * Preserves an existing component unless its visible text contains template or legacy-format
+     * syntax. This is useful for NBT/component-defined shop and reward display items.
+     */
+    public static Component render(ServerPlayer player, Component template) {
+        if (template == null) {
+            return Component.empty();
+        }
+        String visibleText = template.getString();
+        return containsRenderableMarkup(visibleText) ? render(player, visibleText) : template.copy();
+    }
+
+    /** Returns a presentation-only copy; the configured item and delivered reward stay unchanged. */
+    public static ItemStack renderItemText(ServerPlayer player, ItemStack source) {
+        ItemStack rendered = source.copy();
+        Component customName = rendered.get(DataComponents.CUSTOM_NAME);
+        if (customName != null) {
+            rendered.set(DataComponents.CUSTOM_NAME, render(player, customName));
+        }
+        ItemLore itemLore = rendered.get(DataComponents.LORE);
+        if (itemLore != null && !itemLore.lines().isEmpty()) {
+            List<Component> lore = new ArrayList<>(itemLore.lines().size());
+            for (Component line : itemLore.lines()) {
+                lore.add(render(player, line));
+            }
+            rendered.set(DataComponents.LORE, new ItemLore(lore));
+        }
+        return rendered;
+    }
+
     private static Component renderUncached(ServerPlayer player, String template) {
         String source = sanitize(template);
         Matcher matcher = PLACEHOLDER.matcher(source);
@@ -53,14 +89,15 @@ public final class TextTemplateRenderer {
                 id = id.substring("omnitools:".length());
             }
             if (OmniToolsPlaceholderResolver.IDS.contains(id)) {
-                result.append(OmniToolsPlaceholderResolver.resolve(player, id));
+                appendResolvedComponent(result, OmniToolsPlaceholderResolver.resolve(player, id));
             } else {
                 Component external = PlaceholderBootstrap.resolveExternal(player, token);
                 if (external != null) {
-                    result.append(external);
+                    appendResolvedComponent(result, external);
                 } else {
-                    if (WARNED_PLACEHOLDERS.add(token)) {
-                        System.err.println("[omnitools] Unknown text placeholder: " + token);
+                    String warningToken = token.toLowerCase(Locale.ROOT);
+                    if (WARNED_PLACEHOLDERS.add(warningToken)) {
+                        System.err.println("[omnitools] Unknown text placeholder: " + warningToken);
                     }
                     result.append(Component.literal("-"));
                 }
@@ -75,6 +112,22 @@ public final class TextTemplateRenderer {
 
     private static String sanitize(String template) {
         return (template == null ? "" : template).replace('&', '\u00a7').replace('\n', ' ');
+    }
+
+    private static boolean containsRenderableMarkup(String text) {
+        return text != null && (PLACEHOLDER.matcher(text).find()
+                || text.indexOf('&') >= 0 || text.indexOf('\u00a7') >= 0);
+    }
+
+    /** Apply legacy color syntax returned by a placeholder without discarding styled API components. */
+    private static void appendResolvedComponent(MutableComponent target, Component value) {
+        if (value == null) {
+            target.append(Component.literal("-"));
+            return;
+        }
+        String visibleText = value.getString();
+        target.append(containsRenderableMarkup(visibleText)
+                ? LegacyTitleText.parse(sanitize(visibleText)) : value.copy());
     }
 
     private record CacheKey(UUID playerId, String template) {

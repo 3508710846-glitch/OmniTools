@@ -1,0 +1,20 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "diamond_collector",
+      "display": "钻石收藏家",
+      "description": "拾取 16 个钻石",
+      "icon": "minecraft:diamond",
+      "requirements": {
+        "type": "stat",
+        "stat": "item_picked_up",
+        "targets": ["minecraft:diamond"],
+        "at_least": 16
+      },
+      "rewards": [
+        { "id": "diamond_collector_currency", "type": "currency", "amount": 100 }
+      ]
+    }
+  ]
+}

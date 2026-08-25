@@ -6,6 +6,7 @@ import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardEvent;
 import dev.modmind.omnitools.reward.RewardType;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -175,7 +176,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
             RewardDefinition reward = entry.reward();
             stack = switch (reward.type()) {
                 case CURRENCY -> new ItemStack(reward.amount() >= 1_000 ? Items.GOLD_INGOT : Items.GOLD_NUGGET);
-                case ITEM -> reward.createItemStack();
+                case ITEM -> TextTemplateRenderer.renderItemText(player, reward.createItemStack());
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
             };
@@ -189,7 +190,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
         Component name = entry.summary()
                 ? ServerText.translatable(entry.kind().equals("daily") ? "gui.omnitools.checkin.daily_rewards"
                 : "gui.omnitools.checkin.monthly_milestone", entry.milestone())
-                : rewardName(entry.reward());
+                : rewardName(player, entry.reward());
         List<Component> lore = new ArrayList<>();
         if (!entry.summary()) {
             lore.add(ServerText.translatable("gui.omnitools.checkin.reward_status", ServerText.translatable(status))
@@ -198,8 +199,9 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 lore.add(ServerText.translatable("gui.omnitools.reward.currency", entry.reward().amount())
                         .withStyle(ChatFormatting.GOLD));
             } else if (entry.reward().type() == RewardType.ITEM) {
-                lore.add(ServerText.translatable("gui.omnitools.reward.item", entry.reward().createItemStack().getHoverName(),
-                        entry.reward().createItemStack().getCount()).withStyle(ChatFormatting.AQUA));
+                ItemStack displayItem = TextTemplateRenderer.renderItemText(player, entry.reward().createItemStack());
+                lore.add(ServerText.translatable("gui.omnitools.reward.item", displayItem.getHoverName(),
+                        displayItem.getCount()).withStyle(ChatFormatting.AQUA));
             }
             RewardClaimLedger.Entry ledger = entry.event() == null ? null
                     : RewardClaimLedger.get(player).entry(entry.event(), entry.reward().id());
@@ -217,11 +219,13 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
         return stack;
     }
 
-    private static Component rewardName(RewardDefinition reward) {
+    private static Component rewardName(ServerPlayer player, RewardDefinition reward) {
         return switch (reward.type()) {
             case CURRENCY -> ServerText.translatable("gui.omnitools.checkin.currency_reward");
-            case ITEM -> reward.createItemStack().getHoverName();
-            case TITLE -> ServerText.translatable("gui.omnitools.checkin.title_reward", reward.titleId());
+            case ITEM -> TextTemplateRenderer.renderItemText(player, reward.createItemStack()).getHoverName();
+            case TITLE -> ModMindEntry.titleConfig().definition(reward.titleId())
+                    .<Component>map(title -> TextTemplateRenderer.render(player, title.display()))
+                    .orElseGet(() -> ServerText.translatable("gui.omnitools.checkin.title_reward", reward.titleId()));
             case COMMAND -> ServerText.translatable("gui.omnitools.checkin.command_reward");
         };
     }

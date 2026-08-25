@@ -58,7 +58,8 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             modules.put(module, module != ModuleId.PERMISSIONS);
         }
         return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", "zh_cn",
-                false, 1_024, true, DataRetention.FULL, CommandSecurityConfig.defaults(), modules);
+                false, CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH, true, DataRetention.FULL,
+                CommandSecurityConfig.defaults(), modules);
     }
 
     public boolean enabled(ModuleId module) {
@@ -106,7 +107,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                     string(global, "timezone", "Asia/Shanghai"),
                     string(global, "language", "zh_cn"),
                     bool(rewardSecurity, "allow_command_rewards", false),
-                    integer(rewardSecurity, "max_command_length", 1_024),
+                    integer(rewardSecurity, "max_command_length", CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH),
                     bool(placeholderApi, "enabled", true),
                     DataRetention.parse(string(global, "data_retention", "full")),
                     commandSecurity(commandSecurity), modules);
@@ -203,8 +204,9 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
             }
             values.add(element.getAsString());
         }
-        return new CommandSecurityConfig(values, integer(object, "max_command_length", 1_024),
-                integer(object, "cooldown_ticks", 0));
+        return new CommandSecurityConfig(values,
+                integer(object, "max_command_length", CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH),
+                integer(object, "cooldown_ticks", CommandSecurityConfig.DEFAULT_COOLDOWN_TICKS));
     }
 
     private static String normalizeLanguage(String value) {

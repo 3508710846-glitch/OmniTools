@@ -61,9 +61,12 @@ public final class ModuleControlService {
                 .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
         boolean monthly = snapshot.rewards().monthlyRewards().values().stream().flatMap(java.util.Collection::stream)
                 .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
+        boolean online = snapshot.rewards().onlineTimeRewards().stream()
+                .flatMap(milestone -> milestone.rewards().stream())
+                .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
         boolean achievements = snapshot.achievements().achievements().stream().flatMap(achievement -> achievement.rewards().stream())
                 .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
-        return daily || monthly || achievements;
+        return daily || monthly || online || achievements;
     }
 
     public enum DependencyBlock {

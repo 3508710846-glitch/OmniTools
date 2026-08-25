@@ -1,34 +1,34 @@
 package dev.modmind.omnitools.commandmenu;
 
-import net.minecraft.network.chat.Component;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemLore;
 
 import java.util.List;
 
 /** Immutable display item and its left/right click actions. */
-public record CommandMenuItem(int slot, ItemStack stack, List<CommandMenuAction> leftClick,
-                              List<CommandMenuAction> rightClick) {
+public record CommandMenuItem(int slot, ItemStack stack, String nameTemplate, List<String> loreTemplates,
+                              boolean glow, List<CommandMenuAction> leftClick, List<CommandMenuAction> rightClick) {
     public CommandMenuItem {
         stack = stack.copy();
+        loreTemplates = List.copyOf(loreTemplates);
         leftClick = List.copyOf(leftClick);
         rightClick = List.copyOf(rightClick);
     }
 
-    public ItemStack displayStack() {
-        return stack.copy();
-    }
-
-    public static ItemStack withText(ItemStack stack, Component name, List<Component> lore, boolean glow) {
-        ItemStack display = stack.copy();
-        if (name != null) {
-            display.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, name);
+    public ItemStack displayStack(ServerPlayer player) {
+        ItemStack display = TextTemplateRenderer.renderItemText(player, stack);
+        if (nameTemplate != null) {
+            display.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(player, nameTemplate));
         }
-        if (!lore.isEmpty()) {
-            display.set(net.minecraft.core.component.DataComponents.LORE,
-                    new net.minecraft.world.item.component.ItemLore(lore));
+        if (!loreTemplates.isEmpty()) {
+            display.set(DataComponents.LORE, new ItemLore(loreTemplates.stream()
+                    .map(text -> TextTemplateRenderer.render(player, text)).toList()));
         }
         if (glow) {
-            display.set(net.minecraft.core.component.DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+            display.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
         return display;
     }

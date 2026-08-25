@@ -8,6 +8,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import net.minecraft.core.HolderLookup;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -31,7 +33,7 @@ public final class OnlineRewardConfig {
         this.rewards = List.copyOf(rewards);
     }
 
-    public static OnlineRewardConfig load() {
+    public static OnlineRewardConfig load(HolderLookup.Provider registries) {
         if (!Files.exists(FILE)) {
             OnlineRewardConfig defaults = defaults();
             write(defaults);
@@ -56,7 +58,6 @@ public final class OnlineRewardConfig {
                 }
                 JsonObject object = element.getAsJsonObject();
                 int minutes = positiveInt(object, "minutes");
-                long coins = nonNegativeLong(object, "coins");
                 String id = object.has("id") ? object.get("id").getAsString()
                         : "online_" + minutes + "m";
                 id = id.trim().toLowerCase(Locale.ROOT);
@@ -68,7 +69,14 @@ public final class OnlineRewardConfig {
                 if (minutes <= previous) {
                     throw new JsonParseException("rewards must be ordered by distinct minutes");
                 }
-                parsed.add(new Reward(rewardId, minutes, coins));
+                List<RewardDefinition> definitions = object.has("rewards")
+                        ? RewardDefinition.parseArray(object.get("rewards"), "rewards[" + index + "].rewards",
+                        registries)
+                        : List.of(RewardDefinition.currency("legacy_currency", nonNegativeLong(object, "coins")));
+                if (definitions.isEmpty()) {
+                    throw new JsonParseException("rewards[" + index + "].rewards must not be empty");
+                }
+                parsed.add(new Reward(rewardId, minutes, definitions));
                 previous = minutes;
             }
             return new OnlineRewardConfig(parsed);
@@ -92,8 +100,10 @@ public final class OnlineRewardConfig {
     }
 
     private static OnlineRewardConfig defaults() {
-        return new OnlineRewardConfig(List.of(new Reward("online_30m", 30, 50L),
-                new Reward("online_60m", 60, 100L), new Reward("online_120m", 120, 250L)));
+        return new OnlineRewardConfig(List.of(
+                new Reward("online_30m", 30, List.of(RewardDefinition.currency("currency", 50L))),
+                new Reward("online_60m", 60, List.of(RewardDefinition.currency("currency", 100L))),
+                new Reward("online_120m", 120, List.of(RewardDefinition.currency("currency", 250L)))));
     }
 
     private static void write(OnlineRewardConfig config) {
@@ -106,7 +116,18 @@ public final class OnlineRewardConfig {
                 JsonObject object = new JsonObject();
                 object.addProperty("id", reward.id());
                 object.addProperty("minutes", reward.minutes());
-                object.addProperty("coins", reward.coins());
+                JsonArray definitions = new JsonArray();
+                for (RewardDefinition definition : reward.rewards()) {
+                    if (definition.type() != dev.modmind.omnitools.reward.RewardType.CURRENCY) {
+                        continue;
+                    }
+                    JsonObject rewardDefinition = new JsonObject();
+                    rewardDefinition.addProperty("id", definition.id());
+                    rewardDefinition.addProperty("type", definition.type().serializedName());
+                    rewardDefinition.addProperty("amount", definition.amount());
+                    definitions.add(rewardDefinition);
+                }
+                object.add("rewards", definitions);
                 rewards.add(object);
             });
             root.add("rewards", rewards);
@@ -138,6 +159,9 @@ public final class OnlineRewardConfig {
         return value;
     }
 
-    public record Reward(String id, int minutes, long coins) {
+    public record Reward(String id, int minutes, List<RewardDefinition> rewards) {
+        public Reward {
+            rewards = List.copyOf(rewards == null ? List.of() : rewards);
+        }
     }
 }

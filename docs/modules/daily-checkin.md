@@ -1,98 +1,38 @@
 # 每日签到
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-每日签到为玩家记录当天签到、连续签到、当月签到和签到历史。每日和月度奖励都使用统一奖励定义，可发放货币、物品、称号和受控的服务器指令。它不依赖商店模块；货币余额与签到记录共同保存在 `CheckinData`。签到和记录界面均为原版箱子 GUI，原版客户端无需安装 OmniTools。
+每日签到按根配置的 `global.timezone` 记录每日一次签到，并支持每日奖励、月度里程碑、签到记录和奖励详情。它适合需要共享货币与可恢复奖励的服务器；界面为原版 6 行箱子，原版客户端可直接使用。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-根配置为 `config/omnitools/config.json`：
+模块 ID 为 `daily_checkin`。货币使用共享 `CheckinData`；`title` 奖励要求 `titles` 已启用并有对应称号；`command` 奖励受根配置命令安全限制。奖励状态与异常处理见[奖励一致性](../guides/reward-consistency.md)。
 
-```json
-{
-  "modules": {
-    "daily_checkin": { "enabled": true }
-  }
-}
-```
+## 3. 模块开关配置
 
-禁用后不能打开签到和记录菜单，也不会发送未签到提醒；已有签到与货币数据不会删除，重新启用后继续使用。
-
-## 3. 初始配置
-
-首次加载时生成 `config/omnitools/daily_checkin/config.json`：
+在 `config/omnitools/config.json`：
 
 ```json
-{
-  "format_version": 2,
-  "daily": {
-    "rewards": [
-      { "id": "daily_currency", "type": "currency", "amount": 100 }
-    ]
-  },
-  "monthly": {
-    "5": [{ "id": "month_5_currency", "type": "currency", "amount": 500 }],
-    "10": [{ "id": "month_10_currency", "type": "currency", "amount": 1000 }],
-    "15": [{ "id": "month_15_currency", "type": "currency", "amount": 2000 }],
-    "25": [{ "id": "month_25_currency", "type": "currency", "amount": 5000 }]
-  }
-}
+{ "modules": { "daily_checkin": { "enabled": true } } }
 ```
 
-文件缺失时生成上述 v2 默认值。配置文件损坏时不会覆盖原文件，完整重载失败且旧快照继续运行。`onlineTimeRewards` 是旧版兼容字段；当前在线奖励应配置在 `online_reward/config.json`。
+禁用会关闭签到、记录与奖励详情 GUI，并停止未签到提醒；不会删除签到、货币或奖励账本数据。
 
-旧格式仍可读取，不需要先迁移文件：`dailyCoins`（也兼容 `dailyReward`、`daily`）转换为 ID 为 `legacy_daily_currency` 的每日货币奖励；`monthlyRewards`（也兼容 `monthlyCoins`）的各里程碑转换为 `legacy_monthly_<天数>_currency`。旧格式不会自动覆写为 v2。
+## 4. 初始配置文件位置
 
-## 4. 指令与权限
+首次启动时生成 `config/omnitools/daily_checkin/config.json`。修改后执行 `/omnitools reload`；无效配置不会覆盖运行中的旧快照。
 
-| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
-| --- | --- | --- | --- | --- |
-| `/omnitools` | `/checkin` | 打开签到界面 | `checkin.open` (`PLAYER`) | 是 |
-| `/omnitools open` | 无 | 打开签到界面 | `checkin.open` (`PLAYER`) | 是 |
-| `/omnitools clear [today]` | `/checkin clear [today]` | 清除当天所有玩家的签到状态 | `checkin.clear` (`ADMIN`) | 否 |
-| `/omnitools rewards retry` | 无 | 重试自己账本中待处理的签到和成就奖励 | `rewards.retry` (`PLAYER`) | 是 |
-
-签到界面中的操作由服务端验证；日期使用根配置的 `global.timezone`。
-
-## 5. 配置字段
-
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | integer | v2 是 | `2` | v2 奖励数组格式；不是 `2` 时按旧格式读取。 |
-| `daily` | object | v2 是 | 无 | 每日奖励容器；缺失或不是对象会拒绝 v2 候选配置。 |
-| `daily.rewards` | array | v2 是 | 可为空 | 每日首次签到创建的奖励事件；数组顺序是发放顺序。 |
-| `monthly` | object | v2 是 | 可为空 | 月度里程碑映射；键为正整数天数，值为奖励数组。 |
-| `monthly.<天数>` | array | 是 | 可为空 | 当月签到天数达到该里程碑后发放一次。全部奖励成功后才记录该里程碑已领取。 |
-| `rewards[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，同一数组唯一 | 稳定账本 ID；调整数组顺序不会重复发放。非法或重复会拒绝配置。 |
-| `rewards[].type` | string | 是 | `currency`、`item`、`title`、`command` | 奖励类型；未知值拒绝配置。 |
-| `rewards[].amount` | integer | `currency` 是 | `>= 0` | 货币金额，使用 `long` 保存；负数或溢出拒绝配置。 |
-| `rewards[].item`、`count`、`components` | string、integer、string/空 object | `item` 是 | `count` 为 `1-64` | 物品奖励。`components` 复用商店的原版组件文本；`{}` 表示没有组件。无效物品、组件或单事件物品数超过 2304 会拒绝配置。 |
-| `rewards[].title` | string | `title` 是 | 有效称号 ID | 称号奖励；称号模块关闭或 ID 不存在时拒绝候选配置。已拥有视为成功。 |
-| `rewards[].run_as`、`command` | string、string | `command` 是 | 仅 `console`；命令长度不超过根配置限制 | 命令奖励；只允许白名单占位符，禁止换行和未知占位符。根配置未显式开启时拒绝候选配置。 |
-| `dailyCoins`、`monthlyRewards` | integer、object | 否 | 旧格式默认 `100` 与 `5/10/15/25` | 仅旧格式兼容字段，分别转换为稳定的遗留货币奖励。 |
-
-## 6. 使用示例
-
-最小 v2 配置只调整每日奖励：
+## 5. 最小可用配置
 
 ```json
 {
   "format_version": 2,
-  "daily": {
-    "rewards": [
-      { "id": "daily_currency", "type": "currency", "amount": 200 }
-    ]
-  },
-  "monthly": {
-    "5": [],
-    "10": [],
-    "15": [],
-    "25": []
-  }
+  "daily": { "rewards": [] },
+  "monthly": {}
 }
 ```
 
-每日奖励可混合四种类型：
+## 6. 完整配置示例
 
 ```json
 {
@@ -100,22 +40,71 @@
   "daily": {
     "rewards": [
       { "id": "daily_currency", "type": "currency", "amount": 100 },
-      { "id": "daily_bread", "type": "item", "item": "minecraft:bread", "count": 3, "components": {} },
-      { "id": "daily_title", "type": "title", "title": "loyal_player" }
+      { "id": "daily_bread", "type": "item", "item": "minecraft:bread", "count": 3, "components": {} }
     ]
   },
-  "monthly": {}
+  "monthly": {
+    "5": [{ "id": "month_5_currency", "type": "currency", "amount": 500 }],
+    "10": [{ "id": "month_10_title", "type": "title", "title": "loyal_player" }]
+  }
 }
 ```
 
-指令奖励还必须在根配置中显式开启 `global.reward_security.allow_command_rewards`，并使用 `run_as: "console"`。修改后执行 `/omnitools reload`；失败时查看日志的 `daily_checkin/config.json` 错误并恢复为合法 JSON。
+命令奖励必须额外启用根配置的 `global.reward_security.allow_command_rewards`，并将命令根加入 `global.command_security.allowed_roots`。
 
-## 7. 数据保存
+## 7. 配置字段表
 
-世界 `SavedData` 中的 `CheckinData` 保存玩家签到日期、连续和月度统计、在线时长、在线奖励领取记录与货币余额。独立的 `RewardClaimLedger` 按“事件 ID + 奖励 ID”保存 `PENDING`、`GRANTED`、`BLOCKED`、`FAILED` 与失败原因；JSON 只保存奖励规则。
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
+| --- | --- | --- | --- | --- |
+| `format_version` | integer | 是（v2） | `2` | reload |
+| `daily.rewards` | array | 是 | 可为空 | reload |
+| `monthly` | object | 是 | 键为正整数天数 | reload |
+| `monthly.<days>` | array | 是 | 对应里程碑奖励 | reload |
+| `rewards[].id` | string | 是 | `[a-z0-9_.-]{1,64}`，同数组唯一 | reload |
+| `rewards[].type` | string | 是 | `currency`、`item`、`title`、`command` | reload |
+| `amount` | integer | currency 时 | 非负 | reload |
+| `item`、`count`、`components` | string、integer、object | item 时 | 有效物品，`count` 为 1-64 | reload |
+| `title` | string | title 时 | 已定义的称号 ID | reload |
+| `run_as`、`command` | string | command 时 | 仅 `console`；受全局长度与白名单限制 | reload |
 
-物品只会完整放入玩家主背包，空间不足不会掉落或部分发放，账本保持 `PENDING`。玩家登录、打开签到界面和执行 `/omnitools rewards retry` 都会重试历史待处理签到事件。迁移或升级前同时备份世界目录与 `config/omnitools/`。
+旧 `dailyCoins`、`dailyReward`、`monthlyRewards` 和 `monthlyCoins` 仍能读取，但新配置应使用 v2。不要改名已发放奖励的 `id`。
 
-## 8. 热重载与依赖
+## 8. 指令、别名和权限节点
 
-重载按统一快照流程处理：读取所有已启用模块，构造候选快照，完整校验后一次发布并执行运行时补偿；任一配置错误时旧快照继续运行。禁用签到会关闭已打开的签到/记录菜单。称号奖励依赖启用的 `titles` 模块和已定义的称号；模块管理 GUI 会拒绝在仍有签到或成就称号奖励时关闭称号模块。签到奖励使用共享货币存储，但货币指令没有独立 `ModuleId`，不要把禁用签到解释为必然禁用所有货币管理指令。
+| 指令 | 别名 | 权限节点 | 默认角色 |
+| --- | --- | --- | --- |
+| `/omnitools`、`/omnitools open` | `/checkin` | `checkin.open` | PLAYER |
+| `/omnitools clear [today]` | `/checkin clear [today]` | `checkin.clear` | ADMIN |
+| `/omnitools rewards open` | 无 | `rewards.retry` | PLAYER |
+
+## 9. GUI 操作说明
+
+主界面是 6 行周历：周一至周日在前七列，右侧两列固定显示玩家摘要、今日签到、奖励详情、本月进度、记录、成就、连续签到和货币。只有今天日期格与“今日签到”按钮可签到，二者调用同一服务端校验。奖励详情进入只读分页页；记录和成就入口保留原有跳转。界面物品不可取走。
+
+## 10. 占位符列表及用途
+
+`%omnitools:checkin_today%`、`checkin_today_rank`、`checkin_total_days`、`checkin_streak_days`、`checkin_month_days` 用于侧边栏和可配置文本。详情见[Placeholder API](../guides/placeholder-api.md)。
+
+## 11. 数据保存位置和升级影响
+
+签到日期、排名、连续天数、月度状态与货币保存在世界 `SavedData` 的 `CheckinData`；奖励状态在 `RewardClaimLedger`。JSON 只保存规则。升级时保留 SavedData 与奖励 ID，并同时备份世界和 `config/omnitools/`。
+
+## 12. 与其他模块的联动
+
+签到货币可在商店、云存储扩容与其他奖励中使用；称号奖励与称号模块联动；成就入口仅在成就模块可用时打开。奖励箱和管理员账本是跨模块入口。
+
+## 13. 常见错误及解决方法
+
+| 现象 | 处理 |
+| --- | --- |
+| 今天无法签到 | 检查时区、当日状态与 `checkin.open` 权限；同一天不能重复签到。 |
+| 称号奖励阻塞 | 启用 `titles` 并定义相同 ID，随后 reload 或在奖励箱重试。 |
+| 物品未进入背包 | 腾出完整空间后打开奖励箱再次点击；不要用重连复制奖励。 |
+| 配置未生效 | 修正日志中的 JSON 错误后执行 `/omnitools reload`。 |
+
+## 14. 可复制的验收清单
+
+- [ ] 月历按周一开始，任意月份的日期位置正确。
+- [ ] 今天只能签到一次，重复点击不会重复发奖。
+- [ ] 奖励详情、记录和成就入口可用，奖励项可分页查看。
+- [ ] 禁用模块时相关 GUI 关闭，重新启用后历史数据保留。

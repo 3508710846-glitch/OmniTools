@@ -84,7 +84,7 @@ public final class CheckinRewardConfig {
 
     public static CheckinRewardConfig withOnlineRewards(CheckinRewardConfig daily, OnlineRewardConfig online) {
         List<OnlineTimeReward> rewards = online.rewards().stream()
-                .map(reward -> new OnlineTimeReward(reward.id(), reward.minutes(), reward.coins()))
+                .map(reward -> new OnlineTimeReward(reward.id(), reward.minutes(), reward.rewards()))
                 .toList();
         return new CheckinRewardConfig(daily.dailyRewards, daily.monthlyRewards, rewards);
     }
@@ -102,7 +102,7 @@ public final class CheckinRewardConfig {
         if (modern) {
             return parseV2(root, registries);
         }
-        return parseLegacy(root);
+        return parseLegacy(root, registries);
     }
 
     private static CheckinRewardConfig parseV2(JsonObject root, HolderLookup.Provider registries) {
@@ -121,10 +121,10 @@ public final class CheckinRewardConfig {
                 throw new JsonParseException("monthly contains duplicate milestone " + milestone);
             }
         }
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root));
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries));
     }
 
-    private static CheckinRewardConfig parseLegacy(JsonObject root) {
+    private static CheckinRewardConfig parseLegacy(JsonObject root, HolderLookup.Provider registries) {
         long daily = nonNegativeLong(root, "dailyCoins", "dailyReward", "daily", defaultsDailyCoins());
         List<RewardDefinition> dailyRewards = daily == 0L ? List.of()
                 : List.of(RewardDefinition.currency("legacy_daily_currency", daily));
@@ -139,10 +139,10 @@ public final class CheckinRewardConfig {
             monthlyRewards.put(milestone, coins == 0L ? List.of()
                     : List.of(RewardDefinition.currency("legacy_monthly_" + milestone + "_currency", coins)));
         }
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root));
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries));
     }
 
-    private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root) {
+    private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root, HolderLookup.Provider registries) {
         JsonElement element = root.get("onlineTimeRewards");
         if (element == null) {
             return List.of();
@@ -152,6 +152,7 @@ public final class CheckinRewardConfig {
         }
         JsonArray array = element.getAsJsonArray();
         List<OnlineTimeReward> rewards = new ArrayList<>();
+        java.util.Set<String> ids = new java.util.HashSet<>();
         int previousMinutes = 0;
         for (int index = 0; index < array.size(); index++) {
             if (!array.get(index).isJsonObject()) {
@@ -159,12 +160,22 @@ public final class CheckinRewardConfig {
             }
             JsonObject reward = array.get(index).getAsJsonObject();
             int minutes = positiveInt(reward, "minutes");
-            long coins = nonNegativeLong(reward, "coins", 0L);
             if (minutes <= previousMinutes) {
                 throw new JsonParseException("onlineTimeRewards must be ordered by distinct minutes");
             }
             String id = reward.has("id") ? requiredString(reward, "id") : "online_" + minutes + "m";
-            rewards.add(new OnlineTimeReward(id.trim().toLowerCase(Locale.ROOT), minutes, coins));
+            id = id.trim().toLowerCase(Locale.ROOT);
+            if (!RewardDefinition.ID_PATTERN.matcher(id).matches() || !ids.add(id)) {
+                throw new JsonParseException("onlineTimeRewards has an invalid or duplicate id: " + id);
+            }
+            List<RewardDefinition> definitions = reward.has("rewards")
+                    ? RewardDefinition.parseArray(reward.get("rewards"), "onlineTimeRewards[" + index + "].rewards",
+                    registries)
+                    : List.of(RewardDefinition.currency("legacy_currency", nonNegativeLong(reward, "coins", 0L)));
+            if (definitions.isEmpty()) {
+                throw new JsonParseException("onlineTimeRewards[" + index + "].rewards must not be empty");
+            }
+            rewards.add(new OnlineTimeReward(id, minutes, definitions));
             previousMinutes = minutes;
         }
         return List.copyOf(rewards);
@@ -177,9 +188,12 @@ public final class CheckinRewardConfig {
         monthly.put(15, List.of(RewardDefinition.currency("month_15_currency", 2_000L)));
         monthly.put(25, List.of(RewardDefinition.currency("month_25_currency", 5_000L)));
         return new CheckinRewardConfig(List.of(RewardDefinition.currency("daily_currency", 100L)), monthly,
-                List.of(new OnlineTimeReward("online_30m", 30, 50L),
-                        new OnlineTimeReward("online_60m", 60, 100L),
-                        new OnlineTimeReward("online_120m", 120, 250L)));
+                List.of(new OnlineTimeReward("online_30m", 30,
+                                List.of(RewardDefinition.currency("currency", 50L))),
+                        new OnlineTimeReward("online_60m", 60,
+                                List.of(RewardDefinition.currency("currency", 100L))),
+                        new OnlineTimeReward("online_120m", 120,
+                                List.of(RewardDefinition.currency("currency", 250L)))));
     }
 
     private static void write(CheckinRewardConfig config) {
@@ -316,9 +330,21 @@ public final class CheckinRewardConfig {
         };
     }
 
-    public record OnlineTimeReward(String id, int minutes, long coins) {
+    public record OnlineTimeReward(String id, int minutes, List<RewardDefinition> rewards) {
+        public OnlineTimeReward {
+            id = id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
+            if (!RewardDefinition.ID_PATTERN.matcher(id).matches()) {
+                throw new IllegalArgumentException("Online reward id is invalid: " + id);
+            }
+            if (minutes < 1) {
+                throw new IllegalArgumentException("Online reward minutes must be positive");
+            }
+            rewards = List.copyOf(rewards == null ? List.of() : rewards);
+        }
+
         public OnlineTimeReward(int minutes, long coins) {
-            this("online_" + minutes + "m", minutes, coins);
+            this("online_" + minutes + "m", minutes,
+                    List.of(RewardDefinition.currency("legacy_currency", coins)));
         }
     }
 }

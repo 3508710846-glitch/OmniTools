@@ -1,6 +1,7 @@
 package dev.modmind.omnitools.config;
 
 import dev.modmind.omnitools.AchievementConfig;
+import dev.modmind.omnitools.CheckinRewardConfig;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
@@ -90,6 +91,11 @@ public final class ConfigValidator {
         }
         snapshot.rewards().monthlyRewards().forEach((milestone, rewards) -> rewards.forEach(reward ->
                 validateReward(snapshot, reward, "monthly reward " + milestone)));
+        for (CheckinRewardConfig.OnlineTimeReward milestone : snapshot.rewards().onlineTimeRewards()) {
+            for (RewardDefinition reward : milestone.rewards()) {
+                validateReward(snapshot, reward, "online reward " + milestone.id());
+            }
+        }
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
             for (RewardDefinition reward : achievement.rewards()) {
                 validateReward(snapshot, reward, "achievement " + achievement.id());

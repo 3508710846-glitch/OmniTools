@@ -1,0 +1,21 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "sky_traveler",
+      "display": "空中旅者",
+      "description": "累计鞘翅飞行 1000 米",
+      "icon": "minecraft:elytra",
+      "requirements": {
+        "type": "stat",
+        "stat": "custom",
+        "custom_stat": "minecraft:aviate_one_cm",
+        "unit": "meters",
+        "at_least": 1000
+      },
+      "rewards": [
+        { "id": "sky_traveler_currency", "type": "currency", "amount": 200 }
+      ]
+    }
+  ]
+}

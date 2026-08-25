@@ -1,26 +1,41 @@
 # 称号效果
 
-## 1. 功能简介
+## 1. 模块用途和适用场景
 
-称号效果为玩家已选择的称号添加药水、属性、粒子或受限的原生权限效果。称号配置中的 `effects` 数组通过效果 ID 引用本模块定义。
+称号效果为当前佩戴称号添加药水、属性、粒子或受限原生权限效果。效果只在服务端运行，不要求客户端安装 OmniTools。
 
-## 2. 模块开关
+## 2. 模块依赖与关联模块
 
-根配置为 `config/omnitools/config.json`：
+模块 ID 为 `title_effects`，依赖 `titles`。效果 ID 由称号配置的 `effects` 数组引用；效果定义非空时，称号模块必须启用。
+
+## 3. 模块开关配置
+
+```json
+{ "modules": { "title_effects": { "enabled": true } } }
+```
+
+禁用会立刻移除本模块施加的药水、属性、粒子和权限状态，不删除称号、效果定义或玩家偏好。
+
+## 4. 初始配置文件位置
+
+首次启动生成 `config/omnitools/title_effects/config.json`。修改后需要 `/omnitools reload`。
+
+## 5. 最小可用配置
 
 ```json
 {
-  "modules": {
-    "title_effects": { "enabled": true }
+  "format_version": 1,
+  "slow_fall": {
+    "name": "缓降",
+    "type": "POTION",
+    "effect": "minecraft:slow_falling",
+    "amplifier": 0,
+    "duration": -1
   }
 }
 ```
 
-模块管理 GUI 在 `titles` 禁用时会拒绝启用 `title_effects`。直接编辑根配置时，只有效果定义为空时，`title_effects: true` 与 `titles: false` 的候选快照才可通过；只要存在任何效果定义，`titles` 就必须启用。当效果定义非空且效果模块已启用时不能关闭 `titles`。禁用效果模块会立即移除其管理的全部效果，不删除称号和玩家数据。
-
-## 3. 初始配置
-
-首次加载生成 `config/omnitools/title_effects/config.json`。以下是完整的七项默认定义：
+## 6. 完整配置示例
 
 ```json
 {
@@ -33,113 +48,63 @@
     "duration": -1,
     "display": "&a移动速度提升 20%"
   },
-  "speed_2": {
-    "name": "速度 II",
-    "type": "POTION",
-    "effect": "minecraft:speed",
-    "amplifier": 1,
-    "duration": -1,
-    "display": "&a移动速度提升 40%"
-  },
-  "resistance_1": {
-    "name": "抗性提升 I",
-    "type": "POTION",
-    "effect": "minecraft:resistance",
-    "amplifier": 0,
-    "duration": -1,
-    "display": "&a抗性提升 I（减少所受伤害）"
-  },
   "health_2": {
     "name": "生命提升 II",
     "type": "ATTRIBUTE",
     "attribute": "minecraft:generic.max_health",
     "operation": "ADDITION",
     "amount": 4.0,
-    "display": "&c♥ 生命上限 +4"
-  },
-  "night_vision": {
-    "name": "夜视",
-    "type": "POTION",
-    "effect": "minecraft:night_vision",
-    "amplifier": 0,
-    "duration": -1,
-    "display": "&f永久夜视（无需药水）"
-  },
-  "fire_resistance": {
-    "name": "防火",
-    "type": "POTION",
-    "effect": "minecraft:fire_resistance",
-    "amplifier": 0,
-    "duration": -1,
-    "display": "&6免疫火焰伤害"
-  },
-  "particle_redstone": {
-    "name": "红石粒子",
-    "type": "PARTICLE",
-    "particle": "minecraft:redstone",
-    "frequency": 10,
-    "display": "&c行走时飘落红石粒子"
+    "display": "&c生命上限 +4"
   }
 }
 ```
 
-文件缺失时创建完整默认定义；损坏时不覆盖文件，旧快照继续运行。
+## 7. 配置字段表
 
-## 4. 指令与权限
+每个根对象键都是效果 ID，必须匹配 `[a-z0-9_.-]{1,64}`。
 
-本模块没有独立命令；效果随称号选择与个人效果开关应用。相关入口如下：
-
-| 指令 | 别名 | 用途 | 默认权限 | 仅玩家 |
+| 字段 | 类型 | 必填 | 默认值或范围 | 重载方式 |
 | --- | --- | --- | --- | --- |
-| `/omnitools title [open]` | `/checkin title [open]`、`/title [open]` | 在称号菜单选择称号、切换个人效果开关 | `title.open` (`PLAYER`) | 是 |
-| `/omnitools reload` | 无 | 重载效果定义 | `config.reload` (`ADMIN`) | 否 |
+| `format_version` | integer | 否 | 首次生成 `1` | reload |
+| `<id>.name` | string | 否 | 使用效果 ID | reload |
+| `<id>.type` | string | 是 | `POTION`、`ATTRIBUTE`、`PARTICLE`、`PERMISSION` | reload |
+| `effect`、`amplifier`、`duration` | string、integer、integer | POTION | 有效药水；等级 >= 0；时长为 `-1` 或正数 | reload |
+| `attribute`、`operation`、`amount` | string、string、number | ATTRIBUTE | 有效属性；有限数值 | reload |
+| `particle`、`frequency` | string、integer | PARTICLE | 有效粒子；频率 >= 1 | reload |
+| `permission` | string | PERMISSION | `omnitools:cloud_storage` 或 `omnitools:command.*` | reload |
+| `display` | string | 否 | 默认名称，支持颜色 | reload |
 
-管理员通过称号命令授予或回收称号；这些命令的权限见 [titles.md](titles.md)。
+## 8. 指令、别名和权限节点
 
-## 5. 配置字段
+本模块没有独立命令。玩家通过 `/omnitools title`（`title.open`，默认 PLAYER）在称号 GUI 选择称号和个人效果开关；管理员用 `/omnitools reload`（`config.reload`，默认 ADMIN）加载定义。
 
-所有效果 ID 是根对象的键，必须匹配 `[a-z0-9_.-]{1,64}`；也可用 `effects` 对象包装定义。
+## 9. GUI 操作说明
 
-| 字段 | JSON 类型 | 必填 | 默认值/范围 | 作用与错误行为 |
-| --- | --- | --- | --- | --- |
-| `format_version` | 任意 JSON 值（当前未读取） | 否 | 首次生成写入 `1` | 当前读取器忽略该字段；它仅作为生成文件的格式标记。 |
-| `<效果ID>.name` | string | 否 | 效果 ID | 管理名称。 |
-| `<效果ID>.type` | string | 是 | `POTION`、`ATTRIBUTE`、`PARTICLE`、`PERMISSION` | 效果类型。 |
-| `<效果ID>.effect` | string | `type=POTION` 时是 | 有效药水 ID | 为空或无效 ID 拒绝配置。 |
-| `<效果ID>.amplifier` | integer | 否，`POTION` 使用 | `0`，`>= 0` | 药水等级，原版从 0 起计。 |
-| `<效果ID>.duration` | integer | 否，`POTION` 使用 | `-1`；`-1` 或正整数 | `-1` 为无限时长；`0` 与小于 `-1` 的值拒绝配置。 |
-| `<效果ID>.attribute` | string | `type=ATTRIBUTE` 时是 | 无 | 有效属性 ID，不能为空。 |
-| `<效果ID>.operation` | string | 否，`ATTRIBUTE` 使用 | `ADDITION` | 可用 `ADDITION`、`ADD_VALUE`、`ADD_MULTIPLIED_BASE`、`MULTIPLY_BASE`、`ADD_MULTIPLIED_TOTAL`、`MULTIPLY_TOTAL`。 |
-| `<效果ID>.amount` | number | 否，`ATTRIBUTE` 使用 | `0.0`，有限数 | 属性修正值；非有限数拒绝配置。 |
-| `<效果ID>.particle` | string | `type=PARTICLE` 时是 | 无 | 有效粒子 ID，不能为空。 |
-| `<效果ID>.frequency` | integer | 否，`PARTICLE` 使用 | `10`，`>= 1` | 每隔多少玩家 tick 尝试显示粒子。 |
-| `permission` | string | `PERMISSION` | 有效 ID | 仅允许 `omnitools:cloud_storage` 或 `omnitools:command.*`；后者还受权限配置总开关限制。 |
-| `display` | string | 否 | `name` | 在称号界面展示的效果文字。 |
+效果不单独打开 GUI。称号菜单在对应称号的 Lore 中显示效果，并提供玩家个人效果开关。修改佩戴称号、重生、重连或 reload 后，服务端重新应用有效效果。
 
-## 6. 使用示例
+## 10. 占位符列表及用途
 
-```json
-{
-  "format_version": 1,
-  "slow_fall": {
-    "name": "缓降",
-    "type": "POTION",
-    "effect": "minecraft:slow_falling",
-    "amplifier": 0,
-    "duration": -1,
-    "display": "&b缓慢下落"
-  }
-}
-```
+`%omnitools:title_effects_enabled%` 表示玩家的个人效果开关；称号显示文本可用 `title`、`title_plain`。详见[Placeholder API](../guides/placeholder-api.md)。
 
-在 `titles/config.json` 的称号中加入 `"effects": ["slow_fall"]`，再执行 `/omnitools reload`。无效注册表 ID、权限 ID 或参数会拒绝整个候选快照。
+## 11. 数据保存位置和升级影响
 
-## 7. 数据保存
+效果定义位于 JSON；玩家的启用偏好和称号选择位于世界 `TitleData`。运行时药水、属性和粒子不是配置数据，禁用时会清理。升级前保留现有效果 ID，避免称号引用失效。
 
-效果定义保存在 JSON。玩家是否启用称号效果和选择的称号保存在世界 `TitleData`；运行时药水、属性、粒子和权限状态不作为配置数据保存。
+## 12. 与其他模块的联动
 
-升级或迁移前必须同时备份世界目录和 `config/omnitools/`。
+仅由称号模块引用；PERMISSION 类型会与权限模块的命令角色共同决定最终权限。云存储原生节点可被受限权限效果授予。
 
-## 8. 热重载与依赖
+## 13. 常见错误及解决方法
 
-成功重载会刷新在线玩家的称号效果；禁用模块调用全量清理。模块管理 GUI 要求先启用 `titles`，且只要定义非空，快照校验也要求 `titles` 启用；称号引用的效果 ID 必须存在。任一配置错误时旧快照和现有效果继续运行。
+| 现象 | 处理 |
+| --- | --- |
+| 效果没有生效 | 确认 `titles` 与本模块已启用、称号已佩戴且效果 ID 存在。 |
+| 不能关闭称号模块 | 先禁用效果模块或移除所有效果定义与称号引用。 |
+| reload 失败 | 检查注册表 ID、时长、属性操作和权限节点限制。 |
+
+## 14. 可复制的验收清单
+
+- [ ] 佩戴称号后药水或属性立即生效。
+- [ ] 关闭个人效果后运行时效果被移除。
+- [ ] 禁用模块后不遗留效果，重新启用后可恢复。
+- [ ] 不存在的效果 ID 会阻止错误快照发布。

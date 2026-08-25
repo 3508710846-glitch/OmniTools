@@ -28,4 +28,12 @@ public record RewardEvent(String id, UUID playerId) {
         return new RewardEvent("achievement:" + playerId + ":" + achievementId.trim().toLowerCase(java.util.Locale.ROOT),
                 playerId);
     }
+
+    public static RewardEvent online(UUID playerId, long epochDay, String milestoneId) {
+        if (milestoneId == null || milestoneId.isBlank()) {
+            throw new IllegalArgumentException("Online reward milestone id must not be blank");
+        }
+        return new RewardEvent("online:" + playerId + ":" + epochDay + ":"
+                + milestoneId.trim().toLowerCase(java.util.Locale.ROOT), playerId);
+    }
 }

@@ -7,7 +7,6 @@ import dev.modmind.omnitools.ModMindEntry;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import dev.modmind.omnitools.permissions.CommandAction;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -38,7 +37,7 @@ public final class CommandMenuService {
         }
         player.openMenu(new net.minecraft.world.SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CommandMenuScreenHandler.createServer(syncId, inventory, player, menuId),
-                definition.page().title()));
+                definition.page().title(player)));
         return true;
     }
 
@@ -62,7 +61,7 @@ public final class CommandMenuService {
         String command = substitute(action.value(), player);
         var security = ModMindEntry.configSnapshot().root().commandSecurity();
         if (!security.allows(command)) {
-            player.sendSystemMessage(Component.literal("This menu command is blocked by server security."));
+            player.sendSystemMessage(ServerText.translatable("message.omnitools.command_menu.command_blocked"));
             System.err.println("[omnitools] Blocked menu command for " + player.getUUID() + ": " + command);
             return;
         }
@@ -70,7 +69,7 @@ public final class CommandMenuService {
         long previous = LAST_COMMAND_TICK.getOrDefault(player.getUUID(), Long.MIN_VALUE);
         if (security.cooldownTicks() > 0 && previous != Long.MIN_VALUE
                 && tick - previous < security.cooldownTicks()) {
-            player.sendSystemMessage(Component.literal("Please wait before using another menu command."));
+            player.sendSystemMessage(ServerText.translatable("message.omnitools.command_menu.command_cooldown"));
             return;
         }
         LAST_COMMAND_TICK.put(player.getUUID(), tick);

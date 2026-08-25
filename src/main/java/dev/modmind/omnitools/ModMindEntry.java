@@ -33,13 +33,18 @@ import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 import dev.modmind.omnitools.permissions.CommandPermissionService;
+import dev.modmind.omnitools.commandmenu.CommandMenuAction;
 import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
+import dev.modmind.omnitools.commandmenu.CommandMenuDefinition;
+import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
 import dev.modmind.omnitools.commandmenu.CommandMenuService;
 import dev.modmind.omnitools.sidebar.SidebarService;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardEvent;
 import dev.modmind.omnitools.reward.RewardGrantService;
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -97,6 +102,7 @@ public final class ModMindEntry implements ModInitializer {
             ServerPlayer player = handler.getPlayer();
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 onlineTimeRewardService().onJoin(player);
+                onlineTimeRewardService().retryPending(player);
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
                 titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
@@ -153,6 +159,7 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                             CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
+                            CommandAction.DIAGNOSE,
                             CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE,
                             CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY,
                             CommandAction.REWARDS_ADMIN))
@@ -182,6 +189,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
                             .executes(context -> reloadRewards(context.getSource())))
+                    .then(diagnoseCommand())
                     .then(rewardsCommand())
                     .then(commandMenuCommand())
                     .then(moduleManagerCommand());
@@ -318,6 +326,7 @@ public final class ModMindEntry implements ModInitializer {
             TitleDisplayService.clearAll(server);
         }
         applySnapshot(current);
+        warnPermissiveCommandSecurity(current);
         CheckinData.get(server).applyRetention(current.root().dataRetention(), CheckinData.today(server));
         if (current.root().dataRetention() != dev.modmind.omnitools.config.OmniToolsRootConfig.DataRetention.FULL) {
             rewardGrantService().cleanupProvenCompleted(server);
@@ -637,19 +646,21 @@ public final class ModMindEntry implements ModInitializer {
         }
 
         Collection<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player");
+        Component titleDisplay = context.getSource().getEntity() instanceof ServerPlayer sourcePlayer
+                ? TextTemplateRenderer.render(sourcePlayer, title.get().display()) : title.get().displayComponent();
         for (NameAndId profile : profiles) {
             if (give) {
                 TitleConfig.GrantResult result = titleConfig().grant(profile.id(), profile.name(), titleId);
                 context.getSource().sendSuccess(() -> ServerText.translatable(
                         result == TitleConfig.GrantResult.GRANTED
                                 ? "command.omnitools.title.give" : "command.omnitools.title.already_owned",
-                        title.get().displayComponent(), profile.name()), true);
+                        titleDisplay, profile.name()), true);
             } else {
                 TitleConfig.RevokeResult result = titleConfig().revoke(profile.id(), profile.name(), titleId);
                 context.getSource().sendSuccess(() -> ServerText.translatable(
                         result == TitleConfig.RevokeResult.REVOKED
                                 ? "command.omnitools.title.remove" : "command.omnitools.title.not_owned",
-                        title.get().displayComponent(), profile.name()), true);
+                        titleDisplay, profile.name()), true);
             }
 
             ServerPlayer onlinePlayer = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
@@ -675,9 +686,100 @@ public final class ModMindEntry implements ModInitializer {
         return 1;
     }
 
+    private static LiteralArgumentBuilder<CommandSourceStack> diagnoseCommand() {
+        return Commands.literal("diagnose")
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.DIAGNOSE))
+                .executes(context -> diagnose(context.getSource()));
+    }
+
+    /** Prints only immutable snapshot data and read-only runtime counters. */
+    private static int diagnose(CommandSourceStack source) {
+        OmniToolsConfigSnapshot snapshot = configSnapshot;
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.header"), false);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.config",
+                snapshot.root().formatVersion(), snapshot.revision()), false);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.modules",
+                formatModuleStates(snapshot)), false);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.placeholder_api",
+                ServerText.translatable(PlaceholderBootstrap.availability().translationKey())), false);
+
+        var security = snapshot.root().commandSecurity();
+        Component commandSecurity = security.isPermissive()
+                ? ServerText.translatable("command.omnitools.diagnose.command_security_permissive")
+                : ServerText.translatable("command.omnitools.diagnose.command_security_restricted",
+                        security.allowedRoots().size());
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.command_security",
+                commandSecurity), false);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.unresolved_rewards",
+                RewardClaimLedger.unresolvedEntryCount(source.getServer())), false);
+
+        SidebarService.DiagnosticStatus sidebar = sidebarService().diagnosticStatus();
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.sidebar_conflicts",
+                sidebar.policy().serializedName(), sidebar.skippedByConflict()), false);
+        return 1;
+    }
+
+    private static String formatModuleStates(OmniToolsConfigSnapshot snapshot) {
+        java.util.List<String> states = new java.util.ArrayList<>();
+        for (ModuleId module : ModuleId.values()) {
+            states.add(module.id() + "=" + ServerText.translatable(snapshot.enabled(module)
+                    ? "command.omnitools.diagnose.enabled" : "command.omnitools.diagnose.disabled").getString());
+        }
+        return String.join(", ", states);
+    }
+
+    private static void warnPermissiveCommandSecurity(OmniToolsConfigSnapshot snapshot) {
+        if (!snapshot.root().commandSecurity().isPermissive()) {
+            return;
+        }
+        java.util.List<String> affectedMenus = new java.util.ArrayList<>();
+        int commandActions = 0;
+        for (CommandMenuDefinition menu : snapshot.commandMenus().menus().values()) {
+            int actions = 0;
+            for (CommandMenuItem item : menu.page().items().values()) {
+                actions += countCommandActions(item.leftClick());
+                actions += countCommandActions(item.rightClick());
+            }
+            if (actions > 0) {
+                affectedMenus.add(menu.id());
+                commandActions += actions;
+            }
+        }
+        int commandRewards = countCommandRewards(snapshot.rewards().dailyRewards());
+        for (java.util.List<RewardDefinition> rewards : snapshot.rewards().monthlyRewards().values()) {
+            commandRewards += countCommandRewards(rewards);
+        }
+        for (CheckinRewardConfig.OnlineTimeReward reward : snapshot.rewards().onlineTimeRewards()) {
+            commandRewards += countCommandRewards(reward.rewards());
+        }
+        for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
+            commandRewards += countCommandRewards(achievement.rewards());
+        }
+        String menus = affectedMenus.isEmpty()
+                ? ServerText.translatable("command.omnitools.diagnose.none").getString()
+                : String.join(", ", affectedMenus);
+        System.err.println("[omnitools] " + ServerText.translatable(
+                "log.omnitools.command_security.permissive", menus, commandActions, commandRewards).getString());
+    }
+
+    private static int countCommandActions(java.util.List<CommandMenuAction> actions) {
+        return (int) actions.stream().filter(action -> action.type() == CommandMenuAction.Type.COMMAND).count();
+    }
+
+    private static int countCommandRewards(java.util.Collection<RewardDefinition> rewards) {
+        return (int) rewards.stream().filter(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.COMMAND)
+                .count();
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> rewardsCommand() {
         return Commands.literal("rewards")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.REWARDS_RETRY, CommandAction.REWARDS_ADMIN))
+                .then(Commands.literal("open")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_RETRY))
+                        .executes(context -> openRewardInbox(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("admin")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_ADMIN))
+                        .executes(context -> openRewardLedger(context.getSource().getPlayerOrException())))
                 .then(Commands.literal("retry")
                         .requires(COMMAND_PERMISSIONS.requirement(CommandAction.REWARDS_RETRY))
                         .executes(context -> retryRewards(context.getSource().getPlayerOrException()))
@@ -769,7 +871,7 @@ public final class ModMindEntry implements ModInitializer {
             }
             RewardEvent event = new RewardEvent(eventId, profile.id());
             int count = RewardClaimLedger.get(context.getSource().getServer()).resolveEvent(event, status,
-                    "resolved_by:" + context.getSource().getTextName());
+                    context.getSource().getTextName());
             if (count == 0) {
                 context.getSource().sendFailure(Component.literal("No reward ledger entry for " + eventId));
                 continue;
@@ -789,12 +891,14 @@ public final class ModMindEntry implements ModInitializer {
         java.util.List<String> events = new java.util.ArrayList<>();
         events.addAll(ledger.eventIdsStartingWith("checkin:" + playerId + ":"));
         events.addAll(ledger.eventIdsStartingWith("achievement:" + playerId + ":"));
+        events.addAll(ledger.eventIdsStartingWith("online:" + playerId + ":"));
         return events;
     }
 
     private static boolean belongsToPlayer(String eventId, java.util.UUID playerId) {
         return eventId != null && (eventId.startsWith("checkin:" + playerId + ":")
-                || eventId.startsWith("achievement:" + playerId + ":"));
+                || eventId.startsWith("achievement:" + playerId + ":")
+                || eventId.startsWith("online:" + playerId + ":"));
     }
 
     private static String formatLedgerEntries(String playerName, String eventId,
@@ -810,6 +914,15 @@ public final class ModMindEntry implements ModInitializer {
     private static void finalizeResolvedGrant(net.minecraft.server.MinecraftServer server, java.util.UUID playerId,
                                               String playerName, String eventId, ServerPlayer onlinePlayer) {
         String[] checkin = eventId.split(":", -1);
+        if (checkin.length == 4 && checkin[0].equals("online")) {
+            try {
+                CheckinData.get(server).markOnlineTimeRewardClaimed(playerId, Long.parseLong(checkin[2]), checkin[3],
+                        playerName);
+            } catch (RuntimeException ignored) {
+                // The ledger has still been resolved; leave malformed source keys inspectable.
+            }
+            return;
+        }
         if (checkin.length == 5 && checkin[0].equals("checkin") && checkin[2].equals("monthly")) {
             try {
                 CheckinData.get(server).markMonthlyRewardClaimed(playerId, java.time.YearMonth.parse(checkin[3]),
@@ -828,6 +941,82 @@ public final class ModMindEntry implements ModInitializer {
         }
     }
 
+    /** Completes an event only after a player inbox delivery has updated its original ledger entry. */
+    static void finalizeRewardInboxDelivery(ServerPlayer player, String eventId) {
+        boolean known = false;
+        if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+            known = rewardService().retryEvent(player, eventId);
+        }
+        if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+            known |= achievementService().retryEvent(player, eventId);
+        }
+        if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+            known |= onlineTimeRewardService().retryEvent(player, eventId);
+        }
+        if (!known) {
+            System.err.println("[omnitools] Delivered reward inbox item for an unknown source event: " + eventId);
+        }
+    }
+
+    /**
+     * Marks the source claim only when the current source definition proves every reward entry is
+     * granted. Unlike retrying an event, this never invokes RewardGrantService or a command.
+     */
+    static void finalizeResolvedLedgerEntry(net.minecraft.server.MinecraftServer server,
+                                            RewardClaimLedger.LedgerEntry entry) {
+        if (server == null || entry.playerId() == null) {
+            return;
+        }
+        RewardEvent event = new RewardEvent(entry.eventId(), entry.playerId());
+        RewardClaimLedger ledger = RewardClaimLedger.get(server);
+        String[] checkin = entry.eventId().split(":", -1);
+        if (checkin.length == 4 && checkin[0].equals("online")) {
+            try {
+                long day = Long.parseLong(checkin[2]);
+                rewardService().onlineTimeRewards().stream()
+                        .filter(reward -> reward.id().equals(checkin[3]))
+                        .findFirst()
+                        .filter(reward -> ledger.allGranted(event, reward.rewards()))
+                        .ifPresent(reward -> {
+                            String playerName = entry.playerName().isBlank()
+                                    ? entry.playerId().toString() : entry.playerName();
+                            CheckinData.get(server).markOnlineTimeRewardClaimed(entry.playerId(), day, reward.id(),
+                                    playerName);
+                        });
+            } catch (RuntimeException ignored) {
+                // Preserve an inspectable ledger record when a legacy event id is malformed.
+            }
+            return;
+        }
+        if (checkin.length == 5 && checkin[0].equals("checkin") && checkin[2].equals("monthly")) {
+            try {
+                java.time.YearMonth month = java.time.YearMonth.parse(checkin[3]);
+                int milestone = Integer.parseInt(checkin[4]);
+                java.util.List<RewardDefinition> rewards = rewardService().monthlyRewards().get(milestone);
+                if (rewards != null && ledger.allGranted(event, rewards)) {
+                    String playerName = entry.playerName().isBlank() ? entry.playerId().toString() : entry.playerName();
+                    CheckinData.get(server).markMonthlyRewardClaimed(entry.playerId(), month, milestone, playerName);
+                }
+            } catch (RuntimeException ignored) {
+                // Preserve an inspectable ledger record when a legacy event id is malformed.
+            }
+            return;
+        }
+        String prefix = "achievement:" + entry.playerId() + ":";
+        if (entry.eventId().startsWith(prefix)) {
+            String achievementId = entry.eventId().substring(prefix.length());
+            achievementService().config().definition(achievementId).ifPresent(achievement -> {
+                if (ledger.allGranted(event, achievement.rewards())) {
+                    AchievementData.get(server).markClaimed(entry.playerId(), achievement.id());
+                    ServerPlayer online = server.getPlayerList().getPlayer(entry.playerId());
+                    if (online != null) {
+                        achievementService().check(online);
+                    }
+                }
+            });
+        }
+    }
+
     private static int retryRewards(ServerPlayer player) {
         if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
             rewardService().retryPending(player);
@@ -835,10 +1024,17 @@ public final class ModMindEntry implements ModInitializer {
         if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
             achievementService().retryPending(player);
         }
+        if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+            onlineTimeRewardService().retryPending(player);
+        }
         if (player.containerMenu instanceof CheckinScreenHandler checkinMenu) {
             checkinMenu.refreshAfterRewardRetry();
         } else if (player.containerMenu instanceof CheckinRewardInfoScreenHandler rewardMenu) {
             rewardMenu.refreshAfterRewardRetry();
+        } else if (player.containerMenu instanceof RewardInboxScreenHandler inboxMenu) {
+            inboxMenu.refreshAfterRewardRetry();
+        } else if (player.containerMenu instanceof OnlineTimeRewardScreenHandler onlineMenu) {
+            onlineMenu.refreshAfterRewardRetry();
         }
         player.displayClientMessage(ServerText.translatable("message.omnitools.reward.retry_complete"), true);
         return 1;
@@ -878,7 +1074,11 @@ public final class ModMindEntry implements ModInitializer {
                     || (!snapshot.enabled(ModuleId.COMMAND_MENU)
                     && player.containerMenu instanceof CommandMenuScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.COMMAND_MENU_OPEN)
-                    && player.containerMenu instanceof CommandMenuScreenHandler);
+                    && player.containerMenu instanceof CommandMenuScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.REWARDS_RETRY)
+                    && player.containerMenu instanceof RewardInboxScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.REWARDS_ADMIN)
+                    && player.containerMenu instanceof RewardLedgerScreenHandler);
             if (close) {
                 player.closeContainer();
             } else if (player.containerMenu instanceof CommandMenuScreenHandler commandMenu) {
@@ -936,6 +1136,27 @@ public final class ModMindEntry implements ModInitializer {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> CheckinScreenHandler.createServer(syncId, inventory, player),
                 ServerText.translatable("gui.omnitools.title")));
+        return 1;
+    }
+
+    static int openRewardInbox(ServerPlayer player) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.REWARDS_RETRY)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> RewardInboxScreenHandler.createServer(syncId, inventory, player, 0),
+                ServerText.translatable("gui.omnitools.rewards.inbox.title")));
+        return 1;
+    }
+
+    private static int openRewardLedger(ServerPlayer player) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.REWARDS_ADMIN)) {
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> RewardLedgerScreenHandler.createServer(syncId, inventory, player),
+                ServerText.translatable("gui.omnitools.rewards.admin.title")));
         return 1;
     }
 

@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -121,7 +122,8 @@ public final class TitleScreenHandler extends ChestMenu {
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.unequipped"), true);
         } else if (config.select(ownerId, serverPlayer.getGameProfile().name(), title.id())
                 == TitleConfig.SelectionResult.SELECTED) {
-            serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.equipped", title.displayComponent()), true);
+            serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.equipped",
+                    TextTemplateRenderer.render(serverPlayer, title.display())), true);
         }
         TitleDisplayService.refreshPlayer(serverPlayer);
         TitleEffectService.refresh(serverPlayer);
@@ -168,7 +170,7 @@ public final class TitleScreenHandler extends ChestMenu {
             TitleConfig.TitleDefinition title = unlockedTitles.get(firstTitle + slot);
             boolean selected = title.id().equals(selectedId);
             ItemStack titleItem = new ItemStack(Items.NAME_TAG);
-            titleItem.set(DataComponents.CUSTOM_NAME, title.displayComponent());
+            titleItem.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, title.display()));
             if (selected) {
                 titleItem.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
             }
@@ -176,11 +178,11 @@ public final class TitleScreenHandler extends ChestMenu {
             lore.add(ServerText.translatable("gui.omnitools.title.rarity." + title.rarity().serializedName())
                     .withStyle(rarityColor(title.rarity())));
             if (!title.tooltip().isEmpty()) {
-                lore.addAll(title.tooltip().stream().map(TitleScreenHandler::legacyComponent).toList());
+                lore.addAll(title.tooltip().stream().map(text -> TextTemplateRenderer.render(owner, text)).toList());
             } else if (title.effects().isEmpty()) {
                 lore.add(ServerText.translatable("gui.omnitools.title.no_effects").withStyle(ChatFormatting.DARK_GRAY));
             } else {
-                lore.addAll(title.effects().stream().map(TitleScreenHandler::effectComponent).toList());
+                lore.addAll(title.effects().stream().map(this::effectComponent).toList());
             }
             lore.add(ServerText.translatable(selected ? "gui.omnitools.title.selected" : "gui.omnitools.title.select_hint")
                     .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY));
@@ -215,7 +217,7 @@ public final class TitleScreenHandler extends ChestMenu {
         Component equipped = selectedId.isEmpty()
                 ? ServerText.translatable("gui.omnitools.title.no_selection")
                 : config.definition(selectedId)
-                        .<Component>map(TitleConfig.TitleDefinition::displayComponent)
+                        .<Component>map(title -> TextTemplateRenderer.render(owner, title.display()))
                         .orElse(Component.literal(selectedId).withStyle(ChatFormatting.RED));
         profile.set(DataComponents.LORE, new ItemLore(List.of(
                 ServerText.translatable("gui.omnitools.title.unlocked_count", unlockedCount).withStyle(ChatFormatting.AQUA),
@@ -271,14 +273,10 @@ public final class TitleScreenHandler extends ChestMenu {
         return item;
     }
 
-    private static Component effectComponent(String effectId) {
+    private Component effectComponent(String effectId) {
         return ModMindEntry.titleEffectConfig().definition(effectId)
-                .<Component>map(effect -> legacyComponent(effect.display()))
+                .<Component>map(effect -> TextTemplateRenderer.render(owner, effect.display()))
                 .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
-    }
-
-    private static Component legacyComponent(String text) {
-        return LegacyTitleText.parse(text);
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

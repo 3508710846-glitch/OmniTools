@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -160,7 +161,7 @@ public final class ShopScreenHandler extends ChestMenu {
         for (int slot = 0; slot < PRODUCT_SLOT_COUNT; slot++) {
             ShopConfig.ShopItem product = config.get(firstIndex + slot);
             if (product != null) {
-                shopContainer.setItem(slot, displayProduct(product));
+                shopContainer.setItem(slot, displayProduct(owner, product));
             }
         }
 
@@ -190,8 +191,9 @@ public final class ShopScreenHandler extends ChestMenu {
         displayedBalance = balance;
     }
 
-    private ItemStack displayProduct(ShopConfig.ShopItem product) {
-        ItemStack display = product.createStack();
+    private ItemStack displayProduct(ServerPlayer player, ShopConfig.ShopItem product) {
+        // Rendering only affects this menu copy; purchases keep the exact configured item stack.
+        ItemStack display = TextTemplateRenderer.renderItemText(player, product.createStack());
         ItemLore existingLore = display.get(DataComponents.LORE);
         List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
         if (lore.size() >= ItemLore.MAX_LINES) {

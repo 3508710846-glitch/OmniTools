@@ -19,6 +19,7 @@ public enum CommandAction {
     TITLE_GRANT("title.grant", CommandRole.ADMIN),
     TITLE_REVOKE("title.revoke", CommandRole.ADMIN),
     CONFIG_RELOAD("config.reload", CommandRole.ADMIN),
+    DIAGNOSE("diagnose", CommandRole.ADMIN),
     COMMAND_MENU_OPEN("command_menu.open", CommandRole.PLAYER),
     COMMAND_MENU_CLOSE("command_menu.close", CommandRole.PLAYER),
     SIDEBAR_TOGGLE("sidebar.toggle", CommandRole.PLAYER),

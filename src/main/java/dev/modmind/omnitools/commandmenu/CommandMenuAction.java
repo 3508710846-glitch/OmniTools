@@ -5,9 +5,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /** Immutable click action parsed from a command-menu file. */
 public record CommandMenuAction(Type type, RunAs runAs, String value) {
+    private static final Pattern TEXT_PLACEHOLDER = Pattern.compile("%[^%\\r\\n]+%");
     public enum Type {
         OPEN_MENU,
         CLOSE_MENU,
@@ -54,6 +56,9 @@ public record CommandMenuAction(Type type, RunAs runAs, String value) {
             throw new JsonParseException(context + " uses console commands but allow_console_commands is false");
         }
         String command = requiredString(object, "command", context);
+        if (TEXT_PLACEHOLDER.matcher(command).find()) {
+            throw new JsonParseException(context + " command must not use text placeholders; use the allowed {player_*} values");
+        }
         validatePlaceholders(command, context);
         if (command.length() > 1024) {
             throw new JsonParseException(context + " command is too long");

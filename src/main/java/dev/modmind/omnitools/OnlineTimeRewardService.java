@@ -1,5 +1,8 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.reward.RewardClaimLedger;
+import dev.modmind.omnitools.reward.RewardEvent;
+import dev.modmind.omnitools.reward.RewardGrantResult;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -61,6 +64,8 @@ public final class OnlineTimeRewardService {
     }
 
     public ClaimResult claim(ServerPlayer player, int legacySlot, CheckinRewardConfig.OnlineTimeReward reward) {
+        legacySlot = legacySlot >= 0 && legacySlot < CheckinRewardConfig.ONLINE_TIME_REWARD_COUNT
+                ? legacySlot : -1;
         long now = System.currentTimeMillis();
         flush(player, now);
         long day = CheckinData.today(player.level().getServer()).toEpochDay();
@@ -69,12 +74,101 @@ public final class OnlineTimeRewardService {
         if (onlineMillis < reward.minutes() * 60_000L) {
             return new ClaimResult(ClaimStatus.NOT_READY, onlineMillis, data.getBalance(player.getUUID()));
         }
-        if (!data.claimOnlineTimeReward(player.getUUID(), day, reward.id(), legacySlot,
-                player.getGameProfile().name())) {
+        RewardEvent event = RewardEvent.online(player.getUUID(), day, reward.id());
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        // A pre-ledger claim belongs to the old currency-only implementation. It is final and
+        // must never be converted into a fresh event after upgrading the configuration format.
+        if (data.hasClaimedOnlineTimeReward(player.getUUID(), day, reward.id(), legacySlot)
+                && !ledger.hasEvent(event)) {
             return new ClaimResult(ClaimStatus.ALREADY_CLAIMED, onlineMillis, data.getBalance(player.getUUID()));
         }
-        long balance = data.addCurrency(player.getUUID(), reward.coins(), player.getGameProfile().name());
-        return new ClaimResult(ClaimStatus.CLAIMED, onlineMillis, balance);
+        RewardGrantResult result = ModMindEntry.rewardGrantService().grant(player, event, reward.rewards());
+        if (result.complete()) {
+            data.markOnlineTimeRewardClaimed(player.getUUID(), day, reward.id(), player.getGameProfile().name());
+        }
+        return new ClaimResult(toClaimStatus(result), onlineMillis, data.getBalance(player.getUUID()), result.reason(),
+                result.granted(), result.alreadyGranted());
+    }
+
+    /** Retries only persisted online events, including an event that originated before midnight. */
+    public void retryPending(ServerPlayer player) {
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        String prefix = "online:" + player.getUUID() + ":";
+        for (String eventId : ledger.eventIdsStartingWith(prefix)) {
+            retryEvent(player, eventId);
+        }
+    }
+
+    /** Retries a configured online milestone without creating a new claim event. */
+    public boolean retryEvent(ServerPlayer player, String eventId) {
+        String prefix = "online:" + player.getUUID() + ":";
+        if (eventId == null || !eventId.startsWith(prefix)) {
+            return false;
+        }
+        String[] parts = eventId.split(":", -1);
+        if (parts.length != 4) {
+            return false;
+        }
+        try {
+            long day = Long.parseLong(parts[2]);
+            CheckinRewardConfig.OnlineTimeReward reward = ModMindEntry.rewardService().onlineTimeRewards().stream()
+                    .filter(candidate -> candidate.id().equals(parts[3]))
+                    .findFirst().orElse(null);
+            if (reward == null) {
+                return false;
+            }
+            RewardGrantResult result = ModMindEntry.rewardGrantService().retry(player,
+                    RewardEvent.online(player.getUUID(), day, reward.id()), reward.rewards());
+            if (result.complete()) {
+                CheckinData.get(player).markOnlineTimeRewardClaimed(player.getUUID(), day, reward.id(),
+                        player.getGameProfile().name());
+            }
+            return true;
+        } catch (RuntimeException ignored) {
+            // A malformed or stale event is retained for administrator inspection.
+            return false;
+        }
+    }
+
+    public RewardStatus status(ServerPlayer player, int legacySlot, CheckinRewardConfig.OnlineTimeReward reward) {
+        legacySlot = legacySlot >= 0 && legacySlot < CheckinRewardConfig.ONLINE_TIME_REWARD_COUNT
+                ? legacySlot : -1;
+        long day = CheckinData.today(player.level().getServer()).toEpochDay();
+        CheckinData data = CheckinData.get(player);
+        if (data.hasClaimedOnlineTimeReward(player.getUUID(), day, reward.id(), legacySlot)) {
+            return RewardStatus.CLAIMED;
+        }
+        RewardEvent event = RewardEvent.online(player.getUUID(), day, reward.id());
+        java.util.Map<String, RewardClaimLedger.Entry> entries = RewardClaimLedger.get(player).entries(event);
+        if (!entries.isEmpty()) {
+            if (entries.values().stream().anyMatch(entry -> entry.status() == RewardClaimLedger.EntryStatus.BLOCKED)) {
+                return RewardStatus.BLOCKED;
+            }
+            if (entries.values().stream().anyMatch(entry -> entry.status() == RewardClaimLedger.EntryStatus.FAILED)) {
+                return RewardStatus.FAILED;
+            }
+            return RewardStatus.PENDING;
+        }
+        return getTodayOnlineTime(player) >= reward.minutes() * 60_000L
+                ? RewardStatus.AVAILABLE : RewardStatus.NOT_READY;
+    }
+
+    public String statusReason(ServerPlayer player, CheckinRewardConfig.OnlineTimeReward reward) {
+        long day = CheckinData.today(player.level().getServer()).toEpochDay();
+        RewardEvent event = RewardEvent.online(player.getUUID(), day, reward.id());
+        return RewardClaimLedger.get(player).entries(event).values().stream()
+                .filter(entry -> !entry.reason().isBlank())
+                .map(RewardClaimLedger.Entry::reason)
+                .findFirst().orElse("");
+    }
+
+    private static ClaimStatus toClaimStatus(RewardGrantResult result) {
+        return switch (result.status()) {
+            case SUCCESS -> ClaimStatus.CLAIMED;
+            case PENDING -> ClaimStatus.PENDING;
+            case BLOCKED -> ClaimStatus.BLOCKED;
+            case FAILED -> ClaimStatus.FAILED;
+        };
     }
 
     private void flush(ServerPlayer player, long now) {
@@ -124,10 +218,26 @@ public final class OnlineTimeRewardService {
     public enum ClaimStatus {
         CLAIMED,
         NOT_READY,
-        ALREADY_CLAIMED
+        ALREADY_CLAIMED,
+        PENDING,
+        BLOCKED,
+        FAILED
     }
 
-    public record ClaimResult(ClaimStatus status, long onlineMillis, long balance) {
+    public enum RewardStatus {
+        NOT_READY,
+        AVAILABLE,
+        CLAIMED,
+        PENDING,
+        BLOCKED,
+        FAILED
+    }
+
+    public record ClaimResult(ClaimStatus status, long onlineMillis, long balance, String reason,
+                              int granted, int alreadyGranted) {
+        public ClaimResult(ClaimStatus status, long onlineMillis, long balance) {
+            this(status, onlineMillis, balance, "", 0, 0);
+        }
     }
 
     private static final class Session {

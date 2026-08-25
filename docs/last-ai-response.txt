@@ -1,10 +1,13 @@
-已完成 A-D 的核心改造并通过构建与服务端运行验证。
+文档结构已重构完成。README 精简为安装与入口页，[文档索引](D:/mod/qiandao/docs/index.md) 集中导航十个模块与五份公共指南；公共内容已迁至 [guides](D:/mod/qiandao/docs/guides)。
 
-- 修复 Placeholder API ID 闭包错误；17 个内置 ID 可正确注册。
-- 奖励账本新增 `APPLYING`、物品快照、命令审计与管理员 `inspect/retry/resolve` 命令。货币、称号可上线对账恢复；物品和指令的崩溃不确定状态冻结为可审计项，避免自动重放导致重复发放。[RewardGrantService](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:25)
-- 成就检查改为配置化预算调度；新增签到数据保留、归档和基于来源证明的账本清理。[AchievementService](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:99) [CheckinData](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java:391)
-- 根配置升级至 v3，迁移时备份旧文件，缺失的菜单/侧边栏模块默认关闭；新增命令白名单、长度与冷却限制。[ConfigMigration](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java:48)
-- 侧边栏实现 `skip / replace / restore`，并抽出按玩家与 tick 缓存的文本模板渲染器。
-- 新增升级、备份恢复和奖励一致性说明：[升级指南](/D:/mod/qiandao/docs/upgrade-guide.md) [备份与恢复](/D:/mod/qiandao/docs/backup-and-recovery.md) [奖励一致性](/D:/mod/qiandao/docs/reward-consistency.md)
+十个模块页已按统一的 14 个章节重写，涵盖配置、权限、GUI、占位符、数据、联动、排障和验收清单。命令菜单示例已按当前解析器修正为注册表对象与 `command` / `run_as` 动作格式。旧公共路径保留迁移页，避免既有链接立即失效。
 
-验证通过：`gradlew.bat test`、ModMind 内容校验、受管构建、Fabric 服务端稳定运行 15 秒。隔离客户端启动返回 `spawn UNKNOWN`，且 Modpack 联机工具不适用于该项目；原版客户端的菜单交互仍需在可用客户端环境手动验收。
+验证通过：
+
+- Markdown 链接检查：用户导航页、模块页与指南页均通过。
+- Markdown 内 JSON 示例解析：通过。
+- ModMind 内容校验：通过，`0` 错误、`0` 警告。
+- ModMind 受管构建：通过，产物为 `modmind-current-project.jar`。
+- Fabric 服务端烟雾测试：通过，服务端就绪后稳定运行 15 秒；日志见 [runServer-1787666446946.log](D:/mod/qiandao/.modmind/builds/runServer-1787666446946.log)。
+
+剩余风险：真实原版客户端的逐项 GUI 点击、侧边栏与外部模组冲突策略仍需人工验收。仓库中原有的版本号不一致问题未改动；README 已不再声明具体 OmniTools 发布版本。

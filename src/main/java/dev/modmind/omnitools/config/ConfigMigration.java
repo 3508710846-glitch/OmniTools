@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -25,16 +26,21 @@ public final class ConfigMigration {
     }
 
     public static void migrate() {
+        migrate(ConfigPaths.root(), FabricLoader.getInstance().getConfigDir());
+    }
+
+    /** Package-visible isolated entry point used by migration tests. */
+    static void migrate(Path configRoot, Path legacyConfigRoot) {
         try {
-            Files.createDirectories(ConfigPaths.root());
-            Files.createDirectories(ConfigPaths.legacyDir());
-            migrateRootConfig();
-            migrateRewards();
-            copy("omnitools-shop.json", ModuleId.SHOP, false);
-            copy("omnitools-titles.json", ModuleId.TITLES, true);
-            copy("omnitools-title-effects.json", ModuleId.TITLE_EFFECTS, false);
-            copy("omnitools-achievements.json", ModuleId.ACHIEVEMENTS, false);
-            copy("omnitools-cloud-storage.json", ModuleId.CLOUD_STORAGE, false);
+            Files.createDirectories(configRoot);
+            Files.createDirectories(legacyDir(configRoot));
+            migrateRootConfig(configRoot);
+            migrateRewards(configRoot, legacyConfigRoot);
+            copy(configRoot, legacyConfigRoot, "omnitools-shop.json", ModuleId.SHOP, false);
+            copy(configRoot, legacyConfigRoot, "omnitools-titles.json", ModuleId.TITLES, true);
+            copy(configRoot, legacyConfigRoot, "omnitools-title-effects.json", ModuleId.TITLE_EFFECTS, false);
+            copy(configRoot, legacyConfigRoot, "omnitools-achievements.json", ModuleId.ACHIEVEMENTS, false);
+            copy(configRoot, legacyConfigRoot, "omnitools-cloud-storage.json", ModuleId.CLOUD_STORAGE, false);
         } catch (IOException exception) {
             System.err.println("[omnitools] Configuration migration failed: " + exception.getMessage());
         }
@@ -45,8 +51,8 @@ public final class ConfigMigration {
      * root layout stay disabled until an administrator opts in. The original file is copied before
      * any normalization so a failed upgrade is fully reversible.
      */
-    private static void migrateRootConfig() throws IOException {
-        Path rootConfig = ConfigPaths.rootConfig();
+    private static void migrateRootConfig(Path configRoot) throws IOException {
+        Path rootConfig = rootConfig(configRoot);
         if (!Files.exists(rootConfig)) {
             return;
         }
@@ -83,14 +89,14 @@ public final class ConfigMigration {
         JsonObject commandSecurity = object(global, "command_security");
         if (!commandSecurity.has("allowed_roots")) {
             JsonArray legacyRoots = new JsonArray();
-            legacyRoots.add("*");
+            legacyRoots.add(CommandSecurityConfig.PERMISSIVE_ROOT);
             commandSecurity.add("allowed_roots", legacyRoots);
         }
         if (!commandSecurity.has("max_command_length")) {
-            commandSecurity.addProperty("max_command_length", 1_024);
+            commandSecurity.addProperty("max_command_length", CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH);
         }
         if (!commandSecurity.has("cooldown_ticks")) {
-            commandSecurity.addProperty("cooldown_ticks", 0);
+            commandSecurity.addProperty("cooldown_ticks", CommandSecurityConfig.LEGACY_COOLDOWN_TICKS);
         }
         global.add("command_security", commandSecurity);
         root.add("global", global);
@@ -123,10 +129,10 @@ public final class ConfigMigration {
                 + OmniToolsRootConfig.CURRENT_FORMAT_VERSION + "; backup: " + backup.getFileName());
     }
 
-    private static void migrateRewards() throws IOException {
-        Path source = findLegacyConfig("omnitools-rewards.json");
-        Path daily = ConfigPaths.moduleConfig(ModuleId.DAILY_CHECKIN);
-        Path online = ConfigPaths.moduleConfig(ModuleId.ONLINE_REWARD);
+    private static void migrateRewards(Path root, Path legacyConfigRoot) throws IOException {
+        Path source = findLegacyConfig(legacyConfigRoot, "omnitools-rewards.json");
+        Path daily = moduleConfig(root, ModuleId.DAILY_CHECKIN);
+        Path online = moduleConfig(root, ModuleId.ONLINE_REWARD);
         if (source == null || (Files.exists(daily) && Files.exists(online))) {
             return;
         }
@@ -154,37 +160,38 @@ public final class ConfigMigration {
         onlineRoot.add("rewards", rewards);
         writeIfMissing(daily, dailyRoot);
         writeIfMissing(online, onlineRoot);
-        archive(source);
+        archive(root, source);
     }
 
-    private static void copy(String oldName, ModuleId module, boolean stripPlayers) throws IOException {
-        Path source = findLegacyConfig(oldName);
-        Path target = ConfigPaths.moduleConfig(module);
+    private static void copy(Path configRoot, Path legacyConfigRoot, String oldName, ModuleId module,
+                             boolean stripPlayers) throws IOException {
+        Path source = findLegacyConfig(legacyConfigRoot, oldName);
+        Path target = moduleConfig(configRoot, module);
         if (source == null || Files.exists(target)) {
             return;
         }
-        JsonElement root = read(source);
-        if (module == ModuleId.SHOP && root.isJsonArray()) {
+        JsonElement content = read(source);
+        if (module == ModuleId.SHOP && content.isJsonArray()) {
             JsonObject wrapped = new JsonObject();
             wrapped.addProperty("format_version", 1);
-            wrapped.add("products", root);
-            root = wrapped;
-        } else if (module == ModuleId.TITLES && root.isJsonObject()) {
-            JsonObject wrapped = root.getAsJsonObject().deepCopy();
+            wrapped.add("products", content);
+            content = wrapped;
+        } else if (module == ModuleId.TITLES && content.isJsonObject()) {
+            JsonObject wrapped = content.getAsJsonObject().deepCopy();
             wrapped.addProperty("format_version", 1);
             if (stripPlayers) {
                 wrapped.remove("players");
             }
-            root = wrapped;
-        } else if (root.isJsonObject()) {
-            JsonObject wrapped = root.getAsJsonObject().deepCopy();
+            content = wrapped;
+        } else if (content.isJsonObject()) {
+            JsonObject wrapped = content.getAsJsonObject().deepCopy();
             if (!wrapped.has("format_version")) {
                 wrapped.addProperty("format_version", 1);
             }
-            root = wrapped;
+            content = wrapped;
         }
-        writeIfMissing(target, root);
-        archive(source);
+        writeIfMissing(target, content);
+        archive(configRoot, source);
     }
 
     /**
@@ -193,8 +200,8 @@ public final class ConfigMigration {
      * {@code qiandao-*} name.  The returned path is the actual source so the
      * archive manifest preserves which file was migrated.
      */
-    private static Path findLegacyConfig(String currentName) {
-        Path current = ConfigPaths.oldConfig(currentName);
+    private static Path findLegacyConfig(Path legacyConfigRoot, String currentName) {
+        Path current = legacyConfigRoot.resolve(currentName);
         if (Files.exists(current)) {
             return current;
         }
@@ -209,7 +216,7 @@ public final class ConfigMigration {
             return null;
         }
 
-        Path fallback = ConfigPaths.oldConfig(fallbackName);
+        Path fallback = legacyConfigRoot.resolve(fallbackName);
         return Files.exists(fallback) ? fallback : null;
     }
 
@@ -261,12 +268,12 @@ public final class ConfigMigration {
         }
     }
 
-    private static void archive(Path source) throws IOException {
-        Path archived = ConfigPaths.legacyDir().resolve(source.getFileName());
+    private static void archive(Path root, Path source) throws IOException {
+        Path archived = legacyDir(root).resolve(source.getFileName());
         if (!Files.exists(archived)) {
             Files.copy(source, archived, StandardCopyOption.COPY_ATTRIBUTES);
         }
-        Path manifest = ConfigPaths.legacyDir().resolve("manifest.json");
+        Path manifest = legacyDir(root).resolve("manifest.json");
         Map<String, String> entry = new LinkedHashMap<>();
         entry.put("source", source.toString());
         entry.put("archived", archived.toString());
@@ -289,5 +296,17 @@ public final class ConfigMigration {
         try (Writer writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
             GSON.toJson(entries, writer);
         }
+    }
+
+    private static Path rootConfig(Path root) {
+        return root.resolve("config.json");
+    }
+
+    private static Path moduleConfig(Path root, ModuleId module) {
+        return root.resolve(module.id()).resolve("config.json");
+    }
+
+    private static Path legacyDir(Path root) {
+        return root.resolve("legacy");
     }
 }

@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -248,7 +249,8 @@ public final class AchievementService {
                 newlyUnlocked++;
                 if (announce) {
                     player.displayClientMessage(ServerText.translatable(
-                            "message.omnitools.achievement.unlocked", achievement.display()), true);
+                            "message.omnitools.achievement.unlocked", TextTemplateRenderer.render(player,
+                                    achievement.display())), true);
                 }
             }
             if (evaluations != null) {
@@ -275,7 +277,7 @@ public final class AchievementService {
         if (!unlocked && progress.completed() && data.unlock(playerId, achievement.id())) {
             unlocked = true;
             player.displayClientMessage(ServerText.translatable("message.omnitools.achievement.unlocked",
-                    achievement.display()), true);
+                    TextTemplateRenderer.render(player, achievement.display())), true);
         }
         updateCachedScheduledEvaluation(player, achievement, progress, unlocked);
     }

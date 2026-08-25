@@ -217,7 +217,6 @@ public final class CheckinData extends SavedData {
         if (record.onlineTimeDay != day) {
             record.onlineTimeDay = day;
             record.onlineTimeMillis = 0L;
-            record.claimedOnlineTimeRewards.removeIf(key -> !key.startsWith(day + ":"));
         }
         if (milliseconds > 0L) {
             record.onlineTimeMillis = saturatingAdd(record.onlineTimeMillis, milliseconds);
@@ -287,6 +286,21 @@ public final class CheckinData extends SavedData {
         if (hasClaimedOnlineTimeReward(playerId, day, normalizedId, legacySlot)) {
             return false;
         }
+        boolean claimed = record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, normalizedId));
+        if (claimed) {
+            setDirty();
+        }
+        return claimed;
+    }
+
+    /**
+     * Persists completion after an online-reward ledger event is fully granted. Unlike the initial
+     * claim gate, this also accepts a retry that completes after the server-local day changed.
+     */
+    public synchronized boolean markOnlineTimeRewardClaimed(UUID playerId, long day, String rewardId,
+                                                             String playerName) {
+        String normalizedId = normalizeRewardId(rewardId);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
         boolean claimed = record.claimedOnlineTimeRewards.add(onlineTimeRewardKey(day, normalizedId));
         if (claimed) {
             setDirty();

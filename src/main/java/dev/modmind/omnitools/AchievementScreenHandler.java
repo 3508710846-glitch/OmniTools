@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -118,7 +119,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         AchievementService.ClaimResult result = service.claim(serverPlayer, achievement.id());
         switch (result.status()) {
             case CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.claimed", achievement.display(), result.grantedRewards(),
+                    "message.omnitools.achievement.claimed", TextTemplateRenderer.render(serverPlayer,
+                            achievement.display()), result.grantedRewards(),
                     result.balance()), true);
             case ALREADY_CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.achievement.already_claimed"), true);
@@ -209,10 +211,10 @@ public final class AchievementScreenHandler extends ChestMenu {
         if (state == AchievementService.State.CLAIMED) {
             item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
-        item.set(DataComponents.CUSTOM_NAME, LegacyTitleText.parse(achievement.display()).copy()
+        item.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, achievement.display()).copy()
                 .withStyle(color, ChatFormatting.BOLD));
         List<Component> lore = new ArrayList<>();
-        lore.add(LegacyTitleText.parse(achievement.description()).copy().withStyle(ChatFormatting.GRAY));
+        lore.add(TextTemplateRenderer.render(owner, achievement.description()).copy().withStyle(ChatFormatting.GRAY));
         appendConditionLore(achievement.condition(), progress, lore, color, 0);
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
@@ -338,8 +340,9 @@ public final class AchievementScreenHandler extends ChestMenu {
         }
         for (RewardDefinition reward : rewards) {
             if (reward.type() == RewardType.ITEM) {
+                ItemStack displayItem = TextTemplateRenderer.renderItemText(owner, reward.createItemStack());
                 lore.add(ServerText.translatable("gui.omnitools.achievement.reward_item",
-                        reward.createItemStack().getHoverName(), reward.createItemStack().getCount())
+                        displayItem.getHoverName(), displayItem.getCount())
                         .withStyle(ChatFormatting.AQUA));
             } else if (reward.type() == RewardType.COMMAND) {
                 lore.add(ServerText.translatable("gui.omnitools.achievement.reward_command")
@@ -380,20 +383,20 @@ public final class AchievementScreenHandler extends ChestMenu {
             if (index > 0) {
                 displays.append(Component.literal(", "));
             }
-            displays.append(definitions.get(index).displayComponent());
+            displays.append(TextTemplateRenderer.render(owner, definitions.get(index).display()));
         }
         lore.add(ServerText.translatable("gui.omnitools.achievement.reward_titles", displays)
                 .withStyle(ChatFormatting.LIGHT_PURPLE));
         for (TitleConfig.TitleDefinition definition : definitions) {
             for (String tooltip : definition.tooltip()) {
                 lore.add(Component.literal("  ")
-                        .append(LegacyTitleText.parse(tooltip))
+                        .append(TextTemplateRenderer.render(owner, tooltip))
                         .withStyle(ChatFormatting.GRAY));
             }
             for (String effectId : definition.effects()) {
                 ModMindEntry.titleEffectConfig().definition(effectId)
                         .map(TitleEffectConfig.EffectDefinition::display)
-                        .map(LegacyTitleText::parse)
+                        .map(text -> TextTemplateRenderer.render(owner, text))
                         .ifPresent(effect -> lore.add(Component.literal("  ").append(effect)));
             }
         }

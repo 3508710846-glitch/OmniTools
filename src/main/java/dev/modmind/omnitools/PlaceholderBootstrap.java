@@ -17,9 +17,16 @@ public final class PlaceholderBootstrap {
     private PlaceholderBootstrap() {
     }
 
+    public static Availability availability() {
+        if (!ModMindEntry.configSnapshot().placeholderApiEnabled()) {
+            return Availability.DISABLED_IN_CONFIGURATION;
+        }
+        return FabricLoader.getInstance().isModLoaded("placeholder-api")
+                ? Availability.AVAILABLE : Availability.NOT_INSTALLED;
+    }
+
     public static synchronized void registerIfAvailable() {
-        if (attempted || !ModMindEntry.configSnapshot().placeholderApiEnabled()
-                || !FabricLoader.getInstance().isModLoaded("placeholder-api")) {
+        if (attempted || availability() != Availability.AVAILABLE) {
             return;
         }
         attempted = true;
@@ -31,8 +38,7 @@ public final class PlaceholderBootstrap {
      * the integration is unavailable or the token is not registered.
      */
     public static Component resolveExternal(ServerPlayer player, String token) {
-        if (!ModMindEntry.configSnapshot().placeholderApiEnabled()
-                || !FabricLoader.getInstance().isModLoaded("placeholder-api")) {
+        if (availability() != Availability.AVAILABLE) {
             return null;
         }
         try {
@@ -51,6 +57,22 @@ public final class PlaceholderBootstrap {
         } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException
                  | InvocationTargetException | ClassCastException exception) {
             return null;
+        }
+    }
+
+    public enum Availability {
+        AVAILABLE("command.omnitools.diagnose.placeholder_available"),
+        DISABLED_IN_CONFIGURATION("command.omnitools.diagnose.placeholder_disabled"),
+        NOT_INSTALLED("command.omnitools.diagnose.placeholder_not_installed");
+
+        private final String translationKey;
+
+        Availability(String translationKey) {
+            this.translationKey = translationKey;
+        }
+
+        public String translationKey() {
+            return translationKey;
         }
     }
 }
