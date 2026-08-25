@@ -2,7 +2,7 @@
   "version": 1,
   "minecraftVersion": "1.21.11",
   "loader": "fabric",
-  "updatedAt": "2026-08-23T05:55:41.663Z",
+  "updatedAt": "2026-08-25T09:02:08.105Z",
   "relationships": [
     {
       "id": "platform:modrinth:eXts2L7r",
@@ -11,7 +11,7 @@
       "projectId": "eXts2L7r",
       "versionId": "qxjzQ9xY",
       "slug": "eXts2L7r",
-      "name": "文本占位符 API",
+      "name": "Text Placeholder API",
       "version": "2.8.2+1.21.10",
       "primaryModId": "placeholder-api",
       "modIds": [
@@ -19,7 +19,7 @@
       ],
       "fileName": "placeholder-api-2.8.2+1.21.10.jar",
       "relativePath": "libs/modmind/placeholder-api-2.8.2+1.21.10.jar",
-      "installedAt": "2026-08-23T05:55:41.652Z",
+      "installedAt": "2026-08-25T09:02:08.095Z",
       "environment": "unknown",
       "sha256": "975c7e575c27bf6fa82baaf8cd7645051a298f74bf95cf58092b104dd21de5ed",
       "platformLinks": {

@@ -678,6 +678,11 @@ public final class ModMindEntry implements ModInitializer {
         if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
             achievementService().retryPending(player);
         }
+        if (player.containerMenu instanceof CheckinScreenHandler checkinMenu) {
+            checkinMenu.refreshAfterRewardRetry();
+        } else if (player.containerMenu instanceof CheckinRewardInfoScreenHandler rewardMenu) {
+            rewardMenu.refreshAfterRewardRetry();
+        }
         player.displayClientMessage(ServerText.translatable("message.omnitools.reward.retry_complete"), true);
         return 1;
     }
@@ -687,10 +692,12 @@ public final class ModMindEntry implements ModInitializer {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             boolean close = (!snapshot.enabled(ModuleId.DAILY_CHECKIN)
                     && (player.containerMenu instanceof CheckinScreenHandler
-                    || player.containerMenu instanceof CheckinRecordsScreenHandler))
+                    || player.containerMenu instanceof CheckinRecordsScreenHandler
+                    || player.containerMenu instanceof CheckinRewardInfoScreenHandler))
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.CHECKIN_OPEN)
                     && (player.containerMenu instanceof CheckinScreenHandler
-                    || player.containerMenu instanceof CheckinRecordsScreenHandler))
+                    || player.containerMenu instanceof CheckinRecordsScreenHandler
+                    || player.containerMenu instanceof CheckinRewardInfoScreenHandler))
                     || (!snapshot.enabled(ModuleId.ONLINE_REWARD)
                     && player.containerMenu instanceof OnlineTimeRewardScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ONLINE_OPEN)

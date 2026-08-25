@@ -11,6 +11,7 @@ base {
 }
 
 repositories {
+    maven { url = 'https://repo.spongepowered.org/maven/' }
     mavenCentral()
 }
 
@@ -19,6 +20,7 @@ dependencies {
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
 
 
 // MODMIND DEPENDENCIES START

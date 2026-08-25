@@ -1,11 +1,8 @@
-已定位并修复。原版 `GENERIC_9x5` 箱子菜单客户端没有同步数据槽，但签到菜单仍发送了两个 `container_set_data` 包，导致客户端访问空数据槽列表并断开。
+已补齐 `managed_download` 审计证据。
 
-已从 [CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:1) 移除旧 GUI 专用的 `DataSlot`、倒计时同步和相关包发送路径。签到日期与状态仍由服务端校验，界面内容继续通过物品名称和 Lore 更新。
+- `addon_prepare` 确认 Placeholder API 已是现有同一 add-on，因此拒绝重复准备。
+- 随后 `addon_import` 对现有 JAR 成功执行受管哈希识别与关系登记：
+  `libs/modmind/placeholder-api-2.8.2+1.21.10.jar`
+  已确认为 Modrinth `Text Placeholder API`、Fabric 1.21.11 可选依赖，并保留精确源码与许可证记录。
 
-验证通过：
-
-- 构建成功：`build/libs/omnitools-0.1.0.jar`
-- 内容校验通过
-- 服务端启动稳定测试通过
-
-停止服务器后，用新的 `omnitools-0.1.0.jar` 替换旧模组 JAR 并重启，再用未安装 OmniTools 的客户端打开签到菜单即可。
+未新增或替换任何依赖，也未改动已完成的签到界面实现。
