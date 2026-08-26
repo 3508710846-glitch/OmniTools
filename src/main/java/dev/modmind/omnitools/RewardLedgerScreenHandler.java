@@ -207,7 +207,7 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
         container.setItem(slot, stack);
     }
 
-    private static ItemStack displayStack(RewardClaimLedger.LedgerEntry entry) {
+    private ItemStack displayStack(RewardClaimLedger.LedgerEntry entry) {
         ItemStack stack = iconFor(entry);
         List<Component> lore = new ArrayList<>();
         lore.add(ServerText.translatable("gui.omnitools.rewards.admin.event", entry.eventId())
@@ -243,9 +243,9 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
         return stack;
     }
 
-    private static ItemStack iconFor(RewardClaimLedger.LedgerEntry entry) {
+    private ItemStack iconFor(RewardClaimLedger.LedgerEntry entry) {
         if (!entry.entry().itemPayload().isEmpty()) {
-            ItemStack item = RewardClaimLedger.itemForDisplay(entry.entry());
+            ItemStack item = RewardClaimLedger.itemForDisplay(entry.entry(), owner.level().registryAccess());
             if (!item.isEmpty()) {
                 return item;
             }

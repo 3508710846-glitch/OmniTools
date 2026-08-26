@@ -155,8 +155,8 @@ public final class RewardInboxScreenHandler extends ChestMenu {
         }
     }
 
-    private static ItemStack displayStack(RewardClaimLedger.LedgerEntry entry) {
-        ItemStack stack = RewardClaimLedger.itemForDisplay(entry.entry());
+    private ItemStack displayStack(RewardClaimLedger.LedgerEntry entry) {
+        ItemStack stack = RewardClaimLedger.itemForDisplay(entry.entry(), owner.level().registryAccess());
         if (stack.isEmpty()) {
             stack = new ItemStack(Items.BARRIER);
         }

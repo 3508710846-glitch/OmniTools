@@ -12,27 +12,31 @@
 
 推荐配置路径：`config/omnitools/daily_checkin/config.json`。修改后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以每日货币和一个月度物品里程碑构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 推荐新格式的教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 2,
-  "daily": {
-    "rewards": [
-      { "id": "daily_coins", "type": "currency", "amount": 100 } // 每日 100 货币
+  "format_version": 2, // 每日签到新格式版本。
+  "daily": { // 每日签到奖励定义。
+    "rewards": [ // 每日触发时的奖励数组。
+      { "id": "daily_coins", "type": "currency", "amount": 100 } // 稳定奖励 ID、货币类型和数量。
     ]
   },
-  "monthly": {
-    "7": [
-      { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }
+  "monthly": { // 按本月累计签到天数发放的奖励。
+    "7": [ // 本月第 7 天的里程碑。
+      { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 } // 稳定 ID、物品 ID 和数量。
     ]
   }
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {
@@ -61,12 +65,12 @@
 
 ## 8. 全部配置场景
 
-四类奖励均使用[统一奖励格式](../reference/rewards.md)。月度 10 天发称号时，先在称号配置定义 `geologist`；指令奖励先在根配置开启 `allow_command_rewards` 并允许命令根。不要把全部奖励堆进日期 Lore，玩家可在“奖励详情”页查看。
+四类奖励均使用[统一奖励格式](../reference/rewards.md)。每日 `daily.rewards` 和月度 `monthly.<天数>` 都可使用该页的完整 ItemStack SNBT `nbt` 写法；月度 10 天发称号时，先在称号配置定义 `geologist`；指令奖励先在根配置开启 `allow_command_rewards` 并允许命令根。不要把全部奖励堆进日期 Lore，玩家可在“奖励详情”页查看。
 
 旧格式兼容（只用于升级，不推荐新服）：
 
 ```jsonc
-{ "dailyCoins": 100, "monthlyRewards": { "7": 500 } }
+{ "dailyCoins": 100, "monthlyRewards": { "7": 500 } } // 旧服兼容：每日货币和第 7 天月度货币。
 ```
 
 同一旧格式的严格 JSON 版（仅供核对旧服，不要作为新服模板）：

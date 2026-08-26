@@ -79,7 +79,7 @@ public final class RewardGrantService {
             String reason = entry.reason().isBlank() ? "item_delivery_not_retryable" : entry.reason();
             return RewardGrantResult.blocked(0, 0, reason);
         }
-        ItemStack pending = ledger.queuedItem(event, rewardId);
+        ItemStack pending = ledger.queuedItem(event, rewardId, player.level().registryAccess());
         if (pending.isEmpty()) {
             ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.FAILED, "missing_item_snapshot");
             return RewardGrantResult.failed(0, 0, "missing_item_snapshot");
@@ -185,7 +185,7 @@ public final class RewardGrantService {
 
     private SingleResult grantItem(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
                                    RewardEvent event) {
-        ItemStack pending = ledger.queueItem(event, reward.id(), reward.createItemStack());
+        ItemStack pending = ledger.queueItem(event, reward.id(), reward.createItemStack(), player.level().registryAccess());
         if (pending.isEmpty()) {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");

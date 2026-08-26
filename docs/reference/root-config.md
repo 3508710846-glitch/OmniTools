@@ -6,24 +6,28 @@
 
 ```jsonc
 {
-  "format_version": 3,
-  "global": {
-    "debug": false,
+  "format_version": 3, // 根配置格式版本，当前必须为 3。
+  "global": { // 全局运行参数。
+    "debug": false, // 是否输出额外诊断日志。
     "timezone": "Asia/Shanghai", // IANA 时区
     "language": "zh_cn", // 仅 zh_cn 或 en_us
     "data_retention": "full", // full、monthly_summary、archive
-    "command_security": {
+    "command_security": { // 命令菜单和受控命令的安全限制。
       "allowed_roots": ["spawn", "home", "warp"], // 新服不能写 *
-      "max_command_length": 1024,
-      "cooldown_ticks": 10
+      "max_command_length": 1024, // 单条菜单命令的最大字符数。
+      "cooldown_ticks": 10 // 同一玩家执行菜单命令的冷却 tick。
     },
-    "reward_security": {
-      "allow_command_rewards": false,
-      "max_command_length": 1024
+    "reward_security": { // 指令奖励的独立安全开关。
+      "allow_command_rewards": false, // 默认禁止执行奖励命令。
+      "max_command_length": 1024 // 单条奖励命令的最大字符数。
     }
   },
-  "integrations": { "placeholder_api": { "enabled": true } },
-  "modules": { "daily_checkin": { "enabled": true } }
+  "integrations": { // 可选外部模组集成。
+    "placeholder_api": { "enabled": true } // 安装 API 时才会实际解析第三方占位符。
+  },
+  "modules": { // 模块运行时开关。
+    "daily_checkin": { "enabled": true } // 开启每日签到模块。
+  }
 }
 ```
 

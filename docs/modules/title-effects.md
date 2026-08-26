@@ -12,25 +12,31 @@
 
 文件为 `config/omnitools/title_effects/config.json`，修改后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以一个药水效果构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 1,
-  "effects": {
-    "speed_1": {
+  "format_version": 1, // 称号效果配置格式版本。
+  "effects": { // 效果 ID 到效果定义的映射。
+    "speed_1": { // 供称号 effects 数组引用的稳定效果 ID。
       "type": "POTION", // 四种之一：POTION、ATTRIBUTE、PARTICLE、PERMISSION
-      "effect": "minecraft:speed",
-      "amplifier": 0,
-      "duration": -1
+      "effect": "minecraft:speed", // 原版药水效果 ID。
+      "amplifier": 0, // 0 对应 I 级。
+      "duration": -1 // -1 表示佩戴期间持续生效。
     }
   }
 }
 ```
 
-可直接复制版，四类效果各一项：
+## 6. 可直接复制版 `json`
+
+四类效果各一项：
 
 ```json
 {
@@ -62,7 +68,7 @@
     "member_permission": {
       "name": "成员权限",
       "type": "PERMISSION",
-      "permission": "omnitools:member",
+      "permission": "omnitools:cloud_storage",
       "display": "&b成员权限"
     }
   }

@@ -1,13 +1,17 @@
-文档结构已重构完成。README 精简为安装与入口页，[文档索引](D:/mod/qiandao/docs/index.md) 集中导航十个模块与五份公共指南；公共内容已迁至 [guides](D:/mod/qiandao/docs/guides)。
+已完成统一 `item` 奖励的完整 ItemStack SNBT 支持。
 
-十个模块页已按统一的 14 个章节重写，涵盖配置、权限、GUI、占位符、数据、联动、排障和验收清单。命令菜单示例已按当前解析器修正为注册表对象与 `command` / `run_as` 动作格式。旧公共路径保留迁移页，避免既有链接立即失效。
+- 新增共享 [ItemStackConfigParser.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java)，商店和奖励共用；限制 SNBT 与账本快照均为 32 KiB，拒绝混用 `nbt` 和 `item/count/components`。
+- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 已支持 SNBT；账本、奖励箱和管理员 GUI 改用服务器注册表编码/解码，动态附魔组件可持久化。
+- 更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md) 及三个奖励模块文档。附魔格式修正为直接映射：`'minecraft:enchantments':{'minecraft:sharpness':5}`。
+- 新增 [ItemStackConfigParserTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/config/ItemStackConfigParserTest.java)，覆盖简单物品、组件、药水、非法/超大 SNBT、互斥字段、三类奖励入口与账本快照。
 
 验证通过：
 
-- Markdown 链接检查：用户导航页、模块页与指南页均通过。
-- Markdown 内 JSON 示例解析：通过。
-- ModMind 内容校验：通过，`0` 错误、`0` 警告。
-- ModMind 受管构建：通过，产物为 `modmind-current-project.jar`。
-- Fabric 服务端烟雾测试：通过，服务端就绪后稳定运行 15 秒；日志见 [runServer-1787666446946.log](D:/mod/qiandao/.modmind/builds/runServer-1787666446946.log)。
+- `gradlew test --rerun-tasks`
+- ModMind 内容校验
+- ModMind 受管构建，产物：`.modmind/minecraft/mods/modmind-current-project.jar`
+- 隔离 Fabric 服务端启动
+- 真实服务端加载签到、在线奖励、成就三处带附魔 SNBT 配置
+- RCON 热重载：非法 SNBT 被拒绝并保留旧快照；恢复有效配置后重载成功
 
-剩余风险：真实原版客户端的逐项 GUI 点击、侧边栏与外部模组冲突策略仍需人工验收。仓库中原有的版本号不一致问题未改动；README 已不再声明具体 OmniTools 发布版本。
+临时修改的 `run/config` 与 `run/server.properties` 已按备份哈希恢复，测试服务端已停止。

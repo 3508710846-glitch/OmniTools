@@ -12,26 +12,30 @@
 
 文件为 `config/omnitools/titles/config.json`，修改后 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以一个可佩戴称号构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 1,
+  "format_version": 1, // 称号配置格式版本。
   "nameplate_mode": "scoreboard_team", // 或 disabled
   "team_conflict_policy": "preserve_external_team", // 不抢占外部队伍
-  "titles": [{
-    "id": "geologist",
-    "display": "&7[地质学家]&r ",
-    "rarity": "common",
-    "effects": ["health_2"],
-    "tooltip": ["&c生命上限 +4"]
+  "titles": [{ // 称号定义列表。
+    "id": "geologist", // 稳定称号 ID。
+    "display": "&7[地质学家]&r ", // 聊天、GUI 与头顶显示文本。
+    "rarity": "common", // 稀有度：common、rare 或 legendary。
+    "effects": ["health_2"], // 已定义的称号效果 ID。
+    "tooltip": ["&c生命上限 +4"] // GUI 中显示的说明文本。
   }]
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {

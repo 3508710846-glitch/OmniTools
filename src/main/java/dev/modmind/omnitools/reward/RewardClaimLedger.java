@@ -4,6 +4,8 @@ import dev.modmind.omnitools.ModMindEntry;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -158,12 +160,14 @@ public final class RewardClaimLedger extends SavedData {
     }
 
     /** Saves the exact item being delivered before checking or mutating the player inventory. */
-    public synchronized ItemStack queueItem(RewardEvent event, String rewardId, ItemStack stack) {
+    public synchronized ItemStack queueItem(RewardEvent event, String rewardId, ItemStack stack,
+                                            HolderLookup.Provider registries) {
         Entry current = entry(event, rewardId);
         if (!current.itemPayload().isEmpty()) {
-            return decodeItem(current.itemPayload());
+            return decodeItem(current.itemPayload(), registries);
         }
-        Tag encoded = ItemStack.CODEC.encodeStart(NbtOps.INSTANCE, stack.copy()).result().orElse(null);
+        Tag encoded = ItemStack.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE, registries), stack.copy())
+                .result().orElse(null);
         if (!(encoded instanceof CompoundTag itemTag)) {
             throw new IllegalArgumentException("Could not serialize item reward " + rewardId);
         }
@@ -174,13 +178,13 @@ public final class RewardClaimLedger extends SavedData {
     }
 
     /** Returns the original persisted item payload, never a freshly parsed configuration reward. */
-    public synchronized ItemStack queuedItem(RewardEvent event, String rewardId) {
-        return decodeItem(entry(event, rewardId).itemPayload());
+    public synchronized ItemStack queuedItem(RewardEvent event, String rewardId, HolderLookup.Provider registries) {
+        return decodeItem(entry(event, rewardId).itemPayload(), registries);
     }
 
     /** Decodes an immutable ledger snapshot for display only. */
-    public static ItemStack itemForDisplay(Entry entry) {
-        return entry == null ? ItemStack.EMPTY : decodeItem(entry.itemPayload());
+    public static ItemStack itemForDisplay(Entry entry, HolderLookup.Provider registries) {
+        return entry == null ? ItemStack.EMPTY : decodeItem(entry.itemPayload(), registries);
     }
 
     /**
@@ -402,8 +406,9 @@ public final class RewardClaimLedger extends SavedData {
         return root;
     }
 
-    private static ItemStack decodeItem(CompoundTag itemTag) {
-        return ItemStack.CODEC.parse(NbtOps.INSTANCE, itemTag).result().orElse(ItemStack.EMPTY);
+    private static ItemStack decodeItem(CompoundTag itemTag, HolderLookup.Provider registries) {
+        return ItemStack.CODEC.parse(RegistryOps.create(NbtOps.INSTANCE, registries), itemTag).result()
+                .orElse(ItemStack.EMPTY);
     }
 
     private static Optional<UUID> eventPlayerId(String eventId) {

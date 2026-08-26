@@ -12,46 +12,54 @@
 
 注册表：`config/omnitools/command_menu/config.json`；页面：`config/omnitools/command_menu/menus/<文件>.json`。修改两个文件后都执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
 
-教学版，不能直接复制：
+最小菜单由注册表 `config.json` 和页面 `menus/main.json` 两个文件组成；下方两个文件必须同时写入对应路径。
+
+## 5. 注释教学版 `jsonc`
+
+下列代码带有注释，**不能直接复制到真实 `.json` 文件**。
+
+注册表 `config.json`：
 
 ```jsonc
 {
-  "format_version": 1,
+  "format_version": 1, // 命令菜单注册表格式版本。
   "allow_console_commands": false, // 控制台动作必须显式开启
-  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }]
+  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }] // 菜单 ID、页面文件和访问角色。
 }
 ```
 
-可直接复制的注册表：
-
-```json
-{
-  "format_version": 1,
-  "allow_console_commands": true,
-  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }]
-}
-```
-
-教学版页面，不能直接复制：
+页面 `menus/main.json`：
 
 ```jsonc
 {
-  "format_version": 1,
-  "title": "&b服务菜单",
+  "format_version": 1, // 单个菜单页面格式版本。
+  "title": "&b服务菜单", // 箱子 GUI 的标题。
   "size": 27, // 仅 27 或 54
-  "items": [{
-    "slot": 13,
-    "item": "minecraft:compass",
-    "name": "&a回主城",
-    "lore": ["&7左键传送"],
-    "left_click": [{ "type": "command", "run_as": "player", "command": "spawn" }]
+  "items": [{ // 自定义菜单物品列表。
+    "slot": 13, // 物品所在槽位。
+    "item": "minecraft:compass", // 显示物品 ID。
+    "name": "&a回主城", // 物品显示名称。
+    "lore": ["&7左键传送"], // 物品 Lore 文本。
+    "left_click": [{ "type": "command", "run_as": "player", "command": "spawn" }] // 左键以玩家身份执行 spawn。
   }]
 }
 ```
 
-可直接复制的 `menus/main.json`：
+## 6. 可直接复制版 `json`
+
+注册表 `config.json`：
+
+```json
+{
+  "format_version": 1,
+  "allow_console_commands": false,
+  "menus": [{ "id": "main", "file": "main.json", "permission": "PLAYER" }]
+}
+```
+
+页面 `menus/main.json`：
 
 ```json
 {

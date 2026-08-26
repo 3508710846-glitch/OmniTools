@@ -11,10 +11,12 @@ OmniTools 仅安装在服务端。首次启动后会创建 `config/omnitools/con
 
 ```jsonc
 {
-  // IANA 时区；会影响签到日界线。
-  "global": { "timezone": "Asia/Shanghai" },
-  // 每个模块都由根配置开关控制。
-  "modules": { "daily_checkin": { "enabled": true } }
+  "global": { // 全局运行参数。
+    "timezone": "Asia/Shanghai" // IANA 时区；会影响签到日界线。
+  },
+  "modules": { // 每个模块都由根配置开关控制。
+    "daily_checkin": { "enabled": true } // 开启每日签到模块。
+  }
 }
 ```
 

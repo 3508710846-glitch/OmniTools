@@ -1587,3 +1587,124 @@ examples/achievement-examples/
 - 说明未覆盖的人工验收项，例如实际服务器中第三方 Placeholder API 模组是否已注册对应变量。
 
 当前资料的依据应优先来自配置解析与验证代码，例如 [AchievementConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)、[ConfigValidator.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java)、[OmniToolsPlaceholderResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OmniToolsPlaceholderResolver.java)，而不是直接复制 `run/config` 中可能保留旧格式的示例。
+
+---
+
+## Development request 2026/8/26 08:00:10
+
+建议将 NBT 支持加入现有统一的 `item` 奖励类型，而不是新增第五种奖励类型。这样每日签到、在线奖励、成就会同时获得能力，发放、奖励箱、账本和重试逻辑保持一致。
+
+当前依据：
+
+- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 是三类奖励的统一解析入口，但目前明确拒绝 `nbt`。
+- [ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java) 已支持完整 `ItemStack` 的 SNBT。
+- [RewardClaimLedger.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java) 已将完整 `ItemStack` 写入世界数据，适合保存带组件/NBT 的待领取物品快照。
+
+## 配置约定
+
+保留现有简单写法，并新增与商店一致的 `nbt` 字段。
+
+```json
+{
+  "id": "named_sword",
+  "type": "item",
+  "nbt": "{id:'minecraft:diamond_sword',count:1,components:{'minecraft:custom_name':'{\"text\":\"签到宝剑\",\"color\":\"gold\",\"italic\":false}','minecraft:enchantments':{levels:{'minecraft:sharpness':5,'minecraft:unbreaking':3}},'minecraft:unbreakable':{}}}"
+}
+```
+
+`nbt` 必须是“完整物品堆 SNBT”，至少含有 `id`，通常还应含有 `count` 和 `components`。它不是给普通物品附加一小段局部 NBT 的字段。
+
+两种写法二选一：
+
+```json
+{ "id": "bread", "type": "item", "item": "minecraft:bread", "count": 8 }
+```
+
+```json
+{ "id": "named_bread", "type": "item", "nbt": "{id:'minecraft:bread',count:8,components:{'minecraft:custom_name':'{\"text\":\"每日面包\"}'}}" }
+```
+
+含有 `nbt` 时，禁止同时写 `item`、`count`、`components`，避免“外部数量”和 NBT 内数量不一致。
+
+严格说，Minecraft 1.21.11 已主要使用 Data Components；此方案支持的是原版 `ItemStack` SNBT，因此其中的 `components`、原版物品数据以及已注册的模组数据组件都可以随物品一并解析和保存。
+
+## 工作台实施步骤
+
+1. 将 `ShopConfig.parseItemStack` 抽到独立的 `ItemStackConfigParser` 或 `ItemStackConfigCodec`。
+   - 该类负责解析两种格式：`item + count + components` 与完整 `nbt`。
+   - 商店和 `RewardDefinition` 都调用它，避免两套物品解析规则日后分叉。
+
+2. 修改 `RewardDefinition.parseItem`。
+   - 删除当前“`nbt` 不支持”的拒绝逻辑。
+   - 如果存在 `nbt`，直接解析完整 SNBT，并依据解析出的 `ItemStack` 进行校验。
+   - 如果不存在 `nbt`，维持当前 `item/count/components` 行为，保证旧配置不受影响。
+
+3. 为 NBT 路径补齐统一校验。
+   - 物品不能为空。
+   - 数量必须为 `1-64`，继续沿用当前单项上限。
+   - 每次奖励事件总物品数不得超过当前 `2304` 上限。
+   - 限制 SNBT 源文本和最终序列化物品快照的大小，例如 `32 KiB`，防止超大容器内容或异常嵌套拖垮 reload、SavedData 与网络同步。
+   - 使用服务器注册表解析 `ItemStack.CODEC`；无法识别的原版/模组组件使 `/omnitools reload` 失败，并保留旧运行快照。
+
+4. 在解析阶段验证账本可持久化。
+   - 解析后的物品必须能经 `ItemStack.CODEC + NbtOps` 编码并解码。
+   - 解码后的物品必须与原物品的物品 ID、数量、组件一致。
+   - 这能避免“配置能加载，但奖励箱保存失败”的情况。
+
+5. 不新增物品组件黑名单。
+   - 配置文件只由服主编辑，功能目标是支持所有服务器可解析、可持久化的完整物品堆。
+   - 安全边界应是数量、体积和可持久化性，而不是随意禁止容器、药水、附魔或模组组件。
+
+## 覆盖范围
+
+只要采用统一 `rewards` 数组，下列位置会自动支持 NBT 物品：
+
+- 每日签到：`daily.rewards`、`monthly.<天数>`。
+- 在线奖励：`rewards[].rewards`。
+- 成就奖励：`achievements[].rewards`。
+
+旧格式只表达货币，不能硬塞 NBT：
+
+- `dailyCoins`、`monthlyRewards`
+- 在线奖励的 `coins`
+- 成就旧奖励对象 `{ "coins": ..., "titles": [...] }`
+
+工作台应提供迁移示例，但不自动修改用户配置。例如每日签到应迁移到 `format_version: 2` 的 `daily.rewards` 格式后才能使用 NBT 物品。
+
+## 发放与热重载行为
+
+现有账本逻辑应保持不变：
+
+- 物品在首次发放前先写入奖励账本快照。
+- 背包不足时，带 NBT 的原物品进入奖励箱，玩家重试时仍领取同一快照。
+- 配置 reload 后修改同一个奖励 ID 的 NBT，只影响尚未创建的新奖励事件。
+- 已进入奖励箱或已记录的奖励绝不能被新配置覆盖。
+- 服务器在物品插入背包期间异常退出时，继续沿用现有人工结算保护，不能自动重复发放。
+
+## 必须补充的测试
+
+- 简单物品、改名物品、附魔物品、不可破坏物品、药水或容器物品的 SNBT 解析。
+- `nbt` 与 `item/count/components` 同时出现时拒绝加载。
+- 非法 SNBT、未知组件、空气物品、数量 `0`、数量大于 `64`、超大文本时拒绝加载。
+- 三个来源分别验证：签到、在线奖励、成就。
+- 账本编码/解码后保留全部组件。
+- 背包满时进入奖励箱，修改配置后重试仍得到原 NBT 物品。
+- 无效 NBT 配置 reload 失败，但旧配置快照和线上功能继续运行。
+
+## 文档交付
+
+更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md)，删除“统一奖励不支持 NBT”的描述，新增：
+
+- “简单组件写法”和“完整 SNBT 写法”的选择说明。
+- 可直接复制的 JSON 示例与带注释的 JSONC 教学示例。
+- SNBT 必须是完整 ItemStack、JSON 字符串中的双引号需要转义的说明。
+- 三个奖励模块各自链接到同一份 NBT 奖励教程。
+- 明确推荐：普通改名、Lore、附魔优先用 `components`；需要完整物品堆、复杂容器内容或兼容既有商店 SNBT 时使用 `nbt`。
+
+这样可实现“所有奖励来源支持 NBT 物品”，同时不破坏已有四类奖励、热重载和防重复发奖机制。
+
+---
+
+## Development request 2026/8/26 08:51:58
+
+继续

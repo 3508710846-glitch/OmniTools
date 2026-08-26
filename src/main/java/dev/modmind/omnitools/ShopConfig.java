@@ -6,18 +6,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ItemStackConfigParser;
 import dev.modmind.omnitools.config.ModuleId;
-import net.minecraft.commands.arguments.item.ItemInput;
-import net.minecraft.commands.arguments.item.ItemParser;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.TagParser;
-import net.minecraft.resources.RegistryOps;
 import net.minecraft.world.item.ItemStack;
 
 import java.io.IOException;
@@ -105,7 +99,8 @@ public final class ShopConfig {
                 throw new JsonParseException("Shop slot " + index + " is configured more than once");
             }
             long price = nonNegativeLong(product, "price");
-            ItemStack stack = parseItemStack(product, registries);
+            ItemStack stack = ItemStackConfigParser.parse(product, registries, "Shop entry " + entryIndex,
+                    Integer.MAX_VALUE);
             if (stack.isEmpty()) {
                 throw new JsonParseException("Shop entry " + entryIndex + " cannot use an empty item stack");
             }
@@ -114,47 +109,11 @@ public final class ShopConfig {
         return new ShopConfig(products);
     }
 
-    /**
-     * Shared parser for administrator-configured item stacks. Reward definitions deliberately use
-     * this exact component syntax instead of maintaining a second item-component implementation.
-     */
+    /** @deprecated Use {@link ItemStackConfigParser#parse(JsonObject, HolderLookup.Provider, String, int)}. */
+    @Deprecated(forRemoval = false)
     public static ItemStack parseItemStack(JsonObject product, HolderLookup.Provider registries)
             throws CommandSyntaxException {
-        JsonElement nbtElement = product.get("nbt");
-        if (nbtElement != null) {
-            String nbt = requiredString(product, "nbt");
-            CompoundTag tag = TagParser.parseCompoundFully(nbt);
-            return ItemStack.CODEC.parse(RegistryOps.create(NbtOps.INSTANCE, registries), tag)
-                    .result()
-                    .orElseThrow(() -> new JsonParseException(
-                            "nbt must be a valid full item-stack SNBT compound"));
-        }
-
-        String item = requiredString(product, "item");
-        int count = positiveInt(product, "count");
-        String components = optionalComponents(product);
-        StringReader reader = new StringReader(item + (components == null ? "" : components));
-        ItemParser.ItemResult result = new ItemParser(registries).parse(reader);
-        if (reader.canRead()) {
-            throw new JsonParseException("Unexpected text in item or components for " + item);
-        }
-        return new ItemInput(result.item(), result.components()).createItemStack(count, false);
-    }
-
-    private static String optionalComponents(JsonObject object) {
-        JsonElement element = object.get("components");
-        if (element == null) {
-            return null;
-        }
-        // An empty object is a convenient no-component spelling for JSON generators. Non-empty
-        // components continue to use the vanilla item-parser text accepted by existing shop files.
-        if (element.isJsonObject() && element.getAsJsonObject().isEmpty()) {
-            return null;
-        }
-        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
-            throw new JsonParseException("components must be a vanilla item-component string or an empty object");
-        }
-        return element.getAsString();
+        return ItemStackConfigParser.parse(product, registries, "Shop item", Integer.MAX_VALUE);
     }
 
     private static int nonNegativeInt(JsonObject object, String key) {

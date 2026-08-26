@@ -12,31 +12,35 @@
 
 文件为 `config/omnitools/achievements/config.json`，修改后执行 `/omnitools reload`，队列会重新建立。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以一个挖掘方块的成就构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 2,
-  "achievements": [{
-    "id": "mine_stone",
-    "display": "石匠",
-    "description": "挖掘 1 个石头",
-    "icon": "minecraft:stone",
+  "format_version": 2, // 成就新格式版本。
+  "achievements": [{ // 成就定义列表。
+    "id": "mine_stone", // 稳定成就 ID，发奖后不要修改。
+    "display": "石匠", // 玩家看到的成就名称。
+    "description": "挖掘 1 个石头", // 玩家看到的完成条件说明。
+    "icon": "minecraft:stone", // GUI 中显示的物品图标。
     "requirements": { // v2 推荐：一个条件对象
-      "type": "stat",
-      "stat": "block_mined",
-      "targets": ["minecraft:stone"],
-      "match": "sum",
-      "at_least": 1
+      "type": "stat", // 单个统计条件节点。
+      "stat": "block_mined", // 使用原版挖掘方块统计域。
+      "targets": ["minecraft:stone"], // 要统计的方块 ID。
+      "match": "sum", // 多目标时将统计值相加。
+      "at_least": 1 // 达成阈值。
     },
-    "rewards": [{ "id": "coins", "type": "currency", "amount": 10 }]
+    "rewards": [{ "id": "coins", "type": "currency", "amount": 10 }] // 成就完成后发放的奖励。
   }]
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {
@@ -100,7 +104,7 @@
 
 预设可能采用为兼容旧服保留的格式；新服改造时以本页 v2 条件对象和各独立示例为准。
 
-`stat` 支持 `block_mined`、`item_crafted`、`item_used`、`item_broken`、`item_picked_up`、`item_dropped`、`entity_killed`、`entity_killed_by`、`custom`。多个目标用 `match: sum`、`each` 或 `any`。目标可写普通 ID、`$目标组`、`#namespace:tag`、`*` 通配符。
+`stat` 支持 `block_mined`、`item_crafted`、`item_used`、`item_broken`、`item_picked_up`、`item_dropped`、`entity_killed`、`entity_killed_by`、`custom`。多个目标用 `match: sum`、`each` 或 `any`。目标可写普通 ID、`$目标组`、`#namespace:tag`、`*` 通配符。`achievements[].rewards` 的物品也可使用[统一奖励](../reference/rewards.md)的完整 ItemStack SNBT `nbt` 写法。
 
 `custom` 的距离单位为 `cm`/`meters`/`blocks`/`kilometers`，时间为 `ticks`/`seconds`/`minutes`/`hours`，伤害为 `damage`/`hearts`，其他统计为 `count`。原版没有严格独立的“方块放置数”统计；`item_used` 只能近似物品使用或放置，不能作为精确放置数宣传。
 

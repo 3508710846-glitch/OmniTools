@@ -1,24 +1,19 @@
 {
-  "prompt": "下面方案可直接转交工作台执行，目标是让文档结构清晰、内容不重复，并与当前 OmniTools 代码和配置保持一致。\n\n**一、现状整理**\n\n当前已有：\n\n- `README.md`：项目首页、安装、快速开始、模块链接。\n- `docs/modules/`：十个模块文档。\n- `docs/upgrade-guide.md`：配置升级说明。\n- `docs/backup-and-recovery.md`：备份恢复说明。\n- `docs/reward-consistency.md`：奖励账本和异常处理。\n- `docs/presets/achievements/`：五组成就预设。\n- `docs/idea.md`、`docs/archive/idea.md`：设计记录。\n- `docs/last-ai-change.json`、`docs/last-ai-response.txt`：工作台内部记录，不应出现在用户导航中。\n\n主要问题是：模块文档章节不统一，配置、指令、权限、占位符和故障处理分散，README 仍承担过多入口说明，缺少统一文档索引。\n\n**二、目标目录**\n\n建议采用以下结构：\n\n```text\nREADME.md                         # 只保留首页介绍和快速入口\n\ndocs/\n├── index.md                      # 文档总索引\n├── modules/\n│   ├── daily-checkin.md\n│   ├── online-reward.md\n│   ├── shop-and-currency.md\n│   ├── titles.md\n│   ├── title-effects.md\n│   ├── achievements.md\n│   ├── cloud-storage.md\n│   ├── permissions.md\n│   ├── command-menu.md\n│   └── sidebar.md\n├── guides/\n│   ├── module-management.md\n│   ├── placeholder-api.md\n│   ├── upgrade-guide.md\n│   ├── backup-and-recovery.md\n│   └── reward-consistency.md\n├── presets/\n│   └── achievements/\n└── archive/\n    ├── idea.md\n    └── agent-records/\n```\n\n`docs/modules/` 保持现有文件名，避免破坏已有链接；新增 `docs/index.md` 作为统一入口。\n\n`docs/last-ai-change.json` 和 `docs/last-ai-response.txt` 只作为工作台内部记录，不放入用户文档导航。\n\n**三、README 重写范围**\n\nREADME 只保留：\n\n1. OmniTools 简介。\n2. Minecraft、Fabric、Java 版本要求。\n3. 纯服务端特性说明。\n4. 安装步骤。\n5. 首次启动和 `/omnitools reload`。\n6. 文档总索引链接。\n7. 常见问题入口。\n8. 版本和变更日志链接。\n\n不要在 README 中重复完整配置字段、奖励状态机或成就条件语法。\n\n**四、每个模块统一章节**\n\n所有 `docs/modules/*.md` 按以下顺序重写：\n\n1. 模块用途和适用场景。\n2. 模块依赖与关联模块。\n3. 模块开关配置。\n4. 初始配置文件位置。\n5. 最小可用配置。\n6. 完整配置示例。\n7. 配置字段表：类型、必填、默认值、范围、重载方式。\n8. 指令、别名和权限节点。\n9. GUI 操作说明。\n10. 占位符列表及用途。\n11. 数据保存位置和升级影响。\n12. 与其他模块的联动。\n13. 常见错误及解决方法。\n14. 可复制的验收清单。\n\n模块内容应具体对应当前实现，例如：\n\n- 签到：六行周历、奖励详情页、月度奖励、签到记录。\n- 在线奖励：在线时长、里程碑、奖励账本。\n- 成就：原版统计、`all/any/not/sum`、目标组、预设文件。\n- 命令菜单：菜单注册、页面配置、按钮动作、命令安全白名单。\n- 侧边栏：刷新周期、占位符、冲突策略。\n- 权限：服主、管理员、玩家三种角色和每条指令的默认权限。\n\n**五、公共指南内容**\n\n`guides/` 只放跨模块内容：\n\n- `module-management.md`：模块状态、热重载、依赖关系和失败回滚。\n- `placeholder-api.md`：17 个 OmniTools 占位符、第三方 Placeholder API、安装与禁用行为。\n- `reward-consistency.md`：`PENDING/APPLYING/GRANTED/BLOCKED/FAILED` 状态和异常处理。\n- `upgrade-guide.md`：旧 `qiandao` 配置迁移、根配置版本、备份文件。\n- `backup-and-recovery.md`：世界数据、`config/omnitools/` 和奖励账本的备份恢复。\n\n模块文档只保留相关链接，不复制这些公共规则。\n\n**六、配置文档规范**\n\n所有示例必须：\n\n- 使用 `config/omnitools/` 路径。\n- 明确区分根配置和模块配置。\n- 标注“首次启动生成”“修改后需要 reload”。\n- 同时提供最小配置和完整配置。\n- 与代码中的当前格式版本一致。\n- 不直接把 `run/config` 运行时文件当作唯一示例来源。\n- 所有 JSON 使用 UTF-8、合法 JSON 和统一缩进。\n\n**七、工作台执行阶段**\n\n1. 清点现有文档，建立旧路径到新路径的映射。\n2. 创建 `docs/index.md`，精简 README。\n3. 按统一模板重写十个模块文档。\n4. 整理公共指南和奖励、升级、备份说明。\n5. 将成就预设加入成就文档，并逐个标注用途。\n6. 统一所有 Markdown 链接、标题层级和术语。\n7. 搜索并清理面向用户文档中的旧 `qiandao`、过时版本号和旧配置路径。\n8. 检查 JSON 示例、命令名称、权限节点和代码实际实现是否一致。\n9. 执行 Markdown 链接检查、JSON 解析检查和文档内容校验。\n10. 最后生成文档变更摘要和未覆盖功能清单。\n\n**验收标准**\n\n- 用户从 README 三次点击内可到达任意模块文档。\n- 每个模块都有指令、权限、配置、GUI、占位符和故障处理章节。\n- 不存在重复且互相矛盾的配置说明。\n- 文档中不再使用旧项目名称或旧配置路径。\n- 所有示例可以直接复制并通过配置校验。\n- 文档明确区分“已实现”“可选依赖”和“规划功能”。\n- 工作台最终输出修改文件清单、链接检查结果、JSON 校验结果和剩余风险。\n\n本轮仅整理文档重构方案，未修改文件。",
+  "prompt": "建议将 NBT 支持加入现有统一的 `item` 奖励类型，而不是新增第五种奖励类型。这样每日签到、在线奖励、成就会同时获得能力，发放、奖励箱、账本和重试逻辑保持一致。\n\n当前依据：\n\n- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 是三类奖励的统一解析入口，但目前明确拒绝 `nbt`。\n- [ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java) 已支持完整 `ItemStack` 的 SNBT。\n- [RewardClaimLedger.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java) 已将完整 `ItemStack` 写入世界数据，适合保存带组件/NBT 的待领取物品快照。\n\n## 配置约定\n\n保留现有简单写法，并新增与商店一致的 `nbt` 字段。\n\n```json\n{\n  \"id\": \"named_sword\",\n  \"type\": \"item\",\n  \"nbt\": \"{id:'minecraft:diamond_sword',count:1,components:{'minecraft:custom_name':'{\\\"text\\\":\\\"签到宝剑\\\",\\\"color\\\":\\\"gold\\\",\\\"italic\\\":false}','minecraft:enchantments':{levels:{'minecraft:sharpness':5,'minecraft:unbreaking':3}},'minecraft:unbreakable':{}}}\"\n}\n```\n\n`nbt` 必须是“完整物品堆 SNBT”，至少含有 `id`，通常还应含有 `count` 和 `components`。它不是给普通物品附加一小段局部 NBT 的字段。\n\n两种写法二选一：\n\n```json\n{ \"id\": \"bread\", \"type\": \"item\", \"item\": \"minecraft:bread\", \"count\": 8 }\n```\n\n```json\n{ \"id\": \"named_bread\", \"type\": \"item\", \"nbt\": \"{id:'minecraft:bread',count:8,components:{'minecraft:custom_name':'{\\\"text\\\":\\\"每日面包\\\"}'}}\" }\n```\n\n含有 `nbt` 时，禁止同时写 `item`、`count`、`components`，避免“外部数量”和 NBT 内数量不一致。\n\n严格说，Minecraft 1.21.11 已主要使用 Data Components；此方案支持的是原版 `ItemStack` SNBT，因此其中的 `components`、原版物品数据以及已注册的模组数据组件都可以随物品一并解析和保存。\n\n## 工作台实施步骤\n\n1. 将 `ShopConfig.parseItemStack` 抽到独立的 `ItemStackConfigParser` 或 `ItemStackConfigCodec`。\n   - 该类负责解析两种格式：`item + count + components` 与完整 `nbt`。\n   - 商店和 `RewardDefinition` 都调用它，避免两套物品解析规则日后分叉。\n\n2. 修改 `RewardDefinition.parseItem`。\n   - 删除当前“`nbt` 不支持”的拒绝逻辑。\n   - 如果存在 `nbt`，直接解析完整 SNBT，并依据解析出的 `ItemStack` 进行校验。\n   - 如果不存在 `nbt`，维持当前 `item/count/components` 行为，保证旧配置不受影响。\n\n3. 为 NBT 路径补齐统一校验。\n   - 物品不能为空。\n   - 数量必须为 `1-64`，继续沿用当前单项上限。\n   - 每次奖励事件总物品数不得超过当前 `2304` 上限。\n   - 限制 SNBT 源文本和最终序列化物品快照的大小，例如 `32 KiB`，防止超大容器内容或异常嵌套拖垮 reload、SavedData 与网络同步。\n   - 使用服务器注册表解析 `ItemStack.CODEC`；无法识别的原版/模组组件使 `/omnitools reload` 失败，并保留旧运行快照。\n\n4. 在解析阶段验证账本可持久化。\n   - 解析后的物品必须能经 `ItemStack.CODEC + NbtOps` 编码并解码。\n   - 解码后的物品必须与原物品的物品 ID、数量、组件一致。\n   - 这能避免“配置能加载，但奖励箱保存失败”的情况。\n\n5. 不新增物品组件黑名单。\n   - 配置文件只由服主编辑，功能目标是支持所有服务器可解析、可持久化的完整物品堆。\n   - 安全边界应是数量、体积和可持久化性，而不是随意禁止容器、药水、附魔或模组组件。\n\n## 覆盖范围\n\n只要采用统一 `rewards` 数组，下列位置会自动支持 NBT 物品：\n\n- 每日签到：`daily.rewards`、`monthly.<天数>`。\n- 在线奖励：`rewards[].rewards`。\n- 成就奖励：`achievements[].rewards`。\n\n旧格式只表达货币，不能硬塞 NBT：\n\n- `dailyCoins`、`monthlyRewards`\n- 在线奖励的 `coins`\n- 成就旧奖励对象 `{ \"coins\": ..., \"titles\": [...] }`\n\n工作台应提供迁移示例，但不自动修改用户配置。例如每日签到应迁移到 `format_version: 2` 的 `daily.rewards` 格式后才能使用 NBT 物品。\n\n## 发放与热重载行为\n\n现有账本逻辑应保持不变：\n\n- 物品在首次发放前先写入奖励账本快照。\n- 背包不足时，带 NBT 的原物品进入奖励箱，玩家重试时仍领取同一快照。\n- 配置 reload 后修改同一个奖励 ID 的 NBT，只影响尚未创建的新奖励事件。\n- 已进入奖励箱或已记录的奖励绝不能被新配置覆盖。\n- 服务器在物品插入背包期间异常退出时，继续沿用现有人工结算保护，不能自动重复发放。\n\n## 必须补充的测试\n\n- 简单物品、改名物品、附魔物品、不可破坏物品、药水或容器物品的 SNBT 解析。\n- `nbt` 与 `item/count/components` 同时出现时拒绝加载。\n- 非法 SNBT、未知组件、空气物品、数量 `0`、数量大于 `64`、超大文本时拒绝加载。\n- 三个来源分别验证：签到、在线奖励、成就。\n- 账本编码/解码后保留全部组件。\n- 背包满时进入奖励箱，修改配置后重试仍得到原 NBT 物品。\n- 无效 NBT 配置 reload 失败，但旧配置快照和线上功能继续运行。\n\n## 文档交付\n\n更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md)，删除“统一奖励不支持 NBT”的描述，新增：\n\n- “简单组件写法”和“完整 SNBT 写法”的选择说明。\n- 可直接复制的 JSON 示例与带注释的 JSONC 教学示例。\n- SNBT 必须是完整 ItemStack、JSON 字符串中的双引号需要转义的说明。\n- 三个奖励模块各自链接到同一份 NBT 奖励教程。\n- 明确推荐：普通改名、Lore、附魔优先用 `components`；需要完整物品堆、复杂容器内容或兼容既有商店 SNBT 时使用 `nbt`。\n\n这样可实现“所有奖励来源支持 NBT 物品”，同时不破坏已有四类奖励、热重载和防重复发奖机制。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-25T14:04:19.986Z",
-  "summary": "文档结构已重构完成。README 精简为安装与入口页，[文档索引](D:/mod/qiandao/docs/index.md) 集中导航十个模块与五份公共指南；公共内容已迁至 [guides](D:/mod/qiandao/docs/guides)。\n\n十个模块页已按统一的 14 个章节重写，涵盖配置、权限、GUI、占位符、数据、联动、排障和验收清单。命令菜单示例已按当前解析器修正为注册表对象与 `command` / `run_as` 动作格式。旧公共路径保留迁移页，避免既有链接立即失效。\n\n验证通过：\n\n- Markdown 链接检查：用户导航页、模块页与指南页均通过。\n- Markdown 内 JSON 示例解析：通过。\n- ModMind 内容校验：通过，`0` 错误、`0` 警告。\n- ModMind 受管构建：通过，产物为 `modmind-current-project.jar`。\n- Fabric 服务端烟雾测试：通过，服务端就绪后稳定运行 15 秒；日志见 [runServer-1787666446946.log](D:/mod/qiandao/.modmind/builds/runServer-1787666446946.log)。\n\n剩余风险：真实原版客户端的逐项 GUI 点击、侧边栏与外部模组冲突策略仍需人工验收。仓库中原有的版本号不一致问题未改动；README 已不再声明具体 OmniTools 发布版本。",
-  "finalResponse": "文档结构已重构完成。README 精简为安装与入口页，[文档索引](D:/mod/qiandao/docs/index.md) 集中导航十个模块与五份公共指南；公共内容已迁至 [guides](D:/mod/qiandao/docs/guides)。\n\n十个模块页已按统一的 14 个章节重写，涵盖配置、权限、GUI、占位符、数据、联动、排障和验收清单。命令菜单示例已按当前解析器修正为注册表对象与 `command` / `run_as` 动作格式。旧公共路径保留迁移页，避免既有链接立即失效。\n\n验证通过：\n\n- Markdown 链接检查：用户导航页、模块页与指南页均通过。\n- Markdown 内 JSON 示例解析：通过。\n- ModMind 内容校验：通过，`0` 错误、`0` 警告。\n- ModMind 受管构建：通过，产物为 `modmind-current-project.jar`。\n- Fabric 服务端烟雾测试：通过，服务端就绪后稳定运行 15 秒；日志见 [runServer-1787666446946.log](D:/mod/qiandao/.modmind/builds/runServer-1787666446946.log)。\n\n剩余风险：真实原版客户端的逐项 GUI 点击、侧边栏与外部模组冲突策略仍需人工验收。仓库中原有的版本号不一致问题未改动；README 已不再声明具体 OmniTools 发布版本。",
+  "createdAt": "2026-08-26T01:31:06.801Z",
+  "summary": "已完成统一 `item` 奖励的完整 ItemStack SNBT 支持。\n\n- 新增共享 [ItemStackConfigParser.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java)，商店和奖励共用；限制 SNBT 与账本快照均为 32 KiB，拒绝混用 `nbt` 和 `item/count/components`。\n- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 已支持 SNBT；账本、奖励箱和管理员 GUI 改用服务器注册表编码/解码，动态附魔组件可持久化。\n- 更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md) 及三个奖励模块文档。附魔格式修正为直接映射：`'minecraft:enchantments':{'minecraft:sharpness':5}`。\n- 新增 [ItemStackConfigParserTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/config/ItemStackConfigParserTest.java)，覆盖简单物品、组件、药水、非法/超大 SNBT、互斥字段、三类奖励入口与账本快照。\n\n验证通过：\n\n- `gradlew test --rerun-tasks`\n- ModMind 内容校验\n- ModMind 受管构建，产物：`.modmind/minecraft/mods/modmind-current-project.jar`\n- 隔离 Fabric 服务端启动\n- 真实服务端加载签到、在线奖励、成就三处带附魔 SNBT 配置\n- RCON 热重载：非法 SNBT 被拒绝并保留旧快照；恢复有效配置后重载成功\n\n临时修改的 `run/config` 与 `run/server.properties` 已按备份哈希恢复，测试服务端已停止。",
+  "finalResponse": "已完成统一 `item` 奖励的完整 ItemStack SNBT 支持。\n\n- 新增共享 [ItemStackConfigParser.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java)，商店和奖励共用；限制 SNBT 与账本快照均为 32 KiB，拒绝混用 `nbt` 和 `item/count/components`。\n- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 已支持 SNBT；账本、奖励箱和管理员 GUI 改用服务器注册表编码/解码，动态附魔组件可持久化。\n- 更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md) 及三个奖励模块文档。附魔格式修正为直接映射：`'minecraft:enchantments':{'minecraft:sharpness':5}`。\n- 新增 [ItemStackConfigParserTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/config/ItemStackConfigParserTest.java)，覆盖简单物品、组件、药水、非法/超大 SNBT、互斥字段、三类奖励入口与账本快照。\n\n验证通过：\n\n- `gradlew test --rerun-tasks`\n- ModMind 内容校验\n- ModMind 受管构建，产物：`.modmind/minecraft/mods/modmind-current-project.jar`\n- 隔离 Fabric 服务端启动\n- 真实服务端加载签到、在线奖励、成就三处带附魔 SNBT 配置\n- RCON 热重载：非法 SNBT 被拒绝并保留旧快照；恢复有效配置后重载成功\n\n临时修改的 `run/config` 与 `run/server.properties` 已按备份哈希恢复，测试服务端已停止。",
   "intent": "engineering",
   "tasks": [
-    "核对现有文档、代码与配置事实",
-    "重构 README、索引、模块页和公共指南",
-    "检查链接、JSON 示例与内容一致性",
-    "受管构建与服务端烟雾测试"
+    "统一商店与奖励的 ItemStack 配置解析",
+    "验证 SNBT、账本快照和配置文档",
+    "构建并进行 Fabric 服务端运行时验证"
   ],
   "files": [
     {
-      "path": "README.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/backup-and-recovery.md",
+      "path": "docs/idea.md",
       "purpose": "外部代理修改"
     },
     {
@@ -26,19 +21,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/cloud-storage.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/command-menu.md",
-      "purpose": "外部代理修改"
-    },
-    {
       "path": "docs/modules/daily-checkin.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/module-management.md",
       "purpose": "外部代理修改"
     },
     {
@@ -46,35 +29,11 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/permissions.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/placeholder-api.md",
-      "purpose": "外部代理修改"
-    },
-    {
       "path": "docs/modules/shop-and-currency.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/sidebar.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/title-effects.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/titles.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/reward-consistency.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/upgrade-guide.md",
+      "path": "docs/reference/rewards.md",
       "purpose": "外部代理修改"
     },
     {
@@ -138,6 +97,18 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "run/world/DIM-1/data/raids.dat",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/DIM1/data/raids_end.dat",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/data/raids.dat",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "run/world/level.dat",
       "purpose": "外部代理修改"
     },
@@ -146,27 +117,67 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/guides/backup-and-recovery.md",
+      "path": "src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/guides/module-management.md",
+      "path": "src/main/java/dev/modmind/omnitools/RewardLedgerScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/guides/placeholder-api.md",
+      "path": "src/main/java/dev/modmind/omnitools/ShopConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/guides/reward-consistency.md",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/guides/upgrade-guide.md",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/index.md",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-6.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/data/omnitools_data.dat",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/data/omnitools_reward_claim_ledger.dat",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/ItemStackConfigParserTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -175,7 +186,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-25T13-41-12-464Z",
+  "snapshotId": "2026-08-26T00-00-12-439Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -186,8 +197,8 @@
       "runtime_test"
     ],
     "completed": [
-      "project_info",
       "intent",
+      "project_info",
       "plan",
       "validate",
       "build",
@@ -197,13 +208,13 @@
     ],
     "missing": [],
     "evidence": {
-      "project_info": "modmind_project_info returned active project metadata",
       "intent": "modmind_set_intent recorded task intent",
+      "project_info": "modmind_project_info returned active project metadata",
       "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 39 changed managed files",
+      "implementation": "Detected 42 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

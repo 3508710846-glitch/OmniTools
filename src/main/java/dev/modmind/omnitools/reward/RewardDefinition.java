@@ -5,7 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import dev.modmind.omnitools.ShopConfig;
+import dev.modmind.omnitools.config.ItemStackConfigParser;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 
@@ -98,17 +98,9 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
 
     private static RewardDefinition parseItem(String id, JsonObject object, String context,
                                               HolderLookup.Provider registries) {
-        if (object.has("nbt")) {
-            throw new JsonParseException(context + ".nbt is not supported; use item, count and components");
-        }
-        int count = positiveCount(object, "count", context);
-        JsonObject stack = object.deepCopy();
-        stack.addProperty("count", count);
         try {
-            ItemStack parsed = ShopConfig.parseItemStack(stack, registries);
-            if (parsed.isEmpty()) {
-                throw new JsonParseException(context + " cannot use an empty item stack");
-            }
+            ItemStack parsed = ItemStackConfigParser.parse(object, registries, context, MAX_ITEM_COUNT);
+            ItemStackConfigParser.validateRewardSnapshot(parsed, registries, context, MAX_ITEM_COUNT);
             return new RewardDefinition(id, RewardType.ITEM, 0L, parsed, "", "");
         } catch (CommandSyntaxException exception) {
             throw new JsonParseException(context + " has invalid item or components: " + exception.getMessage());
@@ -183,14 +175,6 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         } catch (NumberFormatException exception) {
             throw new JsonParseException(context + "." + key + " must be a non-negative integer");
         }
-    }
-
-    private static int positiveCount(JsonObject object, String key, String context) {
-        long count = nonNegativeLong(object, key, context);
-        if (count < 1L || count > MAX_ITEM_COUNT) {
-            throw new JsonParseException(context + "." + key + " must be between 1 and " + MAX_ITEM_COUNT);
-        }
-        return (int) count;
     }
 
     private static String normalizeId(String value) {

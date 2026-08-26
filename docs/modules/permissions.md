@@ -12,22 +12,26 @@
 
 文件为 `config/omnitools/permissions/config.json`，修改后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以 `PLAYER` 与 `ADMIN` 两个角色构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 1,
+  "format_version": 1, // 权限配置格式版本。
   "allow_title_command_grants": false, // 是否允许原生命令授予称号
-  "commands": {
+  "commands": { // 动作 ID 到内置角色的映射。
     "checkin.open": "PLAYER", // 字符串简写
     "storage.open": { "role": "ADMIN", "allow_native_node": true } // 完整对象只用于 storage.open
   }
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {

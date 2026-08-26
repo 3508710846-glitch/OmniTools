@@ -12,24 +12,28 @@
 
 使用 `config/omnitools/online_reward/config.json`，保存后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以一个在线时长货币里程碑构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 推荐新格式教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 1,
-  "rewards": [
+  "format_version": 1, // 在线奖励格式版本。
+  "rewards": [ // 按在线分钟数升序排列的里程碑。
     {
       "id": "online_30m", // 稳定 ID；不要在发放后随意改名
-      "minutes": 30,
-      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }]
+      "minutes": 30, // 达成该奖励需要的当日在线分钟数。
+      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }] // 里程碑奖励数组。
     }
   ]
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {
@@ -61,10 +65,10 @@
 
 ## 8. 全部配置场景
 
-每个里程碑可放货币、物品、称号和指令奖励；完整数组直接复制自[统一奖励](../reference/rewards.md)。每个自然日事件 ID 包含玩家、日期和里程碑 ID，旧 `coins` 格式兼容读取：
+每个里程碑可放货币、物品、称号和指令奖励；`rewards[].rewards` 中的物品可使用[统一奖励](../reference/rewards.md)提供的完整 ItemStack SNBT `nbt` 写法。每个自然日事件 ID 包含玩家、日期和里程碑 ID，旧 `coins` 格式兼容读取：
 
 ```jsonc
-{ "onlineTimeRewards": [{ "minutes": 30, "coins": 50 }] }
+{ "onlineTimeRewards": [{ "minutes": 30, "coins": 50 }] } // 旧服兼容：30 分钟发 50 货币。
 ```
 
 同一旧格式的严格 JSON 版（仅供核对旧服）：

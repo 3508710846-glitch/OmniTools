@@ -12,17 +12,25 @@
 
 文件为 `config/omnitools/cloud_storage/config.json`，修改后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以默认一页和受限扩容构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 解析器的实际字段只有扩容价格与最大页数；第一页固定存在，不能通过配置改为 0 页或超过 2 页。
 
 教学版，不能直接复制：
 
 ```jsonc
-{ "format_version": 1, "expansionCost": 100, "maxPages": 2 } // 第二页价格和总页数
+{
+  "format_version": 1, // 云存储配置格式版本。
+  "expansionCost": 100, // 解锁第二页需要的货币。
+  "maxPages": 2 // 最大总页数；只能为 1 或 2。
+}
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 { "format_version": 1, "expansionCost": 100, "maxPages": 2 }

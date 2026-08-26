@@ -12,22 +12,26 @@
 
 文件为 `config/omnitools/sidebar/config.json`，修改后执行 `/omnitools reload`。
 
-## 4--6. 最小配置、教学版与可复制版
+## 4. 最小可用配置
+
+下方以余额行和推荐的 `skip` 冲突策略构成最小可用配置。
+
+## 5. 注释教学版 `jsonc`
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 2,
-  "default_visible": true,
+  "format_version": 2, // 侧边栏配置格式版本。
+  "default_visible": true, // 新玩家默认是否看到侧边栏。
   "refresh_interval_ticks": 20, // 5--600
-  "title": "&b&lOmniTools",
+  "title": "&b&lOmniTools", // 侧边栏标题，可使用颜色代码。
   "conflict_policy": "skip", // skip、replace、restore
-  "lines": [{ "id": "money", "text": "&e货币: &f%balance_formatted%" }]
+  "lines": [{ "id": "money", "text": "&e货币: &f%balance_formatted%" }] // 每行的稳定 ID 和显示文本。
 }
 ```
 
-可直接复制版：
+## 6. 可直接复制版 `json`
 
 ```json
 {
