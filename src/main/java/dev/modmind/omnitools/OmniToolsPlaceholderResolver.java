@@ -3,6 +3,7 @@ package dev.modmind.omnitools;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 
 import java.util.Locale;
 import java.util.Set;
@@ -13,7 +14,9 @@ public final class OmniToolsPlaceholderResolver {
             "balance", "balance_formatted", "checkin_today", "checkin_today_rank",
             "checkin_total_days", "checkin_streak_days", "checkin_month_days", "online_today_seconds",
             "online_today_minutes", "online_today_hms", "title_id", "title", "title_plain",
-            "title_effects_enabled", "achievements_unlocked", "achievements_claimed", "achievements_total");
+            "title_effects_enabled", "title_remaining_days", "title_remaining_hours", "title_remaining_hms",
+            "title_is_temporary", "title_is_equipped", "achievements_unlocked", "achievements_claimed",
+            "achievements_total");
 
     private OmniToolsPlaceholderResolver() {
     }
@@ -29,7 +32,9 @@ public final class OmniToolsPlaceholderResolver {
             case "checkin_today", "checkin_today_rank", "checkin_total_days", "checkin_streak_days",
                     "checkin_month_days" -> checkinValue(player, id);
             case "online_today_seconds", "online_today_minutes", "online_today_hms" -> onlineValue(player, id);
-            case "title_id", "title", "title_plain", "title_effects_enabled" -> titleValue(player, id);
+            case "title_id", "title", "title_plain", "title_effects_enabled", "title_remaining_days",
+                    "title_remaining_hours", "title_remaining_hms", "title_is_temporary", "title_is_equipped" ->
+                    titleValue(player, id);
             case "achievements_unlocked", "achievements_claimed", "achievements_total" -> achievementValue(player, id);
             default -> fallback(id);
         };
@@ -78,12 +83,25 @@ public final class OmniToolsPlaceholderResolver {
 
     private static Component selectedTitleValue(ServerPlayer player, String id) {
         var selected = ModMindEntry.titleConfig().selectedTitle(player.getUUID());
+        String selectedId = selected.map(TitleConfig.TitleDefinition::id).orElse("");
+        TimedEntitlement entitlement = selectedId.isEmpty() ? null
+                : ModMindEntry.titleConfig().entitlement(player.getUUID(), selectedId).orElse(null);
         return switch (id) {
-            case "title_id" -> value(selected.map(TitleConfig.TitleDefinition::id).orElse(""));
+            case "title_id" -> value(selectedId);
             case "title" -> selected.map(TitleConfig.TitleDefinition::displayComponent).orElseGet(() -> value(""));
             case "title_plain" -> value(selected.map(TitleConfig.TitleDefinition::plainDisplay).orElse(""));
+            case "title_remaining_days" -> value(Long.toString(remainingSeconds(entitlement) / 86_400L));
+            case "title_remaining_hours" -> value(Long.toString(remainingSeconds(entitlement) / 3_600L));
+            case "title_remaining_hms" -> value(formatHms(remainingSeconds(entitlement)));
+            case "title_is_temporary" -> value(Boolean.toString(entitlement != null && !entitlement.isPermanent()));
+            case "title_is_equipped" -> value(Boolean.toString(!selectedId.isEmpty()));
             default -> fallback(id);
         };
+    }
+
+    private static long remainingSeconds(TimedEntitlement entitlement) {
+        return entitlement == null || entitlement.isPermanent() ? 0L
+                : Math.max(0L, entitlement.remainingActiveTicks() / 20L);
     }
 
     private static Component achievementValue(ServerPlayer player, String id) {
@@ -101,9 +119,10 @@ public final class OmniToolsPlaceholderResolver {
 
     private static Component fallback(String id) {
         return switch (id) {
-            case "checkin_today", "title_effects_enabled" -> value("false");
-            case "title_id", "title", "title_plain", "online_today_hms" -> value(id.equals("online_today_hms")
-                    ? "00:00:00" : "");
+            case "checkin_today", "title_effects_enabled", "title_is_temporary", "title_is_equipped" ->
+                    value("false");
+            case "title_id", "title", "title_plain", "online_today_hms", "title_remaining_hms" ->
+                    value(id.endsWith("hms") ? "00:00:00" : "");
             default -> value("0");
         };
     }

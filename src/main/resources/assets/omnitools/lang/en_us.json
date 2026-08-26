@@ -328,5 +328,19 @@
   "gui.omnitools.rewards.admin.audit": "Audit: %s",
   "gui.omnitools.rewards.admin.left_grant": "Left-click: mark handled",
   "gui.omnitools.rewards.admin.right_fail": "Right-click: mark failed",
-  "gui.omnitools.rewards.admin.invalid_event": "Invalid legacy event: inspect with the command"
+  "gui.omnitools.rewards.admin.invalid_event": "Invalid legacy event: inspect with the command",
+  "gui.omnitools.title.permanent": "Permanent title",
+  "gui.omnitools.title.remaining": "Remaining active time: %s",
+  "gui.omnitools.title.expired": "Title entitlement expired",
+  "message.omnitools.title.expired": "Your equipped temporary title has expired.",
+  "command.omnitools.title.renewed": "Renewed %s for %s.",
+  "command.omnitools.title.invalid_duration": "Duration must be a positive number of active days or permanent.",
+  "command.omnitools.title.timed_grant": "Granted %s to %s for %s.",
+  "command.omnitools.title.timed_renewed": "Renewed %s for %s with %s.",
+  "command.omnitools.title.not_owned_self": "You do not own title %s.",
+  "command.omnitools.title.selected": "Equipped title: %s.",
+  "command.omnitools.title.cleared": "Unequipped your current title.",
+  "command.omnitools.title.no_selection": "No title is equipped.",
+  "command.omnitools.title.time_permanent": "%s is a permanent title.",
+  "command.omnitools.title.time_remaining": "%s remaining active time: %d days %02d:%02d:%02d."
 }

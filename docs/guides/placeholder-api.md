@@ -2,7 +2,7 @@
 
 ## 可选依赖
 
-Text Placeholder API 是可选依赖，不属于模块开关。未安装时 OmniTools 仍可启动，内置文本照常渲染；第三方 `%namespace:id%` 占位符安全回退为 `-`。已安装且根配置允许时，OmniTools 注册自己的 17 个占位符并可解析第三方文本占位符。
+Text Placeholder API 是可选依赖，不属于模块开关。未安装时 OmniTools 仍可启动，内置文本照常渲染；第三方 `%namespace:id%` 占位符安全回退为 `-`。已安装且根配置允许时，OmniTools 注册自己的 22 个占位符并可解析第三方文本占位符。
 
 根配置开关：
 

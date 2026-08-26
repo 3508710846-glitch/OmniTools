@@ -258,7 +258,7 @@ public final class RewardGrantService {
         }
         ledger.beginApplying(event, reward.id(), "title_apply");
         TitleData.get(player).grantReward(player.getUUID(), player.getGameProfile().name(), reward.titleId(),
-                event.id(), reward.id());
+                event.id(), reward.id(), reward.titleGrant());
         ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
         TitleDisplayService.refreshPlayer(player);
         return SingleResult.granted();

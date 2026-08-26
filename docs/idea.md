@@ -1708,3 +1708,209 @@ examples/achievement-examples/
 ## Development request 2026/8/26 08:51:58
 
 继续
+
+---
+
+## Development request 2026/8/26 09:52:54
+
+可以。建议把它设计成“按佩戴状态消耗的临时称号”，并将计时能力抽象为通用的限时授权框架，未来也能复用于限时权限、限时商店商品等功能。
+
+当前称号数据位于 [TitleData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java)，称号定义位于 [TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java)，奖励由 [RewardGrantService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java) 发放。
+
+## 一、配置格式
+
+称号奖励增加 `duration`：
+
+```json
+{
+  "id": "vip_7_days",
+  "type": "title",
+  "title": "vip",
+  "duration": {
+    "mode": "active_days",
+    "days": 7
+  },
+  "renewal": "extend"
+}
+```
+
+永久称号：
+
+```json
+{
+  "id": "legend_forever",
+  "type": "title",
+  "title": "legend",
+  "duration": {
+    "mode": "permanent"
+  }
+}
+```
+
+建议规则：
+
+- 未填写 `duration`：按永久称号处理，兼容旧配置。
+- `active_days`：按有效佩戴时间消耗。
+- `days` 必须为正整数。
+- `renewal` 支持：
+  - `extend`：在剩余时间上叠加。
+  - `replace`：替换为新时长。
+  - `max`：取新旧时间较大值。
+- 默认使用 `extend`，适合签到和在线奖励重复发放。
+- 永久称号不能被临时称号覆盖或缩短。
+
+## 二、时间定义
+
+建议明确规定：
+
+```text
+1 active_day = 24 小时有效在线佩戴时间
+             = 1,728,000 个服务器 tick
+```
+
+只有同时满足以下条件才扣除：
+
+1. 玩家在线。
+2. 该称号处于佩戴状态。
+3. 称号仍有剩余时间。
+
+因此：
+
+- 拥有但未佩戴：不扣时间。
+- 未登录服务器：不扣时间。
+- 切换到其他称号：原称号暂停。
+- 服务器重启或停服：不扣时间。
+- 关闭称号效果开关：建议仍然扣除，因为“佩戴状态”和“效果开关”是两个概念。
+
+## 三、数据结构
+
+当前 `PlayerRecord` 只有 `Set<String> unlocked`，需要改为可保存授权详情：
+
+```text
+OwnedTitle
+├── titleId
+├── mode: permanent / active_days
+├── remainingActiveTicks
+├── totalGrantedTicks
+├── grantedAt
+└── renewalPolicy
+```
+
+推荐存储形式：
+
+```text
+titles:
+  vip:
+    mode: active_days
+    remaining_active_ticks: 8640000
+    total_granted_ticks: 8640000
+    renewal: extend
+```
+
+旧玩家数据迁移规则：
+
+- 原 `unlocked` 中的所有称号转换为永久称号。
+- 保留 `selected` 和 `effects_enabled`。
+- 增加 `data_version`，以后通过迁移器升级。
+- 不删除旧字段，确认迁移成功后再逐步归档。
+
+## 四、运行逻辑
+
+新增 `TimedTitleService` 或通用 `TimedEntitlementService`：
+
+```text
+玩家登录
+→ 恢复称号数据
+→ 检查当前佩戴称号
+→ 每 tick 判断是否需要消耗
+→ 定期保存剩余时间
+→ 时间归零时自动撤销佩戴状态
+→ 刷新名称、聊天、Tab 列表和称号效果
+```
+
+实现要求：
+
+- 不要每 tick 直接写 SavedData。
+- 内存中每 tick 扣除。
+- 每 20 或 100 tick 持久化一次。
+- 玩家切换称号、退出、服务器关闭时立即保存。
+- 时间归零时原子执行：
+  1. 删除称号授权；
+  2. 清空 `selected`；
+  3. 移除称号效果；
+  4. 刷新 `TitleDisplayService`。
+
+## 五、奖励幂等与重复领取
+
+当前奖励账本已经按事件和奖励 ID 防止重复发放。临时称号应继续使用这一机制：
+
+- 同一个奖励事件不会重复增加时间。
+- 不同事件再次奖励同一称号时，根据 `renewal` 处理。
+- 配置 reload 后，已经发放的称号保留原来的剩余时间。
+- 修改配置只影响之后产生的新奖励。
+- 删除称号定义不会立即删除玩家授权；只暂时停止显示，重新添加后恢复。
+
+## 六、GUI、指令和占位符
+
+称号 GUI 应显示：
+
+```text
+称号名称
+永久 / 剩余 6 天 12 小时
+当前是否佩戴
+称号效果
+```
+
+建议增加指令：
+
+```text
+/omnitools titles time
+/omnitools titles select <id>
+/omnitools titles clear
+/omnitools titles admin grant <player> <title> <days|permanent>
+/omnitools titles admin revoke <player> <title>
+```
+
+新增占位符：
+
+```text
+%omnitools:title_remaining_days%
+%omnitools:title_remaining_hours%
+%omnitools:title_remaining_hms%
+%omnitools:title_is_temporary%
+%omnitools:title_is_equipped%
+```
+
+没有佩戴称号时建议返回：
+
+```text
+remaining_days = 0
+remaining_hours = 0
+remaining_hms = 00:00:00
+is_temporary = false
+is_equipped = false
+```
+
+## 七、配置校验
+
+在 [ConfigValidator.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java) 增加：
+
+- `duration.mode` 只能是 `permanent` 或 `active_days`。
+- `days` 必须是正整数。
+- 时长换算不能溢出 `long`。
+- `renewal` 只能是 `extend`、`replace`、`max`。
+- `type: title` 必须引用已存在称号。
+- 永久称号不能配置 `days`。
+- 临时称号必须有有效持续时间。
+
+## 八、开发阶段
+
+1. 扩展 `RewardDefinition`，支持称号时长和续期策略。
+2. 扩展 `TitleData`，增加称号授权详情和数据迁移。
+3. 实现有效佩戴时间计时服务。
+4. 接入称号选择、效果和显示刷新。
+5. 增加 GUI、指令和占位符。
+6. 增加配置校验、文档和示例。
+7. 测试重启、退出、切换称号、重复奖励和时间归零。
+
+验收标准是：玩家获得 7 天称号后，未佩戴时剩余时间不变；佩戴并在线时才递减；重启后时间正确恢复；过期后不会继续显示、提供效果或出现在可选称号列表中。

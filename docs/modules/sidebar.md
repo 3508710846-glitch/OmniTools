@@ -72,7 +72,7 @@
 
 ## 10. 占位符
 
-可用[17 个内置占位符](../reference/placeholders.md)；可选 API 文法和 `%world:name%` 见[Placeholder API](../reference/placeholder-api.md)。
+可用[22 个内置占位符](../reference/placeholders.md)；可选 API 文法和 `%world:name%` 见[Placeholder API](../reference/placeholder-api.md)。
 
 ## 11. 数据与升级
 

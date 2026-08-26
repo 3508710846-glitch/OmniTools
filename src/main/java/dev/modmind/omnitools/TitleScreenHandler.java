@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.text.TextTemplateRenderer;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -177,6 +178,7 @@ public final class TitleScreenHandler extends ChestMenu {
             List<Component> lore = new java.util.ArrayList<>();
             lore.add(ServerText.translatable("gui.omnitools.title.rarity." + title.rarity().serializedName())
                     .withStyle(rarityColor(title.rarity())));
+            lore.add(entitlementComponent(title.id()));
             if (!title.tooltip().isEmpty()) {
                 lore.addAll(title.tooltip().stream().map(text -> TextTemplateRenderer.render(owner, text)).toList());
             } else if (title.effects().isEmpty()) {
@@ -222,6 +224,8 @@ public final class TitleScreenHandler extends ChestMenu {
         profile.set(DataComponents.LORE, new ItemLore(List.of(
                 ServerText.translatable("gui.omnitools.title.unlocked_count", unlockedCount).withStyle(ChatFormatting.AQUA),
                 ServerText.translatable("gui.omnitools.title.current").append(equipped).withStyle(ChatFormatting.GRAY),
+                selectedId.isEmpty() ? ServerText.translatable("gui.omnitools.title.no_selection")
+                        .withStyle(ChatFormatting.DARK_GRAY) : entitlementComponent(selectedId),
                 ServerText.translatable("gui.omnitools.title.page", pageNumber, pageCount).withStyle(ChatFormatting.DARK_GRAY))));
         return profile;
     }
@@ -234,8 +238,26 @@ public final class TitleScreenHandler extends ChestMenu {
         hash = 31 * hash + Boolean.hashCode(config.effectsEnabled(ownerId));
         for (TitleConfig.TitleDefinition title : config.unlockedTitles(ownerId)) {
             hash = 31 * hash + title.id().hashCode();
+            hash = 31 * hash + config.entitlement(ownerId, title.id()).hashCode();
         }
         return hash;
+    }
+
+    private Component entitlementComponent(String titleId) {
+        return config.entitlement(ownerId, titleId).<Component>map(entitlement -> entitlement.isPermanent()
+                ? ServerText.translatable("gui.omnitools.title.permanent").withStyle(ChatFormatting.GREEN)
+                : ServerText.translatable("gui.omnitools.title.remaining", remainingText(entitlement))
+                        .withStyle(ChatFormatting.GOLD)).orElseGet(() ->
+                ServerText.translatable("gui.omnitools.title.expired").withStyle(ChatFormatting.RED));
+    }
+
+    private static String remainingText(TimedEntitlement entitlement) {
+        long seconds = Math.max(0L, entitlement.remainingActiveTicks() / 20L);
+        long days = seconds / 86_400L;
+        long hours = (seconds % 86_400L) / 3_600L;
+        long minutes = (seconds % 3_600L) / 60L;
+        long remainingSeconds = seconds % 60L;
+        return days + "d " + String.format(java.util.Locale.ROOT, "%02d:%02d:%02d", hours, minutes, remainingSeconds);
     }
 
     private static int pageCount(List<TitleConfig.TitleDefinition> titles) {

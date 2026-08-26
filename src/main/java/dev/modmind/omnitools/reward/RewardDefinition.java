@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.modmind.omnitools.config.ItemStackConfigParser;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 
@@ -19,7 +20,7 @@ import java.util.regex.Pattern;
 
 /** Immutable, validated definition of one idempotent reward effect. */
 public record RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack,
-                               String titleId, String command) {
+                               String titleId, TimedEntitlement.Grant titleGrant, String command) {
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9_.-]{1,64}");
     public static final int MAX_ITEM_COUNT = 64;
     public static final int MAX_EVENT_ITEM_COUNT = 2_304;
@@ -41,7 +42,14 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         }
         itemStack = itemStack == null ? ItemStack.EMPTY : itemStack.copy();
         titleId = titleId == null ? "" : titleId.trim().toLowerCase(Locale.ROOT);
+        titleGrant = titleGrant == null ? TimedEntitlement.permanentGrant() : titleGrant;
         command = command == null ? "" : command;
+    }
+
+    /** Retained for existing callers that create a permanent title or non-title reward directly. */
+    public RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack, String titleId,
+                            String command) {
+        this(id, type, amount, itemStack, titleId, TimedEntitlement.permanentGrant(), command);
     }
 
     public ItemStack createItemStack() {
@@ -82,18 +90,78 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
     }
 
     public static RewardDefinition title(String id, String titleId) {
-        return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId, "");
+        return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId,
+                TimedEntitlement.permanentGrant(), "");
     }
 
     private static RewardDefinition parse(JsonObject object, String context, HolderLookup.Provider registries) {
         String id = requiredString(object, "id", context);
         RewardType type = RewardType.parse(requiredString(object, "type", context));
         return switch (type) {
-            case CURRENCY -> currency(id, nonNegativeLong(object, "amount", context));
-            case ITEM -> parseItem(id, object, context, registries);
-            case TITLE -> title(id, requiredId(object, "title", context));
-            case COMMAND -> parseCommand(id, object, context);
+            case CURRENCY -> {
+                rejectTitleTimingFields(object, context);
+                yield currency(id, nonNegativeLong(object, "amount", context));
+            }
+            case ITEM -> {
+                rejectTitleTimingFields(object, context);
+                yield parseItem(id, object, context, registries);
+            }
+            case TITLE -> parseTitle(id, object, context);
+            case COMMAND -> {
+                rejectTitleTimingFields(object, context);
+                yield parseCommand(id, object, context);
+            }
         };
+    }
+
+    private static RewardDefinition parseTitle(String id, JsonObject object, String context) {
+        String titleId = requiredId(object, "title", context);
+        return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId,
+                parseTitleGrant(object, context), "");
+    }
+
+    static TimedEntitlement.Grant parseTitleGrant(JsonObject object, String context) {
+        JsonElement duration = object.get("duration");
+        if (duration == null) {
+            if (object.has("renewal")) {
+                throw new JsonParseException(context + ".renewal requires duration.mode active_days");
+            }
+            return TimedEntitlement.permanentGrant();
+        }
+        if (!duration.isJsonObject()) {
+            throw new JsonParseException(context + ".duration must be an object");
+        }
+        JsonObject durationObject = duration.getAsJsonObject();
+        TimedEntitlement.Mode mode;
+        try {
+            mode = TimedEntitlement.Mode.parse(requiredString(durationObject, "mode", context + ".duration"));
+        } catch (IllegalArgumentException exception) {
+            throw new JsonParseException(context + ".duration.mode must be permanent or active_days", exception);
+        }
+        if (mode == TimedEntitlement.Mode.PERMANENT) {
+            if (durationObject.has("days")) {
+                throw new JsonParseException(context + ".duration.days is not valid for permanent titles");
+            }
+            try {
+                TimedEntitlement.RenewalPolicy.parse(optionalString(object, "renewal"));
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException(context + " has an invalid title renewal", exception);
+            }
+            return TimedEntitlement.permanentGrant();
+        }
+        long days = positiveLong(durationObject, "days", context + ".duration");
+        try {
+            return TimedEntitlement.Grant.activeDays(days, TimedEntitlement.RenewalPolicy.parse(
+                    optionalString(object, "renewal")));
+        } catch (IllegalArgumentException exception) {
+            throw new JsonParseException(context + " has invalid title duration or renewal", exception);
+        }
+    }
+
+    private static void rejectTitleTimingFields(JsonObject object, String context) {
+        if (object.has("duration") || object.has("renewal")) {
+            throw new JsonParseException(context + " duration and renewal are only valid for title rewards");
+        }
     }
 
     private static RewardDefinition parseItem(String id, JsonObject object, String context,
@@ -175,6 +243,33 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         } catch (NumberFormatException exception) {
             throw new JsonParseException(context + "." + key + " must be a non-negative integer");
         }
+    }
+
+    private static long positiveLong(JsonObject object, String key, String context) {
+        JsonElement element = object.get(key);
+        if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(context + "." + key + " must be a positive integer");
+        }
+        try {
+            long value = Long.parseLong(element.getAsString());
+            if (value < 1L) {
+                throw new JsonParseException(context + "." + key + " must be a positive integer");
+            }
+            return value;
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(context + "." + key + " must be a positive integer");
+        }
+    }
+
+    private static String optionalString(JsonObject object, String key) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return null;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException(key + " must be a string");
+        }
+        return element.getAsString();
     }
 
     private static String normalizeId(String value) {

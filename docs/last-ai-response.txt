@@ -1,17 +1,17 @@
-已完成统一 `item` 奖励的完整 ItemStack SNBT 支持。
+已实现按佩戴消耗的临时称号，且不新增客户端代码或网络包。
 
-- 新增共享 [ItemStackConfigParser.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java)，商店和奖励共用；限制 SNBT 与账本快照均为 32 KiB，拒绝混用 `nbt` 和 `item/count/components`。
-- [RewardDefinition.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 已支持 SNBT；账本、奖励箱和管理员 GUI 改用服务器注册表编码/解码，动态附魔组件可持久化。
-- 更新 [rewards.md](D:/mod/qiandao/docs/reference/rewards.md) 及三个奖励模块文档。附魔格式修正为直接映射：`'minecraft:enchantments':{'minecraft:sharpness':5}`。
-- 新增 [ItemStackConfigParserTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/config/ItemStackConfigParserTest.java)，覆盖简单物品、组件、药水、非法/超大 SNBT、互斥字段、三类奖励入口与账本快照。
+- 通用限时授权与 SavedData 迁移在 [TimedEntitlement.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/entitlement/TimedEntitlement.java:9) 和 [TitleData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java:175)：旧 `unlocked` 自动视为永久称号；临时称号仅在线且佩戴时扣 tick，过期时撤销、卸下并刷新效果/显示。
+- `title` 奖励支持 `duration.permanent`、`duration.active_days` 与 `extend` / `replace` / `max`，并经配置校验；同一奖励事件不会重复续期。
+- 新增 `/titles time|select|clear` 及管理员 `grant <days|permanent>`、`revoke`，复用现有权限节点。
+- GUI 显示永久或剩余时间；新增 5 个称号占位符，内置总数更新为 22。
+- 更新称号、统一奖励与占位符文档，并保留完整 ItemStack SNBT 说明。
 
 验证通过：
 
-- `gradlew test --rerun-tasks`
+- `gradlew test`
 - ModMind 内容校验
-- ModMind 受管构建，产物：`.modmind/minecraft/mods/modmind-current-project.jar`
-- 隔离 Fabric 服务端启动
-- 真实服务端加载签到、在线奖励、成就三处带附魔 SNBT 配置
-- RCON 热重载：非法 SNBT 被拒绝并保留旧快照；恢复有效配置后重载成功
+- ModMind 受管构建
+- 隔离服务端烟雾测试，服务端就绪后稳定运行 15 秒  
+  日志：[runServer-1787710779955.log](D:/mod/qiandao/.modmind/builds/runServer-1787710779955.log)
 
-临时修改的 `run/config` 与 `run/server.properties` 已按备份哈希恢复，测试服务端已停止。
+待人工验证：原版客户端实际打开称号 GUI、佩戴后观察倒计时及过期瞬间的显示刷新。

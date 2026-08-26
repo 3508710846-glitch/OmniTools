@@ -45,11 +45,14 @@ import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardEvent;
 import dev.modmind.omnitools.reward.RewardGrantService;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
+import dev.modmind.omnitools.entitlement.TimedEntitlementService;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
     private static CheckinRewardService rewardService;
     private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService();
+    private static final TimedEntitlementService TIMED_ENTITLEMENTS = new TimedEntitlementService();
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
     private static TitleConfig titleConfig = TitleConfig.empty();
@@ -80,6 +83,7 @@ public final class ModMindEntry implements ModInitializer {
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             onlineTimeRewardService().flushAll(server);
+            TIMED_ENTITLEMENTS.flush(server);
             TitleEffectService.removeAll(server);
             TitleDisplayService.clearAll(server);
             TitleData.unbind(server);
@@ -87,6 +91,9 @@ public final class ModMindEntry implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 onlineTimeRewardService().tick(server);
+            }
+            if (isModuleEnabled(ModuleId.TITLES)) {
+                TIMED_ENTITLEMENTS.tickTitles(server);
             }
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
                 TitleEffectService.tick(server);
@@ -128,6 +135,7 @@ public final class ModMindEntry implements ModInitializer {
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            TIMED_ENTITLEMENTS.flush(server);
             TitleDisplayService.onDisconnect(handler.getPlayer());
             achievementService().forgetMenuSnapshot(handler.getPlayer());
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
@@ -170,6 +178,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(onlineTimeCommand())
                     .then(shopCommand())
                     .then(titleCommand())
+                    .then(titleCommand("titles"))
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
                     .then(sidebarCommand())
@@ -216,6 +225,7 @@ public final class ModMindEntry implements ModInitializer {
                             .then(targetBalanceArgument())));
             dispatcher.register(walletCommand("money"));
             dispatcher.register(titleCommand());
+            dispatcher.register(titleCommand("titles"));
             dispatcher.register(cloudStorageCommand("cloudstorage"));
             dispatcher.register(cloudStorageCommand("cstorage"));
             dispatcher.register(Commands.literal("balance")
@@ -323,6 +333,7 @@ public final class ModMindEntry implements ModInitializer {
             sidebarService().clearAll(server);
         }
         if (previous.enabled(ModuleId.TITLES) && !current.enabled(ModuleId.TITLES)) {
+            TIMED_ENTITLEMENTS.flush(server);
             TitleDisplayService.clearAll(server);
         }
         applySnapshot(current);
@@ -488,13 +499,27 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> titleCommand() {
-        return Commands.literal("title")
+        return titleCommand("title");
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> titleCommand(String literal) {
+        return Commands.literal(literal)
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.TITLE_OPEN, CommandAction.TITLE_GRANT,
                         CommandAction.TITLE_REVOKE).and(source -> isModuleEnabled(ModuleId.TITLES)))
                 .executes(context -> openTitleMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_OPEN))
                         .executes(context -> openTitleMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("time")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_OPEN))
+                        .executes(context -> titleTime(context.getSource())))
+                .then(Commands.literal("select")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_OPEN))
+                        .then(Commands.argument("title", StringArgumentType.word())
+                                .executes(ModMindEntry::selectTitle)))
+                .then(Commands.literal("clear")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_OPEN))
+                        .executes(context -> clearTitleSelection(context.getSource())))
                 .then(Commands.literal("give")
                         .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_GRANT))
                         .then(titleChangeArgument(true)))
@@ -506,7 +531,16 @@ public final class ModMindEntry implements ModInitializer {
                         .then(titleChangeArgument(false)))
                 .then(Commands.literal("take")
                         .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_REVOKE))
-                        .then(titleChangeArgument(false)));
+                        .then(titleChangeArgument(false)))
+                .then(Commands.literal("admin")
+                        .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.TITLE_GRANT,
+                                CommandAction.TITLE_REVOKE))
+                        .then(Commands.literal("grant")
+                                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_GRANT))
+                                .then(timedTitleGrantArgument()))
+                        .then(Commands.literal("revoke")
+                                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_REVOKE))
+                                .then(titleChangeArgument(false))));
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
@@ -576,6 +610,14 @@ public final class ModMindEntry implements ModInitializer {
         return Commands.argument("player", GameProfileArgument.gameProfile())
                 .then(Commands.argument("title", StringArgumentType.word())
                         .executes(context -> changeTitle(context, give)));
+    }
+
+    private static com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, ?>
+    timedTitleGrantArgument() {
+        return Commands.argument("player", GameProfileArgument.gameProfile())
+                .then(Commands.argument("title", StringArgumentType.word())
+                        .then(Commands.argument("duration", StringArgumentType.word())
+                                .executes(ModMindEntry::grantTimedTitle)));
     }
 
     private static int queryOwnBalance(CommandSourceStack source)
@@ -653,7 +695,9 @@ public final class ModMindEntry implements ModInitializer {
                 TitleConfig.GrantResult result = titleConfig().grant(profile.id(), profile.name(), titleId);
                 context.getSource().sendSuccess(() -> ServerText.translatable(
                         result == TitleConfig.GrantResult.GRANTED
-                                ? "command.omnitools.title.give" : "command.omnitools.title.already_owned",
+                                ? "command.omnitools.title.give"
+                                : result == TitleConfig.GrantResult.RENEWED
+                                ? "command.omnitools.title.renewed" : "command.omnitools.title.already_owned",
                         titleDisplay, profile.name()), true);
             } else {
                 TitleConfig.RevokeResult result = titleConfig().revoke(profile.id(), profile.name(), titleId);
@@ -670,6 +714,100 @@ public final class ModMindEntry implements ModInitializer {
             }
         }
         return profiles.size();
+    }
+
+    private static int grantTimedTitle(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(context.getSource(), CommandAction.TITLE_GRANT)) {
+            return 0;
+        }
+        String titleId = StringArgumentType.getString(context, "title");
+        Optional<TitleConfig.TitleDefinition> title = titleConfig().definition(titleId);
+        if (title.isEmpty()) {
+            context.getSource().sendFailure(ServerText.translatable("command.omnitools.title.unknown", titleId));
+            return 0;
+        }
+        String requestedDuration = StringArgumentType.getString(context, "duration");
+        TimedEntitlement.Grant grant;
+        try {
+            grant = requestedDuration.equalsIgnoreCase("permanent")
+                    ? TimedEntitlement.permanentGrant()
+                    : TimedEntitlement.Grant.activeDays(Long.parseLong(requestedDuration),
+                    TimedEntitlement.RenewalPolicy.EXTEND);
+        } catch (IllegalArgumentException exception) {
+            context.getSource().sendFailure(ServerText.translatable("command.omnitools.title.invalid_duration"));
+            return 0;
+        }
+        Collection<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player");
+        Component titleDisplay = context.getSource().getEntity() instanceof ServerPlayer sourcePlayer
+                ? TextTemplateRenderer.render(sourcePlayer, title.get().display()) : title.get().displayComponent();
+        for (NameAndId profile : profiles) {
+            TitleConfig.GrantResult result = titleConfig().grant(profile.id(), profile.name(), titleId, grant);
+            context.getSource().sendSuccess(() -> ServerText.translatable(
+                    result == TitleConfig.GrantResult.RENEWED ? "command.omnitools.title.timed_renewed"
+                            : "command.omnitools.title.timed_grant", titleDisplay, profile.name(), requestedDuration), true);
+            ServerPlayer onlinePlayer = context.getSource().getServer().getPlayerList().getPlayer(profile.id());
+            if (onlinePlayer != null) {
+                TitleDisplayService.refreshPlayer(onlinePlayer);
+                TitleEffectService.refresh(onlinePlayer);
+            }
+        }
+        return profiles.size();
+    }
+
+    private static int selectTitle(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.TITLE_OPEN)) {
+            return 0;
+        }
+        ServerPlayer player = source.getPlayerOrException();
+        String titleId = StringArgumentType.getString(context, "title");
+        TitleConfig.SelectionResult result = titleConfig().select(player.getUUID(), player.getGameProfile().name(), titleId);
+        if (result == TitleConfig.SelectionResult.NOT_OWNED) {
+            source.sendFailure(ServerText.translatable("command.omnitools.title.not_owned_self", titleId));
+            return 0;
+        }
+        TitleDisplayService.refreshPlayer(player);
+        TitleEffectService.refresh(player);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.selected", titleId), false);
+        return 1;
+    }
+
+    private static int clearTitleSelection(CommandSourceStack source)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.TITLE_OPEN)) {
+            return 0;
+        }
+        ServerPlayer player = source.getPlayerOrException();
+        titleConfig().clearSelection(player.getUUID(), player.getGameProfile().name());
+        TitleDisplayService.refreshPlayer(player);
+        TitleEffectService.refresh(player);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.cleared"), false);
+        return 1;
+    }
+
+    private static int titleTime(CommandSourceStack source)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.TITLE_OPEN)) {
+            return 0;
+        }
+        ServerPlayer player = source.getPlayerOrException();
+        String titleId = titleConfig().selectedTitleId(player.getUUID());
+        if (titleId.isEmpty() || titleConfig().selectedTitle(player.getUUID()).isEmpty()) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.no_selection"), false);
+            return 1;
+        }
+        TimedEntitlement entitlement = titleConfig().entitlement(player.getUUID(), titleId).orElse(null);
+        if (entitlement == null || entitlement.isPermanent()) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_permanent", titleId), false);
+            return 1;
+        }
+        long seconds = entitlement.remainingActiveTicks() / 20L;
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_remaining", titleId,
+                seconds / 86_400L, (seconds % 86_400L) / 3_600L, (seconds % 3_600L) / 60L,
+                seconds % 60L), false);
+        return 1;
     }
 
     private static int reloadRewards(CommandSourceStack source) {

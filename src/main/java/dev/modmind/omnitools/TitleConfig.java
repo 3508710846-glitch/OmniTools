@@ -9,6 +9,7 @@ import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
@@ -128,6 +129,11 @@ public final class TitleConfig {
         return titlesForPlayer == null || titlesForPlayer.effectsEnabled();
     }
 
+    public synchronized Optional<TimedEntitlement> entitlement(UUID playerId, String titleId) {
+        TitleData.PlayerRecord titlesForPlayer = state(playerId, "");
+        return titlesForPlayer == null ? Optional.empty() : titlesForPlayer.entitlement(titleId);
+    }
+
     public synchronized boolean toggleEffects(UUID playerId, String playerName) {
         TitleData data = data();
         return data == null || data.toggleEffects(playerId, playerName);
@@ -140,13 +146,24 @@ public final class TitleConfig {
     }
 
     public synchronized GrantResult grant(UUID playerId, String playerName, String titleId) {
+        return grant(playerId, playerName, titleId, TimedEntitlement.permanentGrant());
+    }
+
+    public synchronized GrantResult grant(UUID playerId, String playerName, String titleId,
+                                           TimedEntitlement.Grant entitlementGrant) {
         String normalizedId = normalizeId(titleId);
         if (!titles.containsKey(normalizedId)) {
             return GrantResult.UNKNOWN_TITLE;
         }
-
-        boolean added = data() != null && data().grant(playerId, playerName, normalizedId);
-        return added ? GrantResult.GRANTED : GrantResult.ALREADY_OWNED;
+        if (data() == null) {
+            return GrantResult.ALREADY_OWNED;
+        }
+        return switch (data().grantEntitlement(playerId, playerName, normalizedId, entitlementGrant,
+                System.currentTimeMillis())) {
+            case GRANTED -> GrantResult.GRANTED;
+            case RENEWED -> GrantResult.RENEWED;
+            case ALREADY_OWNED -> GrantResult.ALREADY_OWNED;
+        };
     }
 
     public synchronized RevokeResult revoke(UUID playerId, String playerName, String titleId) {
@@ -357,6 +374,7 @@ public final class TitleConfig {
 
     public enum GrantResult {
         GRANTED,
+        RENEWED,
         ALREADY_OWNED,
         UNKNOWN_TITLE
     }

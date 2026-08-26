@@ -9,7 +9,7 @@
 - [排错](getting-started/troubleshooting.md)
 - [根配置参考](reference/root-config.md)
 - [统一奖励格式](reference/rewards.md)
-- [17 个 OmniTools 占位符](reference/placeholders.md)
+- [22 个 OmniTools 占位符](reference/placeholders.md)
 - [可选 Text Placeholder API](reference/placeholder-api.md)
 
 ## 模块

@@ -10,6 +10,7 @@ import dev.modmind.omnitools.commandmenu.CommandMenuDefinition;
 import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
 import dev.modmind.omnitools.achievement.AnyCondition;
@@ -131,6 +132,18 @@ public final class ConfigValidator {
             }
             if (snapshot.titles().definition(reward.titleId()).isEmpty()) {
                 throw new IllegalArgumentException(context + " references unknown title " + reward.titleId());
+            }
+            TimedEntitlement.Grant grant = reward.titleGrant();
+            if (grant.mode() == TimedEntitlement.Mode.PERMANENT && grant.activeTicks() != 0L) {
+                throw new IllegalArgumentException(context + " permanent title reward cannot contain active ticks");
+            }
+            if (grant.mode() == TimedEntitlement.Mode.ACTIVE_DAYS
+                    && (grant.activeTicks() < TimedEntitlement.TICKS_PER_ACTIVE_DAY
+                    || grant.activeTicks() % TimedEntitlement.TICKS_PER_ACTIVE_DAY != 0L)) {
+                throw new IllegalArgumentException(context + " temporary title reward has an invalid active-day duration");
+            }
+            if (grant.renewalPolicy() == null) {
+                throw new IllegalArgumentException(context + " title reward has no renewal policy");
             }
         }
         if (reward.type() == RewardType.COMMAND) {
