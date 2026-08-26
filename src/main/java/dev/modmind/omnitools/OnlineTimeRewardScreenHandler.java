@@ -28,9 +28,9 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
     public static final int ROWS = 3;
     public static final int CONTAINER_SIZE = ROWS * 9;
     private static final List<Integer> REWARD_SLOTS = List.of(10, 11, 12, 13, 14, 15, 16);
-    private static final int PREVIOUS_PAGE_SLOT = 18;
-    private static final int PAGE_INFO_SLOT = 22;
-    private static final int NEXT_PAGE_SLOT = 26;
+    private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_27;
+    private static final int PAGE_INFO_SLOT = GuiSlots.CENTER_27;
+    private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_27;
 
     private final SimpleContainer rewardContainer;
     private final UUID ownerId;
@@ -82,11 +82,13 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents(serverPlayer, getOnlineMinutes(serverPlayer));
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents(serverPlayer, getOnlineMinutes(serverPlayer));
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
 
@@ -112,6 +114,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         broadcastChanges();
 
         if (result.status() == OnlineTimeRewardService.ClaimStatus.CLAIMED) {
+            GuiFeedbackService.success(serverPlayer);
             serverPlayer.displayClientMessage(ServerText.translatable(
                     "message.omnitools.online_reward.claimed", reward.minutes(),
                     result.granted() + result.alreadyGranted(), result.balance()), true);
@@ -122,6 +125,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         } else if (result.status() == OnlineTimeRewardService.ClaimStatus.PENDING
                 || result.status() == OnlineTimeRewardService.ClaimStatus.BLOCKED
                 || result.status() == OnlineTimeRewardService.ClaimStatus.FAILED) {
+            GuiFeedbackService.failure(serverPlayer);
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.reward.pending",
                     reward.id(), result.reason()), true);
         }
@@ -165,9 +169,11 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
         pageCount = Math.max(1, (rewards.size() + REWARD_SLOTS.size() - 1) / REWARD_SLOTS.size());
         page = Math.min(page, pageCount - 1);
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            rewardContainer.setItem(slot, new ItemStack(Items.BLACK_STAINED_GLASS_PANE));
-        }
+        GuiTheme.clear(rewardContainer);
+        rewardContainer.setItem(4, GuiTheme.status(Items.CLOCK,
+                ServerText.translatable("gui.omnitools.online_reward.menu_title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.online_reward.today_summary", onlineMinutes),
+                        ServerText.translatable("gui.omnitools.online_reward.reward_count", rewards.size())), false));
         int first = page * REWARD_SLOTS.size();
         for (int localIndex = 0; localIndex < REWARD_SLOTS.size(); localIndex++) {
             int rewardIndex = first + localIndex;
@@ -179,15 +185,13 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                     onlineMinutes));
         }
         if (page > 0) {
-            rewardContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.previous"), List.of()));
+            rewardContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        rewardContainer.setItem(PAGE_INFO_SLOT, namedItem(Items.CLOCK,
+        rewardContainer.setItem(PAGE_INFO_SLOT, GuiTheme.named(Items.CLOCK,
                 ServerText.translatable("gui.omnitools.online_reward.page", page + 1, pageCount, rewards.size()),
                 List.of(ServerText.translatable("gui.omnitools.online_reward.progress", onlineMinutes, onlineMinutes))));
         if (page + 1 < pageCount) {
-            rewardContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.next"), List.of()));
+            rewardContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
         lastRevision = ModMindEntry.configSnapshot().revision();
     }
@@ -196,15 +200,21 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                                          CheckinRewardConfig.OnlineTimeReward reward, int onlineMinutes) {
         OnlineTimeRewardService service = ModMindEntry.onlineTimeRewardService();
         OnlineTimeRewardService.RewardStatus status = service.status(player, rewardIndex, reward);
-        ItemStack stack = previewStack(player, reward);
+        ItemStack stack = switch (status) {
+            case NOT_READY -> new ItemStack(Items.PAPER);
+            case AVAILABLE -> new ItemStack(Items.CHEST);
+            case CLAIMED -> new ItemStack(Items.EMERALD);
+            case PENDING -> new ItemStack(Items.HOPPER);
+            case BLOCKED, FAILED -> new ItemStack(Items.BARRIER);
+        };
         ChatFormatting color = switch (status) {
-            case AVAILABLE -> ChatFormatting.GREEN;
-            case CLAIMED -> ChatFormatting.GOLD;
+            case AVAILABLE -> ChatFormatting.GOLD;
+            case CLAIMED -> ChatFormatting.GREEN;
             case PENDING -> ChatFormatting.YELLOW;
             case BLOCKED, FAILED -> ChatFormatting.RED;
             case NOT_READY -> ChatFormatting.GRAY;
         };
-        if (status == OnlineTimeRewardService.RewardStatus.CLAIMED) {
+        if (status == OnlineTimeRewardService.RewardStatus.AVAILABLE) {
             stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
         List<Component> lore = new ArrayList<>();

@@ -25,9 +25,9 @@ public final class ShopScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int PRODUCT_SLOT_COUNT = ShopConfig.PRODUCTS_PER_PAGE;
-    public static final int PREVIOUS_PAGE_SLOT = 45;
-    public static final int PLAYER_HEAD_SLOT = 49;
-    public static final int NEXT_PAGE_SLOT = 53;
+    public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    public static final int PLAYER_HEAD_SLOT = GuiSlots.CENTER_54;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer shopContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -126,6 +126,7 @@ public final class ShopScreenHandler extends ChestMenu {
         CheckinData data = CheckinData.get(player);
         long balance = data.getBalance(player.getUUID());
         if (balance < product.price()) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable(
                     "message.omnitools.shop.insufficient", product.price(), balance), true);
             return;
@@ -133,6 +134,7 @@ public final class ShopScreenHandler extends ChestMenu {
 
         long removed = data.removeCurrency(player.getUUID(), product.price(), player.getGameProfile().name());
         if (removed != product.price()) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.shop.insufficient",
                     product.price(), data.getBalance(player.getUUID())), true);
             return;
@@ -144,6 +146,7 @@ public final class ShopScreenHandler extends ChestMenu {
             player.drop(purchasedStack, false);
         }
         long newBalance = data.getBalance(player.getUUID());
+        GuiFeedbackService.success(player);
         player.displayClientMessage(ServerText.translatable("message.omnitools.shop.purchased",
                 product.stack().getCount(), product.price(), newBalance), true);
         refreshContents(player);
@@ -153,9 +156,7 @@ public final class ShopScreenHandler extends ChestMenu {
     private void refreshContents(ServerPlayer owner) {
         pageCount = config.pageCount();
         page = clampPage(page);
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            shopContainer.setItem(slot, filler());
-        }
+        GuiTheme.clear(shopContainer);
 
         int firstIndex = page * PRODUCT_SLOT_COUNT;
         for (int slot = 0; slot < PRODUCT_SLOT_COUNT; slot++) {
@@ -194,12 +195,20 @@ public final class ShopScreenHandler extends ChestMenu {
     private ItemStack displayProduct(ServerPlayer player, ShopConfig.ShopItem product) {
         // Rendering only affects this menu copy; purchases keep the exact configured item stack.
         ItemStack display = TextTemplateRenderer.renderItemText(player, product.createStack());
+        boolean affordable = CheckinData.get(player).getBalance(player.getUUID()) >= product.price();
+        display.set(DataComponents.CUSTOM_NAME, display.getHoverName().copy()
+                .withStyle(affordable ? ChatFormatting.GOLD : ChatFormatting.RED, ChatFormatting.BOLD));
         ItemLore existingLore = display.get(DataComponents.LORE);
         List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
         if (lore.size() >= ItemLore.MAX_LINES) {
             lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 1));
         }
         lore.add(ServerText.translatable("gui.omnitools.shop.price", product.price()).withStyle(ChatFormatting.GOLD));
+        lore.add(ServerText.translatable("gui.omnitools.shop.quantity", product.stack().getCount())
+                .withStyle(ChatFormatting.WHITE));
+        lore.add(ServerText.translatable(affordable ? "gui.omnitools.shop.affordable"
+                : "gui.omnitools.shop.insufficient").withStyle(affordable ? ChatFormatting.GOLD : ChatFormatting.RED));
+        lore.add(ServerText.translatable("gui.omnitools.shop.purchase_hint").withStyle(ChatFormatting.YELLOW));
         display.set(DataComponents.LORE, new ItemLore(lore));
         return display;
     }
@@ -212,10 +221,6 @@ public final class ShopScreenHandler extends ChestMenu {
 
     private int clampPage(int candidate) {
         return Math.max(0, Math.min(candidate, pageCount - 1));
-    }
-
-    private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {

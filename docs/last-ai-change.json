@@ -1,24 +1,19 @@
 {
-  "prompt": "下面是一份专门针对签到菜单的视觉重做方案，目标是从“玻璃板网格”改成“日历手账 + 信息面板”，同时保留纯服务端兼容性。\n\n## 一、设计定位\n\n签到菜单采用“每日记录册”风格：\n\n```text\n左侧：当月签到日历\n右侧：玩家信息、奖励、进度和操作\n```\n\n不再使用黑色玻璃板填满整个界面。日期格使用纸张、书本、染料、时钟等原版物品表达状态，玻璃板最多作为可选边框。\n\n## 二、54 格布局\n\n签到月份最多需要 6 周，因此继续使用 `GENERIC_9x6`，不要强行改成 27 格。\n\n```text\n第 0-5 行：\n┌───────────────────────┬──────┐\n│ 7 列日期日历           │信息栏│\n│ 7 列日期日历           │信息栏│\n│ 7 列日期日历           │信息栏│\n│ 7 列日期日历           │信息栏│\n│ 7 列日期日历           │信息栏│\n│ 7 列日期日历           │操作栏│\n└───────────────────────┴──────┘\n```\n\n建议槽位：\n\n```text\n0-6、9-15、18-24、27-33、36-42、45-51   日历区域\n7                                         玩家头像\n8                                         月份信息\n16                                        奖励预览\n17                                        月度进度\n25                                        签到记录\n26                                        成就入口\n34                                        连续签到\n35                                        货币余额\n43                                        奖励箱\n44                                        帮助/说明\n52                                        刷新或返回\n53                                        关闭\n```\n\n这样保留当前 6 周日历能力，同时右侧 12 个槽位形成独立的信息栏。\n\n## 三、日期图标设计\n\n日期格不再统一使用玻璃板，而是根据状态使用不同物品：\n\n| 状态 | 图标 | 颜色 | 光效 |\n|---|---|---|---|\n| 今日可签到 | `minecraft:clock` | 金色 | 开启 |\n| 今日已签到 | `minecraft:book` | 绿色 | 开启 |\n| 过去已签到 | `minecraft:lime_dye` | 绿色 | 可选 |\n| 漏签日期 | `minecraft:red_dye` | 红色 | 关闭 |\n| 未来日期 | `minecraft:paper` | 灰色 | 关闭 |\n| 月度奖励日 | `minecraft:chest` | 金色 | 开启 |\n| 无效日期格 | `minecraft:map` | 深灰色 | 关闭 |\n\n日期名称统一格式：\n\n```text\n03 日 · 星期一\n```\n\nLore 统一顺序：\n\n```text\n日期：3 月 3 日\n状态：今日可签到\n奖励：点击查看\n操作：左键签到\n```\n\n对于未来日期和漏签日期，只显示必要信息，不重复显示大量提示文字。\n\n## 四、右侧信息栏\n\n### 玩家头像\n\n使用 `PLAYER_HEAD`：\n\n```text\n玩家名称\n本月签到：12 天\n累计签到：86 天\n连续签到：5 天\n```\n\n### 月份信息\n\n使用 `CLOCK` 或 `WRITABLE_BOOK`：\n\n```text\n2026 年 8 月\n本月签到日历\n当前日期：26 日\n```\n\n### 奖励预览\n\n使用 `CHEST`：\n\n```text\n每日奖励：3 项\n下一个里程碑：15 天\n点击查看完整奖励\n```\n\n如果奖励包含物品、称号或 NBT 物品，应使用真实奖励图标或奖励箱图标，不只显示文字。\n\n### 月度进度\n\n使用 `FILLED_MAP`：\n\n```text\n本月进度：12 / 15 天\n距离下一个奖励：3 天\n进度：■■■■■■■■□□\n```\n\n进度条可以通过文本实现，不需要额外占用 9 个槽位。\n\n### 记录、成就、连续签到、余额\n\n分别使用：\n\n```text\nWRITABLE_BOOK       签到记录\nNETHER_STAR         成就\nCAMPFIRE            连续签到\nGOLD_INGOT          货币余额\n```\n\n每个按钮只保留 2-4 行 Lore，并明确点击后的行为。\n\n## 五、颜色规范\n\n颜色只表达状态，不用于随机装饰：\n\n```text\n金色       可操作、今日、待领取\n绿色       已完成、已签到、成功\n红色       漏签、失败、不可用\n灰色       未来日期、辅助信息\n青色       页面标题、重要数据\n白色       普通正文\n```\n\n必须同时显示图标和文字，不能只依赖颜色区分状态。\n\n## 六、文字优化\n\n当前签到界面由 `CheckinScreenHandler` 直接拼装多个物品名称和 Lore，建议抽出：\n\n```text\nCheckinRenderService\nCheckinTheme\nCheckinTextProvider\n```\n\n统一处理：\n\n- 标题。\n- 日期名称。\n- 状态文本。\n- 奖励摘要。\n- 进度文本。\n- 点击提示。\n- 多语言翻译。\n- 占位符。\n- 文本长度限制。\n\n所有固定文字继续使用 `ServerText`，动态文本统一经过 `TextTemplateRenderer`。\n\n建议规则：\n\n- 物品名称最多一行。\n- Lore 每行限制长度。\n- 普通日期最多 3 行 Lore。\n- 今日可签到日期最多 4 行 Lore。\n- 技术字段和内部 ID不显示给普通玩家。\n- 只有管理员诊断界面显示事件 ID、奖励 ID和配置路径。\n\n## 七、交互反馈\n\n增加轻量的原版反馈：\n\n```text\n打开菜单：容器打开音效\n翻页：按钮点击音效\n今日可签到：轻微提示音\n签到成功：挑战完成音效\n重复签到：低沉提示音\n点击不可用日期：错误音效\n领取奖励：奖励音效\n```\n\n今日可签到的时钟可以使用附魔光效；已签到的书本可以使用绿色名称。不要给所有物品都加光效，否则会失去层次。\n\n## 八、配置化设计\n\n签到模块增加可选 UI 配置：\n\n```json\n{\n  \"ui\": {\n    \"style\": \"journal\",\n    \"show_weekday\": true,\n    \"show_progress_bar\": true,\n    \"show_action_hints\": true,\n    \"show_reward_preview\": true,\n    \"icons\": {\n      \"available\": \"minecraft:clock\",\n      \"signed\": \"minecraft:book\",\n      \"missed\": \"minecraft:red_dye\",\n      \"future\": \"minecraft:paper\",\n      \"milestone\": \"minecraft:chest\"\n    },\n    \"sounds\": {\n      \"open\": true,\n      \"click\": true,\n      \"success\": true,\n      \"failure\": true\n    }\n  }\n}\n```\n\n配置不存在时使用内置默认主题，确保旧服务器无需修改配置即可运行。\n\n## 九、实现顺序\n\n1. 抽取签到 GUI 的槽位常量和渲染服务。\n2. 移除黑色玻璃板作为主要背景。\n3. 实现日期状态图标和统一 Lore。\n4. 重做右侧信息栏。\n5. 接入签到奖励、成就、奖励箱和货币占位符。\n6. 增加点击音效、成功音效和附魔光效。\n7. 增加 `ui` 配置和主题校验。\n8. 更新中文、英文语言文件和配置文档。\n\n## 十、验收标准\n\n- 31 天、28 天、跨 6 周月份都能正确显示。\n- 日期不会与右侧信息栏重叠。\n- 空日期格不会显示无意义的玻璃板名称。\n- 今日可签到、已签到、漏签、未来日期一眼可区分。\n- 奖励、连续签到、余额和成就入口位置固定。\n- 中文和英文 Lore 不会溢出。\n- Placeholder API 未安装时仍能正常显示。\n- 配置 reload 后已打开菜单能安全刷新。\n- 玩家无法拿走装饰物品。\n- 不安装客户端模组即可完成全部基础视觉优化。\n\n如果未来需要真正的背景图片、渐变界面或复杂动画，再额外提供可选资源包；纯服务端版本应以原版物品、Lore、声音和光效为主。",
+  "prompt": "下面是一份可直接交给工作台的统一 GUI 优化方案。\n\n## 一、统一设计标准\n\n所有 GUI 都采用签到菜单确立的五项标准：\n\n1. 不再用玻璃板填满整个界面，优先使用符合功能的原版物品图标。\n2. 固定为“标题区、内容区、操作区”三层结构。\n3. 状态必须同时使用图标、颜色和文字表达。\n4. Lore 只显示玩家真正需要的信息，内部 ID 和技术字段仅在管理员界面显示。\n5. 纯服务端实现，使用原版物品、Lore、附魔光效、声音和粒子，不依赖客户端模组。\n\n公共代码建议抽取为：\n\n```text\nGuiTheme\nGuiSlots\nGuiRenderService\nGuiTextService\nGuiNavigationService\nGuiFeedbackService\n```\n\n当前各个 Handler 中重复的 `background()`、`namedItem()`、分页按钮和 Lore 拼装逻辑统一迁移到这些服务中。\n\n## 二、统一布局\n\n### 54 格 GUI\n\n```text\n第 0 行：标题、玩家信息、余额或状态\n第 1-4 行：主要内容\n第 5 行：返回、分页、帮助、关闭\n```\n\n### 27 格 GUI\n\n```text\n第 0 行：标题和摘要\n第 1 行：主要内容\n第 2 行：操作按钮和关闭\n```\n\n内容数量较多时使用 45 个内容槽位；侧边信息和按钮固定位置，不随分页变化。\n\n## 三、成就 GUI\n\n对应 `AchievementScreenHandler`。\n\n布局：\n\n```text\n第 0 行：玩家头像、完成数量、已领取数量、总成就数\n第 1-4 行：成就卡片\n第 5 行：上一页、筛选、页码、下一页、返回\n```\n\n图标状态：\n\n```text\n进行中：BOOK，灰色\n已完成未领取：CHEST，金色，附魔光效\n已领取：EMERALD，绿色\n条件不可用：BARRIER，红色\n```\n\n成就 Lore 固定顺序：\n\n```text\n成就描述\n当前进度\n条件说明\n奖励列表\n状态\n点击操作\n```\n\n进度统一显示：\n\n```text\n进度：640 / 1000\n```\n\n条件树中的 `all`、`any`、`not`、`sum`、`each` 必须转换为玩家可读文本，不能直接显示 JSON 结构。\n\n## 四、称号 GUI\n\n对应 `TitleScreenHandler`。\n\n布局：\n\n```text\n第 0 行：当前称号、效果开关、已解锁数量\n第 1-4 行：称号卡片\n第 5 行：上一页、卸下、页码、下一页、关闭\n```\n\n图标：\n\n```text\n永久称号：NAME_TAG\n临时称号：CLOCK\n当前佩戴：附魔光效 + GREEN_DYE\n未佩戴：PAPER\n无效果：GRAY_DYE\n已过期：BARRIER\n```\n\nLore 显示：\n\n```text\n称号展示文本\n稀有度\n持续时间：永久 / 剩余时间\n称号效果\n当前状态\n点击操作\n```\n\n临时称号显示剩余天数和小时；称号定义被 reload 删除时，不直接删除玩家数据，只暂时隐藏。\n\n## 五、在线奖励 GUI\n\n对应 `OnlineTimeRewardScreenHandler`。\n\n布局：\n\n```text\n第 0 行：今日在线时间、下一档奖励、已领取数量\n第 1-4 行：在线时长奖励卡片\n第 5 行：上一页、页码、下一页、返回\n```\n\n图标：\n\n```text\n未达成：CLOCK 或 PAPER\n已达成待领取：CHEST，金色\n已领取：EMERALD，绿色\n奖励处理中：HOPPER，黄色\n```\n\n每个奖励卡片显示：\n\n```text\n需要在线：60 分钟\n当前进度：42 / 60 分钟\n奖励摘要\n状态\n点击领取或重试\n```\n\n不要让玩家必须打开详细页面才能知道还差多少时间。\n\n## 六、奖励详情 GUI\n\n对应签到奖励详情界面。\n\n统一使用奖励类型图标：\n\n```text\n货币：GOLD_INGOT\n物品：真实物品图标\n称号：NAME_TAG\n指令：COMMAND_BLOCK\n```\n\nLore 顺序：\n\n```text\n奖励名称\n奖励类型\n数量或持续时间\n领取状态\n异常说明\n```\n\nNBT 或组件物品必须显示真实物品的展示名称和 Lore，不能只显示 `item ID`。展示时使用副本渲染，不能修改账本中保存的原始物品。\n\n## 七、商店 GUI\n\n对应 `ShopScreenHandler`。\n\n布局：\n\n```text\n第 0 行：商店标题、当前余额、页码\n第 1-4 行：商品卡片\n第 5 行：上一页、刷新、余额、下一页、关闭\n```\n\n商品卡片使用商品自身图标，Lore 固定为：\n\n```text\n商品名称\n商品描述\n价格\n购买数量\n背包空间要求\n点击购买\n```\n\n状态：\n\n```text\n余额足够：GOLD 或 EMERALD，金色\n余额不足：REDSTONE，红色\n已售罄或禁用：BARRIER\n特殊商品：附魔光效\n```\n\n购买成功、余额不足、背包空间不足分别使用不同颜色和声音。\n\n## 八、云存储 GUI\n\n对应 `CloudStorageScreenHandler`。\n\n布局：\n\n```text\n第 0 行：云端储存、当前页、容量、余额\n第 1-4 行：物品内容\n第 5 行：上一页、扩容、页码、下一页、关闭\n```\n\n图标：\n\n```text\n已存物品：真实物品图标\n未解锁页面：IRON_BARS 或 BARRIER\n扩容：EMERALD\n容量已满：LIME_DYE\n余额不足：REDSTONE\n```\n\n扩容按钮 Lore 必须明确显示：\n\n```text\n当前容量\n扩容后容量\n需要货币\n当前余额\n点击扩容\n```\n\n## 九、玩家奖励箱\n\n对应 `RewardInboxScreenHandler`。\n\n重点是突出“待处理奖励”：\n\n```text\n待领取：CHEST，金色\n背包不足：HOPPER，黄色\n不可重试：BARRIER，红色\n已处理：EMERALD，绿色\n```\n\n物品 Lore：\n\n```text\n奖励物品\n来源：签到 / 成就 / 在线奖励\n奖励 ID\n失败原因\n点击投递到背包\n```\n\n带 NBT 或组件的物品必须完整保留。\n\n## 十、管理员奖励账本\n\n对应 `RewardLedgerScreenHandler`。\n\n布局：\n\n```text\n第 0-4 行：账本记录\n第 5 行：状态筛选、上一页、页码、下一页\n```\n\n筛选按钮：\n\n```text\n全部：COMPASS\n待处理：CLOCK\n执行中：BLAZE_POWDER\n阻塞：BARRIER\n失败：REDSTONE\n已完成：EMERALD\n```\n\n记录颜色：\n\n```text\nPENDING：黄色\nAPPLYING：金色\nBLOCKED：红色\nFAILED：深红色\nGRANTED：绿色\n```\n\n管理员 Lore 可以显示事件 ID、玩家 UUID、奖励 ID、审计信息，但必须与普通玩家界面分离。\n\n## 十一、模块管理 GUI\n\n对应 `ModuleManagerScreenHandler`。\n\n建议使用 27 格：\n\n```text\n第 0 行：模块管理标题、当前配置版本\n第 1 行：模块卡片\n第 2 行：reload、诊断、关闭\n```\n\n模块状态：\n\n```text\n已启用：LIME_DYE\n已禁用：GRAY_DYE\n配置错误：REDSTONE\n依赖阻止：YELLOW_DYE\n```\n\n每个模块 Lore：\n\n```text\n模块名称\n模块 ID\n当前状态\n依赖状态\n配置文件路径\n点击切换\n```\n\nreload 按钮必须显示上次 reload 成功或失败原因。\n\n## 十二、命令菜单 GUI\n\n命令菜单允许服主自定义，但默认主题必须遵守相同标准：\n\n- 默认提供 27 格和 54 格布局。\n- 提供统一的返回、关闭、上一页、下一页图标。\n- 子菜单按钮使用书、指南针或地图。\n- 左键和右键操作分别显示提示。\n- 空菜单显示明确的“当前菜单为空”。\n- 配置中的自定义物品、Lore 和占位符不被默认主题覆盖。\n\n## 十三、文字与占位符\n\n所有 GUI 文本统一经过：\n\n```text\nServerText\n→ OmniTools 内置占位符\n→ 可选 Placeholder API\n→ 颜色解析\n→ 长度限制\n→ Lore 分行\n```\n\n统一规则：\n\n- 固定文本全部放入语言文件。\n- 物品名称最多一行。\n- 普通 Lore 控制在 3-6 行。\n- 长文本自动换行或截断。\n- 未知占位符显示稳定回退值。\n- 内部 ID 默认隐藏。\n- 点击提示统一放在 Lore 最后一行。\n\n可增加通用 GUI 占位符：\n\n```text\n%omnitools:gui_page%\n%omnitools:gui_page_count%\n%omnitools:gui_item_count%\n%omnitools:gui_status%\n%omnitools:gui_progress%\n```\n\n## 十四、实施顺序\n\n1. 抽取公共 GUI 渲染和主题服务。\n2. 优先重做成就、称号、在线奖励三个高频界面。\n3. 重做商店、奖励箱、云存储。\n4. 重做奖励账本和模块管理。\n5. 给命令菜单增加默认主题和主题配置。\n6. 统一语言文件、占位符和文档。\n7. 最后增加可选资源包支持。\n\n## 十五、验收标准\n\n- 所有 GUI 不再依赖整页玻璃板作为主要视觉内容。\n- 每个状态都有对应图标、颜色和文字。\n- 所有 27 格、54 格界面在空数据、满数据和分页状态下都不重叠。\n- 中文、英文、Placeholder API 缺失时均能正常显示。\n- reload 后已打开 GUI 能安全刷新。\n- 玩家无法拿走装饰物品。\n- NBT/组件物品展示不改变原始奖励数据。\n- 普通玩家看不到内部事件和技术字段。\n- 不安装客户端模组即可完成基础视觉优化。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-26T03:54:39.270Z",
-  "summary": "已完成签到菜单“日历手账 + 信息栏”重做：固定 54 格、左侧月历、右侧信息栏、状态图标/颜色/光效、配置化图标与音效、热重载刷新及装饰槽服务端保护。奖励箱成功领取也会播放奖励音效。\n\n核心实现位于 [CheckinScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:21)、[CheckinRenderService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRenderService.java:27)、[CheckinTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinTheme.java:1)、[CheckinUiConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinUiConfig.java:11)。文档已修正 UTF-8 编码并提供 JSONC 教学版与严格 JSON 版：[daily-checkin.md](D:/mod/qiandao/docs/modules/daily-checkin.md:99)。\n\n验证通过：\n\n- `gradlew test`\n- ModMind 内容校验：4 文件，无错误/警告\n- 受管构建：成功，产物 `.modmind/minecraft/mods/modmind-current-project.jar`\n- 服务端烟雾测试：启动完成后稳定运行 15 秒，日志见 [runServer-1787716172382.log](D:/mod/qiandao/.modmind/builds/runServer-1787716172382.log)\n- 文档 3 个 `json` 块均可解析，链接有效，无乱码标记\n- 签到界面代码无玻璃板填充残留\n\n待人工验收：使用未安装客户端模组的原版客户端逐项点击签到、奖励详情、奖励箱、记录与成就入口，确认实际 Lore 排版和音效体验。",
-  "finalResponse": "已完成签到菜单“日历手账 + 信息栏”重做：固定 54 格、左侧月历、右侧信息栏、状态图标/颜色/光效、配置化图标与音效、热重载刷新及装饰槽服务端保护。奖励箱成功领取也会播放奖励音效。\n\n核心实现位于 [CheckinScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:21)、[CheckinRenderService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRenderService.java:27)、[CheckinTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinTheme.java:1)、[CheckinUiConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinUiConfig.java:11)。文档已修正 UTF-8 编码并提供 JSONC 教学版与严格 JSON 版：[daily-checkin.md](D:/mod/qiandao/docs/modules/daily-checkin.md:99)。\n\n验证通过：\n\n- `gradlew test`\n- ModMind 内容校验：4 文件，无错误/警告\n- 受管构建：成功，产物 `.modmind/minecraft/mods/modmind-current-project.jar`\n- 服务端烟雾测试：启动完成后稳定运行 15 秒，日志见 [runServer-1787716172382.log](D:/mod/qiandao/.modmind/builds/runServer-1787716172382.log)\n- 文档 3 个 `json` 块均可解析，链接有效，无乱码标记\n- 签到界面代码无玻璃板填充残留\n\n待人工验收：使用未安装客户端模组的原版客户端逐项点击签到、奖励详情、奖励箱、记录与成就入口，确认实际 Lore 排版和音效体验。",
+  "createdAt": "2026-08-26T04:41:57.624Z",
+  "summary": "统一 GUI 优化已完成，保持纯服务端与原版客户端兼容。\n\n- 新增共享 [GuiTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java:1)、[GuiSlots.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiSlots.java:1)、[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:1)、[GuiNavigationService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiNavigationService.java:1)、[GuiFeedbackService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiFeedbackService.java:1)。\n- 成就、称号、在线奖励、商店、云存储、奖励箱、奖励账本、模块管理、签到记录/奖励详情已移除整页玻璃板背景，并统一空槽、状态色、图标、Lore 限制、分页与操作反馈。\n- 成就/在线奖励使用书本、箱子、漏斗、绿宝石等状态图标；称号区分永久、临时和佩戴；商店显示货币是否充足；奖励箱保留 NBT 物品原 Lore，并展示来源、异常和投递操作。\n- 模块管理显示配置版本和模块配置路径；命令菜单在无项目时显示明确提示，但不覆盖服主自定义内容。\n- 中英文语言文件已补齐新文案，验证无重复键、可解析。\n\n验证通过：\n\n- `gradlew test`\n- ModMind 内容校验：无错误、无警告\n- 受管构建成功：`.modmind/minecraft/mods/modmind-current-project.jar`\n- 服务端烟雾测试：启动后稳定运行 15 秒，日志见 [runServer-1787719181052.log](D:/mod/qiandao/.modmind/builds/runServer-1787719181052.log)\n- 静态检索确认 GUI 源码无 `STAINED_GLASS` / `GLASS_PANE` 残留\n\n待人工验收：使用无 OmniTools 客户端模组的原版客户端逐项检查分页、购买、领取、扩容、称号切换和 NBT 奖励物品的实际 Lore 排版。`docs/idea.md` 的既有用户修改未动。",
+  "finalResponse": "统一 GUI 优化已完成，保持纯服务端与原版客户端兼容。\n\n- 新增共享 [GuiTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java:1)、[GuiSlots.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiSlots.java:1)、[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:1)、[GuiNavigationService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiNavigationService.java:1)、[GuiFeedbackService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiFeedbackService.java:1)。\n- 成就、称号、在线奖励、商店、云存储、奖励箱、奖励账本、模块管理、签到记录/奖励详情已移除整页玻璃板背景，并统一空槽、状态色、图标、Lore 限制、分页与操作反馈。\n- 成就/在线奖励使用书本、箱子、漏斗、绿宝石等状态图标；称号区分永久、临时和佩戴；商店显示货币是否充足；奖励箱保留 NBT 物品原 Lore，并展示来源、异常和投递操作。\n- 模块管理显示配置版本和模块配置路径；命令菜单在无项目时显示明确提示，但不覆盖服主自定义内容。\n- 中英文语言文件已补齐新文案，验证无重复键、可解析。\n\n验证通过：\n\n- `gradlew test`\n- ModMind 内容校验：无错误、无警告\n- 受管构建成功：`.modmind/minecraft/mods/modmind-current-project.jar`\n- 服务端烟雾测试：启动后稳定运行 15 秒，日志见 [runServer-1787719181052.log](D:/mod/qiandao/.modmind/builds/runServer-1787719181052.log)\n- 静态检索确认 GUI 源码无 `STAINED_GLASS` / `GLASS_PANE` 残留\n\n待人工验收：使用无 OmniTools 客户端模组的原版客户端逐项检查分页、购买、领取、扩容、称号切换和 NBT 奖励物品的实际 Lore 排版。`docs/idea.md` 的既有用户修改未动。",
   "intent": "engineering",
   "tasks": [
-    "实现签到日历手账布局与可选 UI 配置",
-    "执行内容、测试、构建与服务端烟雾验证"
+    "盘点现有菜单、槽位、分页和渲染重复逻辑",
+    "抽取统一 GUI 主题、文本、导航和反馈服务",
+    "重做成就、称号、在线奖励、商店、云存储和奖励箱",
+    "重做奖励账本、模块管理和命令菜单默认主题",
+    "验证构建、内容与服务端菜单运行"
   ],
   "files": [
-    {
-      "path": "docs/idea.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/daily-checkin.md",
-      "purpose": "外部代理修改"
-    },
     {
       "path": "run/logs/2026-08-26-1.log.gz",
       "purpose": "外部代理修改"
@@ -88,19 +83,47 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardConfig.java",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardService.java",
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRecordsScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java",
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardInfoScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModuleManagerScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
       "path": "src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/RewardLedgerScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/commandmenu/CommandMenuScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
@@ -112,27 +135,23 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-08-26-1.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/GuiFeedbackService.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRenderService.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiNavigationService.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinTextProvider.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiSlots.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinTheme.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiTextService.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinUiConfig.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/test/java/dev/modmind/omnitools/CheckinJournalTest.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiTheme.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -141,7 +160,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-26T02-33-01-983Z",
+  "snapshotId": "2026-08-26T04-03-41-756Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -152,6 +171,7 @@
       "runtime_test"
     ],
     "completed": [
+      "intent",
       "plan",
       "validate",
       "build",
@@ -161,11 +181,12 @@
     ],
     "missing": [],
     "evidence": {
+      "intent": "modmind_set_intent recorded task intent",
       "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 31 changed managed files",
+      "implementation": "Detected 35 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

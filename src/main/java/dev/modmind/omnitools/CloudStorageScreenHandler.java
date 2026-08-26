@@ -26,11 +26,11 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int STORAGE_SLOT_COUNT = CloudStorageData.SLOTS_PER_PAGE;
-    public static final int PREVIOUS_PAGE_SLOT = 45;
+    public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
     public static final int BALANCE_SLOT = 47;
-    public static final int STATUS_SLOT = 49;
+    public static final int STATUS_SLOT = GuiSlots.CENTER_54;
     public static final int UPGRADE_SLOT = 51;
-    public static final int NEXT_PAGE_SLOT = 53;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer storageContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -183,6 +183,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     private void unlockNextPage(ServerPlayer player) {
         int unlockedPages = availablePages();
         if (unlockedPages >= config.maxPages()) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.storage.maxed"), true);
             refreshControls();
             return;
@@ -192,6 +193,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         long cost = config.expansionCost();
         long balance = currency.getBalance(ownerId);
         if (balance < cost) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost, balance),
                     true);
             return;
@@ -199,6 +201,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
         long removed = currency.removeCurrency(ownerId, cost, player.getGameProfile().name());
         if (removed != cost) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost,
                     currency.getBalance(ownerId)), true);
             return;
@@ -208,12 +211,14 @@ public final class CloudStorageScreenHandler extends ChestMenu {
                 .unlockNextPage(ownerId, config.maxPages());
         if (!result.unlocked()) {
             currency.addCurrency(ownerId, removed, player.getGameProfile().name());
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.storage.maxed"), true);
             refreshControls();
             return;
         }
 
         long remainingBalance = currency.getBalance(ownerId);
+        GuiFeedbackService.success(player);
         player.displayClientMessage(ServerText.translatable("message.omnitools.storage.expanded", result.unlockedPages(),
                 cost, remainingBalance), true);
         openPage(player, result.unlockedPages() - 1);
@@ -288,11 +293,13 @@ public final class CloudStorageScreenHandler extends ChestMenu {
                     List.of(
                             ServerText.translatable("gui.omnitools.storage.upgrade_price", config.expansionCost())
                                     .withStyle(ChatFormatting.GOLD),
+                            ServerText.translatable("gui.omnitools.storage.upgrade_capacity",
+                                    (unlockedPages + 1) * STORAGE_SLOT_COUNT).withStyle(ChatFormatting.AQUA),
                             ServerText.translatable("gui.omnitools.storage.upgrade_balance", balance)
                                     .withStyle(ChatFormatting.GRAY),
                             ServerText.translatable("gui.omnitools.storage.upgrade_hint").withStyle(ChatFormatting.GRAY))));
         } else {
-            storageContainer.setItem(UPGRADE_SLOT, namedItem(Items.LIME_STAINED_GLASS_PANE,
+            storageContainer.setItem(UPGRADE_SLOT, namedItem(Items.LIME_DYE,
                     ServerText.translatable("gui.omnitools.storage.maxed").withStyle(ChatFormatting.GREEN),
                     List.of(ServerText.translatable("gui.omnitools.storage.maxed_hint").withStyle(ChatFormatting.GRAY))));
         }
@@ -313,7 +320,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     }
 
     private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
+        return GuiTheme.emptySlot();
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

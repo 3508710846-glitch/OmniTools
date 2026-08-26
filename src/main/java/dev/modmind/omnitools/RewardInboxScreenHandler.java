@@ -28,9 +28,9 @@ public final class RewardInboxScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = 54;
     private static final int CONTENT_SLOTS = 45;
-    private static final int PREVIOUS_PAGE_SLOT = 45;
-    private static final int PAGE_INFO_SLOT = 49;
-    private static final int NEXT_PAGE_SLOT = 53;
+    private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    private static final int PAGE_INFO_SLOT = GuiSlots.CENTER_54;
+    private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
 
     private final SimpleContainer container;
     private final ServerPlayer owner;
@@ -138,9 +138,7 @@ public final class RewardInboxScreenHandler extends ChestMenu {
         visibleEntries = RewardClaimLedger.get(owner).pendingItemEntries(ownerId);
         pageCount = Math.max(1, (visibleEntries.size() + CONTENT_SLOTS - 1) / CONTENT_SLOTS);
         page = Math.min(page, pageCount - 1);
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            container.setItem(slot, background());
-        }
+        GuiTheme.clear(container);
         int first = page * CONTENT_SLOTS;
         int visible = Math.min(CONTENT_SLOTS, visibleEntries.size() - first);
         for (int index = 0; index < visible; index++) {
@@ -164,20 +162,32 @@ public final class RewardInboxScreenHandler extends ChestMenu {
         if (stack.isEmpty()) {
             stack = new ItemStack(Items.BARRIER);
         }
-        List<Component> lore = new ArrayList<>();
-        lore.add(ServerText.translatable("gui.omnitools.rewards.inbox.click_deliver").withStyle(ChatFormatting.YELLOW));
-        lore.add(ServerText.translatable("gui.omnitools.rewards.event", entry.eventId()).withStyle(ChatFormatting.DARK_GRAY));
-        lore.add(ServerText.translatable("gui.omnitools.rewards.reward_id", entry.rewardId()).withStyle(ChatFormatting.DARK_GRAY));
+        ItemLore existingLore = stack.get(DataComponents.LORE);
+        List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
+        if (lore.size() > ItemLore.MAX_LINES - 3) {
+            lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 3));
+        }
+        lore.add(ServerText.translatable(sourceKey(entry.eventId())).withStyle(ChatFormatting.GRAY));
         if (!entry.entry().reason().isBlank()) {
             lore.add(ServerText.translatable("gui.omnitools.rewards.reason", entry.entry().reason())
                     .withStyle(ChatFormatting.GOLD));
         }
-        stack.set(DataComponents.LORE, new ItemLore(lore));
+        lore.add(ServerText.translatable("gui.omnitools.rewards.inbox.click_deliver").withStyle(ChatFormatting.YELLOW));
+        stack.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
         return stack;
     }
 
-    private static ItemStack background() {
-        return new ItemStack(Items.BLACK_STAINED_GLASS_PANE);
+    private static String sourceKey(String eventId) {
+        if (eventId.startsWith("checkin:")) {
+            return "gui.omnitools.reward.inbox.source.checkin";
+        }
+        if (eventId.startsWith("achievement:")) {
+            return "gui.omnitools.reward.inbox.source.achievement";
+        }
+        if (eventId.startsWith("online:")) {
+            return "gui.omnitools.reward.inbox.source.online";
+        }
+        return "gui.omnitools.reward.inbox.source.other";
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {

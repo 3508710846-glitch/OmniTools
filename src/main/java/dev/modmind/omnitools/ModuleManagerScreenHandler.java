@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.OmniToolsConfigManager;
 import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
@@ -29,7 +30,7 @@ import java.util.UUID;
 public final class ModuleManagerScreenHandler extends ChestMenu {
     public static final int ROWS = 3;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int RELOAD_SLOT = 22;
+    public static final int RELOAD_SLOT = GuiSlots.CENTER_27;
     private static final Map<ModuleId, Integer> MODULE_SLOTS = moduleSlots();
     private static final Map<ModuleId, Item> MODULE_ICONS = Map.of(
             ModuleId.DAILY_CHECKIN, Items.CLOCK,
@@ -113,6 +114,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
                 .dependencyBlock(snapshot, module, targetState);
         if (block.isPresent()) {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW),
                     true);
             refreshContents();
@@ -122,11 +124,13 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         OmniToolsConfigManager.ModuleUpdateResult result = ModMindEntry.moduleControlService()
                 .updateModuleEnabled(player.level().getServer(), module, targetState);
         if (result.success()) {
+            GuiFeedbackService.success(player);
             player.displayClientMessage(ServerText.translatable(targetState
                     ? "message.omnitools.modules.enabled_result"
                     : "message.omnitools.modules.disabled_result", moduleName(module))
                     .withStyle(ChatFormatting.GREEN), true);
         } else {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(failureMessage(result.message()), true);
         }
         if (player.containerMenu == this) {
@@ -137,9 +141,11 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private void reloadFromDisk(ServerPlayer player) {
         OmniToolsConfigManager.ReloadResult result = ModMindEntry.moduleControlService().reload(player.level().getServer());
         if (result.success()) {
+            GuiFeedbackService.success(player);
             player.displayClientMessage(ServerText.translatable("message.omnitools.modules.reloaded")
                     .withStyle(ChatFormatting.GREEN), true);
         } else {
+            GuiFeedbackService.failure(player);
             player.displayClientMessage(failureMessage(result.message()), true);
         }
         if (player.containerMenu == this) {
@@ -149,9 +155,11 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
 
     private void refreshContents() {
         OmniToolsConfigSnapshot snapshot = ModMindEntry.configSnapshot();
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            moduleContainer.setItem(slot, filler());
-        }
+        GuiTheme.clear(moduleContainer);
+        moduleContainer.setItem(4, GuiTheme.status(Items.COMPASS,
+                ServerText.translatable("gui.omnitools.modules.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.modules.revision", snapshot.revision()),
+                        ServerText.translatable("gui.omnitools.modules.reload_hint")), false));
         for (Map.Entry<ModuleId, Integer> entry : MODULE_SLOTS.entrySet()) {
             ModuleId module = entry.getKey();
             boolean enabled = snapshot.enabled(module);
@@ -166,8 +174,9 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private static ItemStack moduleItem(ModuleId module, boolean enabled,
                                          Optional<ModuleControlService.DependencyBlock> block) {
         ChatFormatting color = block.isPresent() ? ChatFormatting.YELLOW
-                : enabled ? ChatFormatting.GREEN : ChatFormatting.RED;
-        ItemStack item = new ItemStack(MODULE_ICONS.get(module));
+                : enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY;
+        ItemStack item = new ItemStack(block.isPresent() ? Items.YELLOW_DYE
+                : enabled ? Items.LIME_DYE : Items.GRAY_DYE);
         if (enabled) {
             item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
@@ -175,6 +184,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         List<Component> lore = new java.util.ArrayList<>();
         lore.add(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled)).withStyle(color));
         lore.add(ServerText.translatable("gui.omnitools.modules.id", module.id()).withStyle(ChatFormatting.DARK_GRAY));
+        lore.add(ServerText.translatable("gui.omnitools.modules.path", ConfigPaths.moduleConfig(module).toString())
+                .withStyle(ChatFormatting.DARK_GRAY));
         if (block.isPresent()) {
             lore.add(ServerText.translatable("gui.omnitools.modules.blocked").withStyle(ChatFormatting.YELLOW));
             lore.add(ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW));
@@ -191,12 +202,6 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
                 .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
         item.set(DataComponents.LORE, new ItemLore(List.of(
                 ServerText.translatable("gui.omnitools.modules.reload_hint").withStyle(ChatFormatting.GRAY))));
-        return item;
-    }
-
-    private static ItemStack filler() {
-        ItemStack item = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-        item.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.empty"));
         return item;
     }
 

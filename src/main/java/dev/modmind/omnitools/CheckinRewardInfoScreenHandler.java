@@ -191,7 +191,11 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 ? ServerText.translatable(entry.kind().equals("daily") ? "gui.omnitools.checkin.daily_rewards"
                 : "gui.omnitools.checkin.monthly_milestone", entry.milestone())
                 : rewardName(player, entry.reward());
-        List<Component> lore = new ArrayList<>();
+        ItemLore existingLore = stack.get(DataComponents.LORE);
+        List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
+        if (lore.size() > ItemLore.MAX_LINES - 3) {
+            lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 3));
+        }
         if (!entry.summary()) {
             lore.add(ServerText.translatable("gui.omnitools.checkin.reward_status", ServerText.translatable(status))
                     .withStyle(color));
@@ -215,7 +219,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                     .withStyle(color));
         }
         stack.set(DataComponents.CUSTOM_NAME, name.copy().withStyle(color, ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(lore));
+        stack.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
         return stack;
     }
 
@@ -275,7 +279,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
     }
 
     private static ItemStack emptySlot() {
-        return new ItemStack(Items.BLACK_STAINED_GLASS_PANE);
+        return GuiTheme.emptySlot();
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

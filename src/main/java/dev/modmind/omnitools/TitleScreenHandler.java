@@ -26,11 +26,11 @@ public final class TitleScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int TITLE_SLOTS = 45;
-    public static final int PREVIOUS_PAGE_SLOT = 45;
+    public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
     public static final int EFFECTS_SLOT = 47;
     public static final int UNEQUIP_SLOT = 48;
-    public static final int PROFILE_SLOT = 49;
-    public static final int NEXT_PAGE_SLOT = 53;
+    public static final int PROFILE_SLOT = GuiSlots.CENTER_54;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer titleContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -85,15 +85,18 @@ public final class TitleScreenHandler extends ChestMenu {
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == UNEQUIP_SLOT) {
             if (config.clearSelection(ownerId, serverPlayer.getGameProfile().name())) {
+                GuiFeedbackService.success(serverPlayer);
                 serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.unequipped"), true);
                 TitleDisplayService.refreshPlayer(serverPlayer);
                 TitleEffectService.refresh(serverPlayer);
@@ -103,6 +106,7 @@ public final class TitleScreenHandler extends ChestMenu {
         }
         if (slotId == EFFECTS_SLOT) {
             boolean enabled = config.toggleEffects(ownerId, serverPlayer.getGameProfile().name());
+            GuiFeedbackService.click(serverPlayer);
             serverPlayer.displayClientMessage(ServerText.translatable(
                     enabled ? "message.omnitools.title.effects_enabled" : "message.omnitools.title.effects_disabled"), true);
             TitleEffectService.refresh(serverPlayer);
@@ -120,9 +124,11 @@ public final class TitleScreenHandler extends ChestMenu {
         TitleConfig.TitleDefinition title = unlockedTitles.get(titleIndex);
         if (title.id().equals(config.selectedTitleId(ownerId))) {
             config.clearSelection(ownerId, serverPlayer.getGameProfile().name());
+            GuiFeedbackService.success(serverPlayer);
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.unequipped"), true);
         } else if (config.select(ownerId, serverPlayer.getGameProfile().name(), title.id())
                 == TitleConfig.SelectionResult.SELECTED) {
+            GuiFeedbackService.success(serverPlayer);
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.title.equipped",
                     TextTemplateRenderer.render(serverPlayer, title.display())), true);
         }
@@ -156,9 +162,7 @@ public final class TitleScreenHandler extends ChestMenu {
         page = Math.max(0, Math.min(page, pageCount - 1));
         String selectedId = config.selectedTitleId(ownerId);
 
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            titleContainer.setItem(slot, filler());
-        }
+        GuiTheme.clear(titleContainer);
 
         if (unlockedTitles.isEmpty()) {
             titleContainer.setItem(22, namedItem(Items.BOOK,
@@ -170,7 +174,10 @@ public final class TitleScreenHandler extends ChestMenu {
         for (int slot = 0; slot < TITLE_SLOTS && firstTitle + slot < unlockedTitles.size(); slot++) {
             TitleConfig.TitleDefinition title = unlockedTitles.get(firstTitle + slot);
             boolean selected = title.id().equals(selectedId);
-            ItemStack titleItem = new ItemStack(Items.NAME_TAG);
+            boolean temporary = config.entitlement(ownerId, title.id()).map(entitlement -> !entitlement.isPermanent())
+                    .orElse(false);
+            ItemStack titleItem = new ItemStack(selected ? Items.LIME_DYE
+                    : temporary ? Items.CLOCK : Items.NAME_TAG);
             titleItem.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, title.display()));
             if (selected) {
                 titleItem.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
@@ -188,8 +195,7 @@ public final class TitleScreenHandler extends ChestMenu {
             }
             lore.add(ServerText.translatable(selected ? "gui.omnitools.title.selected" : "gui.omnitools.title.select_hint")
                     .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY));
-            lore.add(Component.literal(title.id()).withStyle(ChatFormatting.DARK_GRAY));
-            titleItem.set(DataComponents.LORE, new ItemLore(lore));
+            titleItem.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
             titleContainer.setItem(slot, titleItem);
         }
 
@@ -270,10 +276,6 @@ public final class TitleScreenHandler extends ChestMenu {
             case RARE -> ChatFormatting.AQUA;
             case LEGENDARY -> ChatFormatting.GOLD;
         };
-    }
-
-    private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
     }
 
     private ItemStack effectsItem(String selectedId) {

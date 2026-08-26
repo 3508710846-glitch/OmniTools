@@ -178,8 +178,7 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
     }
 
     private static ItemStack emptySlot() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE,
-                ServerText.translatable("gui.omnitools.empty").withStyle(ChatFormatting.DARK_GRAY), List.of());
+        return GuiTheme.emptySlot();
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name,

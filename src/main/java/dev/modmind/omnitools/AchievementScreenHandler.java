@@ -40,9 +40,9 @@ public final class AchievementScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int ACHIEVEMENT_SLOTS = 45;
-    public static final int PREVIOUS_PAGE_SLOT = 45;
-    public static final int PROFILE_SLOT = 49;
-    public static final int NEXT_PAGE_SLOT = 53;
+    public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    public static final int PROFILE_SLOT = GuiSlots.CENTER_54;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer achievementContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -118,18 +118,32 @@ public final class AchievementScreenHandler extends ChestMenu {
         AchievementConfig.AchievementDefinition achievement = achievements.get(achievementIndex);
         AchievementService.ClaimResult result = service.claim(serverPlayer, achievement.id());
         switch (result.status()) {
-            case CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.claimed", TextTemplateRenderer.render(serverPlayer,
-                            achievement.display()), result.grantedRewards(),
-                    result.balance()), true);
-            case ALREADY_CLAIMED -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.already_claimed"), true);
-            case NOT_COMPLETED -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.not_completed"), true);
-            case UNKNOWN_ACHIEVEMENT -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.unknown"), true);
-            case PENDING, BLOCKED, FAILED -> serverPlayer.displayClientMessage(ServerText.translatable(
-                    "message.omnitools.achievement.reward_pending", result.reason()), true);
+            case CLAIMED -> {
+                GuiFeedbackService.success(serverPlayer);
+                serverPlayer.displayClientMessage(ServerText.translatable(
+                        "message.omnitools.achievement.claimed", TextTemplateRenderer.render(serverPlayer,
+                                achievement.display()), result.grantedRewards(), result.balance()), true);
+            }
+            case ALREADY_CLAIMED -> {
+                GuiFeedbackService.failure(serverPlayer);
+                serverPlayer.displayClientMessage(ServerText.translatable(
+                        "message.omnitools.achievement.already_claimed"), true);
+            }
+            case NOT_COMPLETED -> {
+                GuiFeedbackService.failure(serverPlayer);
+                serverPlayer.displayClientMessage(ServerText.translatable(
+                        "message.omnitools.achievement.not_completed"), true);
+            }
+            case UNKNOWN_ACHIEVEMENT -> {
+                GuiFeedbackService.failure(serverPlayer);
+                serverPlayer.displayClientMessage(ServerText.translatable(
+                        "message.omnitools.achievement.unknown"), true);
+            }
+            case PENDING, BLOCKED, FAILED -> {
+                GuiFeedbackService.failure(serverPlayer);
+                serverPlayer.displayClientMessage(ServerText.translatable(
+                        "message.omnitools.achievement.reward_pending", result.reason()), true);
+            }
         }
         refreshContents();
     }
@@ -167,9 +181,7 @@ public final class AchievementScreenHandler extends ChestMenu {
         int pageCount = pageCount(achievements.size());
         page = Math.max(0, Math.min(page, pageCount - 1));
 
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            achievementContainer.setItem(slot, filler());
-        }
+        GuiTheme.clear(achievementContainer);
 
         if (achievements.isEmpty()) {
             achievementContainer.setItem(22, namedItem(Items.BOOK,
@@ -207,8 +219,13 @@ public final class AchievementScreenHandler extends ChestMenu {
         ConditionProgress progress = evaluation.progress();
         AchievementService.State state = evaluation.state();
         ChatFormatting color = stateColor(achievement, state, progress);
-        ItemStack item = new ItemStack(achievement.icon());
-        if (state == AchievementService.State.CLAIMED) {
+        ItemStack item = switch (state) {
+            case IN_PROGRESS -> new ItemStack(Items.BOOK);
+            case CLAIMABLE -> new ItemStack(Items.CHEST);
+            case PENDING -> new ItemStack(Items.HOPPER);
+            case CLAIMED -> new ItemStack(Items.EMERALD);
+        };
+        if (state == AchievementService.State.CLAIMABLE) {
             item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
         }
         item.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, achievement.display()).copy()
@@ -219,8 +236,7 @@ public final class AchievementScreenHandler extends ChestMenu {
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
         lore.add(ServerText.translatable(stateTranslationKey(state)).withStyle(color));
-        lore.add(Component.literal(achievement.id()).withStyle(ChatFormatting.DARK_GRAY));
-        item.set(DataComponents.LORE, new ItemLore(lore));
+        item.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
         return item;
     }
 
@@ -482,10 +498,6 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     private static int pageCount(int achievementCount) {
         return Math.max(1, (achievementCount + ACHIEVEMENT_SLOTS - 1) / ACHIEVEMENT_SLOTS);
-    }
-
-    private static ItemStack filler() {
-        return namedItem(Items.GRAY_STAINED_GLASS_PANE, ServerText.translatable("gui.omnitools.empty"), List.of());
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

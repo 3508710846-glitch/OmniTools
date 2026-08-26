@@ -1,14 +1,17 @@
-已完成签到菜单“日历手账 + 信息栏”重做：固定 54 格、左侧月历、右侧信息栏、状态图标/颜色/光效、配置化图标与音效、热重载刷新及装饰槽服务端保护。奖励箱成功领取也会播放奖励音效。
+统一 GUI 优化已完成，保持纯服务端与原版客户端兼容。
 
-核心实现位于 [CheckinScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:21)、[CheckinRenderService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRenderService.java:27)、[CheckinTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinTheme.java:1)、[CheckinUiConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinUiConfig.java:11)。文档已修正 UTF-8 编码并提供 JSONC 教学版与严格 JSON 版：[daily-checkin.md](D:/mod/qiandao/docs/modules/daily-checkin.md:99)。
+- 新增共享 [GuiTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java:1)、[GuiSlots.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiSlots.java:1)、[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:1)、[GuiNavigationService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiNavigationService.java:1)、[GuiFeedbackService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiFeedbackService.java:1)。
+- 成就、称号、在线奖励、商店、云存储、奖励箱、奖励账本、模块管理、签到记录/奖励详情已移除整页玻璃板背景，并统一空槽、状态色、图标、Lore 限制、分页与操作反馈。
+- 成就/在线奖励使用书本、箱子、漏斗、绿宝石等状态图标；称号区分永久、临时和佩戴；商店显示货币是否充足；奖励箱保留 NBT 物品原 Lore，并展示来源、异常和投递操作。
+- 模块管理显示配置版本和模块配置路径；命令菜单在无项目时显示明确提示，但不覆盖服主自定义内容。
+- 中英文语言文件已补齐新文案，验证无重复键、可解析。
 
 验证通过：
 
 - `gradlew test`
-- ModMind 内容校验：4 文件，无错误/警告
-- 受管构建：成功，产物 `.modmind/minecraft/mods/modmind-current-project.jar`
-- 服务端烟雾测试：启动完成后稳定运行 15 秒，日志见 [runServer-1787716172382.log](D:/mod/qiandao/.modmind/builds/runServer-1787716172382.log)
-- 文档 3 个 `json` 块均可解析，链接有效，无乱码标记
-- 签到界面代码无玻璃板填充残留
+- ModMind 内容校验：无错误、无警告
+- 受管构建成功：`.modmind/minecraft/mods/modmind-current-project.jar`
+- 服务端烟雾测试：启动后稳定运行 15 秒，日志见 [runServer-1787719181052.log](D:/mod/qiandao/.modmind/builds/runServer-1787719181052.log)
+- 静态检索确认 GUI 源码无 `STAINED_GLASS` / `GLASS_PANE` 残留
 
-待人工验收：使用未安装客户端模组的原版客户端逐项点击签到、奖励详情、奖励箱、记录与成就入口，确认实际 Lore 排版和音效体验。
+待人工验收：使用无 OmniTools 客户端模组的原版客户端逐项检查分页、购买、领取、扩容、称号切换和 NBT 奖励物品的实际 Lore 排版。`docs/idea.md` 的既有用户修改未动。

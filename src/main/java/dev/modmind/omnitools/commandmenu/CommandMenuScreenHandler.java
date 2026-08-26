@@ -1,18 +1,23 @@
 package dev.modmind.omnitools.commandmenu;
 
 import dev.modmind.omnitools.ModMindEntry;
+import dev.modmind.omnitools.GuiTheme;
+import dev.modmind.omnitools.ServerText;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.permissions.CommandAction;
+import net.minecraft.ChatFormatting;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 
 import java.util.UUID;
+import java.util.List;
 
 /** Server-authoritative vanilla generic chest menu for a configured command page. */
 public final class CommandMenuScreenHandler extends ChestMenu {
@@ -118,6 +123,11 @@ public final class CommandMenuScreenHandler extends ChestMenu {
         }
         for (CommandMenuItem item : definition.page().items().values()) {
             menuContainer.setItem(item.slot(), item.displayStack(owner));
+        }
+        if (definition.page().items().isEmpty()) {
+            menuContainer.setItem(size / 2, GuiTheme.status(Items.BOOK,
+                    ServerText.translatable("gui.omnitools.command_menu.empty"), ChatFormatting.GRAY,
+                    List.of(ServerText.translatable("gui.omnitools.command_menu.empty_hint")), false));
         }
         lastRevision = ModMindEntry.configSnapshot().revision();
     }

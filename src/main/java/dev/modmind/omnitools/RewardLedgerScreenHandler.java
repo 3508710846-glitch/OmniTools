@@ -146,6 +146,7 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
                 .resolveEntry(new RewardEvent(entry.eventId(), entry.playerId()), entry.rewardId(), target,
                         operator.getGameProfile().name());
         if (result.resolved()) {
+            GuiFeedbackService.success(operator);
             if (target == RewardClaimLedger.EntryStatus.GRANTED) {
                 ModMindEntry.finalizeResolvedLedgerEntry(operator.level().getServer(), entry);
             }
@@ -154,6 +155,7 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
                             ? "message.omnitools.reward.admin_marked_granted"
                             : "message.omnitools.reward.admin_marked_failed"), true);
         } else {
+            GuiFeedbackService.failure(operator);
             operator.displayClientMessage(ServerText.translatable("message.omnitools.reward.admin_resolution_rejected"),
                     true);
         }
@@ -168,9 +170,7 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
                 .toList();
         pageCount = Math.max(1, (filteredEntries.size() + CONTENT_SLOTS - 1) / CONTENT_SLOTS);
         page = Math.min(page, pageCount - 1);
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            container.setItem(slot, background());
-        }
+        GuiTheme.clear(container);
         int first = page * CONTENT_SLOTS;
         int visible = Math.min(CONTENT_SLOTS, filteredEntries.size() - first);
         for (int index = 0; index < visible; index++) {
@@ -267,10 +267,6 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
             case BLOCKED -> ChatFormatting.RED;
             case FAILED -> ChatFormatting.DARK_RED;
         };
-    }
-
-    private static ItemStack background() {
-        return new ItemStack(Items.BLACK_STAINED_GLASS_PANE);
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {
