@@ -35,7 +35,13 @@
       "match": "sum", // 多目标时将统计值相加。
       "at_least": 1 // 达成阈值。
     },
-    "rewards": [{ "id": "coins", "type": "currency", "amount": 10 }] // 成就完成后发放的奖励。
+    "rewards": [
+      { "id": "coins", "type": "currency", "amount": 10 },
+      {
+        "id": "stone_vip_7d", "type": "title", "title": "vip",
+        "duration": { "mode": "active_days", "days": 7 }, "renewal": "max"
+      }
+    ] // 成就完成后发放的奖励。
   }]
 }
 ```
@@ -58,7 +64,16 @@
         "match": "sum",
         "at_least": 1
       },
-      "rewards": [{ "id": "coins", "type": "currency", "amount": 10 }]
+      "rewards": [
+        { "id": "coins", "type": "currency", "amount": 10 },
+        {
+          "id": "stone_vip_7d",
+          "type": "title",
+          "title": "vip",
+          "duration": { "mode": "active_days", "days": 7 },
+          "renewal": "max"
+        }
+      ]
     }
   ]
 }

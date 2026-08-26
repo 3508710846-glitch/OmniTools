@@ -3,6 +3,13 @@
   { "id": "gift", "type": "item", "item": "minecraft:bread", "count": 8 },
   { "id": "geologist", "type": "title", "title": "geologist" },
   {
+    "id": "architect_7d",
+    "type": "title",
+    "title": "architect",
+    "duration": { "mode": "active_days", "days": 7 },
+    "renewal": "extend"
+  },
+  {
     "id": "notice",
     "type": "command",
     "run_as": "console",

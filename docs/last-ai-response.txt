@@ -1,8 +1,6 @@
-验证、构建与运行测试均完成并通过：
+这份分析与当前代码状态一致，建议优先落地两项低风险收口：
 
-- `modmind_validate_content`：4 个受管内容文件通过，无警告。
-- `modmind_build_project`：构建成功，产物为 `.modmind/minecraft/mods/modmind-current-project.jar`。
-- `modmind_test_matrix(server)`：Fabric 1.21.11 服务端启动成功并稳定运行 15 秒。
-- 运行时已停止，状态为 `idle`，无遗留测试服务。
+1. 将 `build.gradle` 中 JUnit 依赖收敛到 `testImplementation` / `testRuntimeOnly`。
+2. 建立可重复的服务端验收脚本，覆盖 reload、模块开关、奖励账本、临时称号和 Placeholder API 缺失场景。
 
-服务端日志：[runServer-1787723976578.log](D:/mod/qiandao/.modmind/builds/runServer-1787723976578.log)
+`ModMindEntry` 拆分和 GUI 框架迁移属于较大重构，建议在验收矩阵稳定后再实施。

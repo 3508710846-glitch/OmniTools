@@ -2913,3 +2913,64 @@ ServerText
 5. 再处理体验和扩展：完成 GUI 公共导航层接入，补性能压测，最后再增加新的大模块或复杂玩法。
 
 本次为只读结构分析，未修改文件、未构建，也未运行测试。
+
+---
+
+## Development request 2026/8/26 14:07:27
+
+在签到、在线奖励、成就的默认示例中各加入一个 active_days 称号奖励。
+在奖励参考文档中明确以上字段、三种续期策略及“只在佩戴时扣除”的规则。
+增加配置验收案例：重复领取、换下称号、重启服务器、到期自动卸下、永久称号叠加临时奖励。
+在 GUI 称号卡和 /titles time 中显示剩余有效时间，帮助玩家理解限时状态。
+
+---
+
+## Development request 2026/8/26 14:52:27
+
+结论：OmniTools 已经是一个较完整的纯服务端 Fabric 工具模组框架，不再是单一签到模组。当前最该投入的方向是“运行期验证、收敛入口类、同步文档与默认配置”，而不是继续增加大型功能。
+
+**已实现的内容**
+
+- 服务端架构已明确：Fabric 1.21.11、Java 21、`environment: "server"`，原版客户端可连接。[fabric.mod.json](/D:/mod/qiandao/src/main/resources/fabric.mod.json)
+- 根配置 `config/omnitools/config.json` 管理 10 个模块：签到、在线奖励、商店、称号、称号效果、成就、云存储、权限、命令菜单、侧边栏。[ModuleId.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ModuleId.java)
+- 配置重载采用“完整加载、校验成功、原子发布”的快照机制；模块 GUI 开关也会先校验候选配置再写入文件，避免半更新状态。[OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java)
+- 奖励已统一为货币、物品、称号、控制台指令四种类型，签到、在线奖励、成就共用；奖励账本处理幂等、物品快照、失败恢复和奖励箱。
+- 物品支持组件和完整 SNBT；称号奖励支持永久、限时 `active_days` 与 `extend`、`replace`、`max` 续期策略。当前在线奖励示例已实际使用 7 天限时称号。
+- 成就具备统计条件树与逻辑组合，支持 `stat`、`sum`、`all`、`any`、`not`。
+- 称号、在线奖励、成就、签到、侧边栏均有持久化数据与运行期刷新逻辑；临时称号仅在在线且佩戴时消耗时间。
+- Placeholder API 为可选集成，侧边栏默认配置已使用 OmniTools 占位符。
+- GUI 已有共享主题、文本裁切、导航和点击反馈基础类；签到界面已完成日历式布局优化。
+
+**当前结构上的缺口**
+
+- [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java) 已约 1308 行，同时承担生命周期、事件监听、全部命令注册、模块切换、GUI 打开和奖励收尾。它是当前最明显的“中心化入口类”，后续新增功能很容易造成冲突和回归。
+- GUI 共享层仍是“基础工具库”而非完整框架。项目已有多个独立 `ScreenHandler`，分页、槽位、空状态和关闭流程尚未完全统一，视觉优化容易再次分散。
+- 文档存在新旧入口并存：`docs/modules/`、`docs/reference/`、`docs/guides/` 外，还有根层的 `docs/achievements.md`、`docs/configuration.md` 等。需要定义唯一权威入口，否则同一字段会出现不同写法。
+- 默认命令菜单配置是空菜单，但模块默认启用。技术上正确，体验上会让服主误以为功能未生效，应在首次配置或文档中明确“空配置是预期行为”。
+- Gradle 中 JUnit 使用 `implementation` / `runtimeOnly`，而不是常规 `testImplementation` / `testRuntimeOnly`。这会污染生产运行类路径的边界，应检查并收敛到测试作用域。[build.gradle](/D:/mod/qiandao/build.gradle)
+
+**最高优先级风险**
+
+`P1：缺少近期能力的端到端验收证据。` 当前有较丰富的单元测试，但本次未运行测试，也未看到覆盖近期重构的完整服务端验收。高风险组合包括：
+
+- `/omnitools reload` 时玩家正打开菜单。
+- 模块开关改变后，命令树、已打开 GUI、侧边栏、称号效果是否都正确收敛。
+- NBT 奖励进入奖励箱、重启服务器后领取。
+- 限时称号领取、卸下、重连、到期、再次续期。
+- Placeholder API 安装与未安装两种服务端启动场景。
+
+`P1：入口类继续膨胀。` 继续把新模块命令、事件和运行期补偿写进 `ModMindEntry`，会让任何改动都碰到同一个 1308 行文件。应优先拆出 `CommandRegistrar`、`ServerEventCoordinator`、`RuntimeConfigApplier` 三个职责单元。
+
+`P1：高频 tick 路径缺少压力测试。` 每 tick 会驱动在线奖励、临时称号、称号效果、成就和侧边栏。逻辑正确不等于多人服可接受，应在 20、100、500 玩家规模测 TPS/MSPT，并重点观察临时称号的在线玩家遍历。
+
+`P2：命令安全依赖服主保持保守配置。` 当前运行配置已经是安全状态：仅允许 `spawn`、`home`、`warp`，且 `allow_console_commands` 为 `false`。这是正确的。风险在于日后服主将白名单改为 `"*"` 或启用控制台菜单命令，因此应在文档和配置校验提示中明确禁止生产服使用通配符。[config.json](/D:/mod/qiandao/run/config/omnitools/config.json)
+
+**建议执行顺序**
+
+1. 建立可重复的服务端集成验收矩阵，优先覆盖重载、模块开关、奖励账本、NBT、临时称号和可选占位符依赖。
+2. 拆分 `ModMindEntry` 的命令注册与运行期配置应用职责。
+3. 统一 GUI 基础层并逐个迁移现有菜单，避免后续视觉与交互逻辑继续分叉。
+4. 合并文档入口，明确 `modules/` 为模块教程、`reference/` 为字段规范、`examples/` 为可复制示例。
+5. 最后再做多人压力测试和新模块扩展。
+
+本次为只读分析，未修改文件、未构建、未运行测试。

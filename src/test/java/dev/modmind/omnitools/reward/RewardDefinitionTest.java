@@ -46,6 +46,19 @@ class RewardDefinitionTest {
                 permanentWithInvalidRenewal, "reward"));
     }
 
+    @Test
+    void timedTitleFactoryWritesActiveDayDurationAndRenewal() {
+        RewardDefinition definition = RewardDefinition.titleTimed("vip_week", "vip", 7,
+                TimedEntitlement.RenewalPolicy.REPLACE);
+
+        JsonObject serialized = definition.toJsonObject();
+        assertEquals("active_days", serialized.getAsJsonObject("duration").get("mode").getAsString());
+        assertEquals(7L, serialized.getAsJsonObject("duration").get("days").getAsLong());
+        assertEquals("replace", serialized.get("renewal").getAsString());
+        assertEquals(TimedEntitlement.Mode.ACTIVE_DAYS,
+                RewardDefinition.parseTitleGrant(serialized, "reward").mode());
+    }
+
     private static JsonObject timedTitleReward(String mode, Integer days, String renewal) {
         JsonObject reward = new JsonObject();
         JsonObject duration = new JsonObject();

@@ -794,17 +794,19 @@ public final class ModMindEntry implements ModInitializer {
         }
         ServerPlayer player = source.getPlayerOrException();
         String titleId = titleConfig().selectedTitleId(player.getUUID());
-        if (titleId.isEmpty() || titleConfig().selectedTitle(player.getUUID()).isEmpty()) {
+        Optional<TitleConfig.TitleDefinition> selectedTitle = titleConfig().selectedTitle(player.getUUID());
+        if (titleId.isEmpty() || selectedTitle.isEmpty()) {
             source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.no_selection"), false);
             return 1;
         }
+        Component titleDisplay = TextTemplateRenderer.render(player, selectedTitle.get().display());
         TimedEntitlement entitlement = titleConfig().entitlement(player.getUUID(), titleId).orElse(null);
         if (entitlement == null || entitlement.isPermanent()) {
-            source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_permanent", titleId), false);
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_permanent", titleDisplay), false);
             return 1;
         }
         long seconds = entitlement.remainingActiveTicks() / 20L;
-        source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_remaining", titleId,
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.title.time_remaining", titleDisplay,
                 seconds / 86_400L, (seconds % 86_400L) / 3_600L, (seconds % 3_600L) / 60L,
                 seconds % 60L), false);
         return 1;

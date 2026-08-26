@@ -94,6 +94,50 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
                 TimedEntitlement.permanentGrant(), "");
     }
 
+    /** Creates a title reward with an active-day grant and explicit renewal policy. */
+    public static RewardDefinition titleTimed(String id, String titleId, long days,
+                                              TimedEntitlement.RenewalPolicy renewalPolicy) {
+        return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId,
+                TimedEntitlement.Grant.activeDays(days, renewalPolicy), "");
+    }
+
+    /**
+     * Serializes the scalar reward forms used by generated example configurations.
+     * Item rewards need a registry provider to encode their component/SNBT payload and are
+     * intentionally left to the item-specific configuration writer.
+     */
+    public JsonObject toJsonObject() {
+        if (type == RewardType.ITEM) {
+            throw new IllegalStateException("Item reward serialization requires a registry provider");
+        }
+        JsonObject object = new JsonObject();
+        object.addProperty("id", id);
+        object.addProperty("type", type.serializedName());
+        switch (type) {
+            case CURRENCY -> object.addProperty("amount", amount);
+            case TITLE -> {
+                object.addProperty("title", titleId);
+                if (!titleGrant.mode().equals(TimedEntitlement.Mode.PERMANENT)) {
+                    JsonObject duration = new JsonObject();
+                    duration.addProperty("mode", titleGrant.mode().serializedName());
+                    long days = titleGrant.activeTicks() / TimedEntitlement.TICKS_PER_ACTIVE_DAY;
+                    if (days < 1L || titleGrant.activeTicks() % TimedEntitlement.TICKS_PER_ACTIVE_DAY != 0L) {
+                        throw new IllegalStateException("Active title reward duration is not an exact day count");
+                    }
+                    duration.addProperty("days", days);
+                    object.add("duration", duration);
+                    object.addProperty("renewal", titleGrant.renewalPolicy().serializedName());
+                }
+            }
+            case COMMAND -> {
+                object.addProperty("run_as", "console");
+                object.addProperty("command", command);
+            }
+            case ITEM -> throw new AssertionError("handled above");
+        }
+        return object;
+    }
+
     private static RewardDefinition parse(JsonObject object, String context, HolderLookup.Provider registries) {
         String id = requiredString(object, "id", context);
         RewardType type = RewardType.parse(requiredString(object, "type", context));

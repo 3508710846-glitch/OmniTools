@@ -9,6 +9,7 @@ import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
 
 import java.io.IOException;
@@ -197,7 +198,10 @@ public final class CheckinRewardConfig {
         monthly.put(10, List.of(RewardDefinition.currency("month_10_currency", 1_000L)));
         monthly.put(15, List.of(RewardDefinition.currency("month_15_currency", 2_000L)));
         monthly.put(25, List.of(RewardDefinition.currency("month_25_currency", 5_000L)));
-        return new CheckinRewardConfig(List.of(RewardDefinition.currency("daily_currency", 100L)), monthly,
+        return new CheckinRewardConfig(List.of(
+                        RewardDefinition.currency("daily_currency", 100L),
+                        RewardDefinition.titleTimed("daily_architect_7d", "architect", 7,
+                                TimedEntitlement.RenewalPolicy.EXTEND)), monthly,
                 List.of(new OnlineTimeReward("online_30m", 30,
                                 List.of(RewardDefinition.currency("currency", 50L))),
                         new OnlineTimeReward("online_60m", 60,
@@ -231,13 +235,7 @@ public final class CheckinRewardConfig {
     private static JsonArray writeRewards(List<RewardDefinition> rewards) {
         JsonArray array = new JsonArray();
         for (RewardDefinition reward : rewards) {
-            JsonObject object = new JsonObject();
-            object.addProperty("id", reward.id());
-            object.addProperty("type", reward.type().serializedName());
-            if (reward.type() == dev.modmind.omnitools.reward.RewardType.CURRENCY) {
-                object.addProperty("amount", reward.amount());
-            }
-            array.add(object);
+            array.add(reward.toJsonObject());
         }
         return array;
     }

@@ -9,6 +9,7 @@ import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
 
 import java.io.IOException;
@@ -103,7 +104,10 @@ public final class OnlineRewardConfig {
         return new OnlineRewardConfig(List.of(
                 new Reward("online_30m", 30, List.of(RewardDefinition.currency("currency", 50L))),
                 new Reward("online_60m", 60, List.of(RewardDefinition.currency("currency", 100L))),
-                new Reward("online_120m", 120, List.of(RewardDefinition.currency("currency", 250L)))));
+                new Reward("online_120m", 120, List.of(
+                        RewardDefinition.currency("currency", 250L),
+                        RewardDefinition.titleTimed("online_120m_legend_7d", "legend", 7,
+                                TimedEntitlement.RenewalPolicy.EXTEND)))));
     }
 
     private static void write(OnlineRewardConfig config) {
@@ -118,14 +122,7 @@ public final class OnlineRewardConfig {
                 object.addProperty("minutes", reward.minutes());
                 JsonArray definitions = new JsonArray();
                 for (RewardDefinition definition : reward.rewards()) {
-                    if (definition.type() != dev.modmind.omnitools.reward.RewardType.CURRENCY) {
-                        continue;
-                    }
-                    JsonObject rewardDefinition = new JsonObject();
-                    rewardDefinition.addProperty("id", definition.id());
-                    rewardDefinition.addProperty("type", definition.type().serializedName());
-                    rewardDefinition.addProperty("amount", definition.amount());
-                    definitions.add(rewardDefinition);
+                    definitions.add(definition.toJsonObject());
                 }
                 object.add("rewards", definitions);
                 rewards.add(object);

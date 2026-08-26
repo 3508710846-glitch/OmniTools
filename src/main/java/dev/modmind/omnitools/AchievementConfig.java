@@ -20,6 +20,7 @@ import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
+import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -553,7 +554,9 @@ public final class AchievementConfig {
                 "stone_breaker", "石匠", "挖掘石头 1000 个", "minecraft:stone", icon,
                 List.of(requirement), new StatCondition(List.of(requirement), 1000L),
                 List.of(RewardDefinition.currency("stone_coins", 500L),
-                        RewardDefinition.title("stone_title", "geologist")));
+                        RewardDefinition.title("stone_title", "geologist"),
+                        RewardDefinition.titleTimed("stone_architect_7d", "architect", 7,
+                                TimedEntitlement.RenewalPolicy.MAX)));
         return new AchievementConfig(List.of(definition));
     }
 
@@ -586,15 +589,7 @@ public final class AchievementConfig {
                 achievement.add("requirements", condition);
                 JsonArray rewards = new JsonArray();
                 for (RewardDefinition reward : definition.rewards()) {
-                    JsonObject rewardObject = new JsonObject();
-                    rewardObject.addProperty("id", reward.id());
-                    rewardObject.addProperty("type", reward.type().serializedName());
-                    if (reward.type() == RewardType.CURRENCY) {
-                        rewardObject.addProperty("amount", reward.amount());
-                    } else if (reward.type() == RewardType.TITLE) {
-                        rewardObject.addProperty("title", reward.titleId());
-                    }
-                    rewards.add(rewardObject);
+                    rewards.add(reward.toJsonObject());
                 }
                 achievement.add("rewards", rewards);
                 achievements.add(achievement);

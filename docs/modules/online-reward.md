@@ -27,7 +27,13 @@
     {
       "id": "online_30m", // 稳定 ID；不要在发放后随意改名
       "minutes": 30, // 达成该奖励需要的当日在线分钟数。
-      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }] // 里程碑奖励数组。
+      "rewards": [
+        { "id": "coins", "type": "currency", "amount": 50 },
+        {
+          "id": "online_vip_7d", "type": "title", "title": "vip",
+          "duration": { "mode": "active_days", "days": 7 }, "renewal": "extend"
+        }
+      ] // 里程碑奖励数组。
     }
   ]
 }
@@ -42,7 +48,16 @@
     {
       "id": "online_30m",
       "minutes": 30,
-      "rewards": [{ "id": "coins", "type": "currency", "amount": 50 }]
+      "rewards": [
+        { "id": "coins", "type": "currency", "amount": 50 },
+        {
+          "id": "online_vip_7d",
+          "type": "title",
+          "title": "vip",
+          "duration": { "mode": "active_days", "days": 7 },
+          "renewal": "extend"
+        }
+      ]
     },
     {
       "id": "online_60m",

@@ -25,7 +25,11 @@
   "format_version": 2, // 每日签到的新格式版本，必须为 2。
   "daily": { // 每天签到时发放的奖励。
     "rewards": [
-      { "id": "daily_coins", "type": "currency", "amount": 100 } // 稳定奖励 ID、类型和数量。
+      { "id": "daily_coins", "type": "currency", "amount": 100 }, // 稳定奖励 ID、类型和数量。
+      {
+        "id": "daily_vip_7d", "type": "title", "title": "vip",
+        "duration": { "mode": "active_days", "days": 7 }, "renewal": "extend"
+      } // 仅在在线佩戴时扣除的临时称号。
     ]
   },
   "monthly": { // 按本月累计签到天数发放的里程碑奖励。
@@ -43,7 +47,14 @@
   "format_version": 2,
   "daily": {
     "rewards": [
-      { "id": "daily_coins", "type": "currency", "amount": 100 }
+      { "id": "daily_coins", "type": "currency", "amount": 100 },
+      {
+        "id": "daily_vip_7d",
+        "type": "title",
+        "title": "vip",
+        "duration": { "mode": "active_days", "days": 7 },
+        "renewal": "extend"
+      }
     ]
   },
   "monthly": {
