@@ -16,7 +16,9 @@ public final class CheckinTheme {
     public static final int STREAK_SLOT = 34;
     public static final int BALANCE_SLOT = 35;
     public static final int REWARD_INBOX_SLOT = 43;
-    public static final int HELP_SLOT = 44;
+    public static final int MAKEUP_SLOT = 44;
+    /** Retained for integrations compiled against the previous journal layout. */
+    public static final int HELP_SLOT = MAKEUP_SLOT;
     public static final int REFRESH_SLOT = 52;
     public static final int CLOSE_SLOT = 53;
 

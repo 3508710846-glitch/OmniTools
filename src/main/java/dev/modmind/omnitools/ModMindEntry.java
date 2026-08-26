@@ -47,12 +47,17 @@ import dev.modmind.omnitools.reward.RewardGrantService;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import dev.modmind.omnitools.entitlement.TimedEntitlementService;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
+import dev.modmind.omnitools.cdk.CdkConfig;
+import dev.modmind.omnitools.cdk.CdkData;
+import dev.modmind.omnitools.cdk.CdkService;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
     private static CheckinRewardService rewardService;
     private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService();
     private static final TimedEntitlementService TIMED_ENTITLEMENTS = new TimedEntitlementService();
+    private static final CheckinMakeupService CHECKIN_MAKEUP_SERVICE = new CheckinMakeupService();
+    private static final CdkService CDK_SERVICE = new CdkService(CdkConfig.empty());
     private static OnlineTimeRewardService onlineTimeRewardService;
     private static ShopConfig shopConfig = ShopConfig.empty();
     private static TitleConfig titleConfig = TitleConfig.empty();
@@ -72,6 +77,7 @@ public final class ModMindEntry implements ModInitializer {
             rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
             onlineTimeRewardService = new OnlineTimeRewardService();
             achievementService = AchievementService.empty();
+            CDK_SERVICE.replace(CdkConfig.empty());
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LegacySavedDataMigration.migrate(server);
@@ -123,7 +129,12 @@ public final class ModMindEntry implements ModInitializer {
                 achievementService().retryPending(player);
             }
             if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+                CheckinData.get(player).ensureFirstSeen(player.getUUID(),
+                        CheckinData.today(server).toEpochDay(), player.getGameProfile().name());
                 rewardService().retryPending(player);
+            }
+            if (isModuleEnabled(ModuleId.CDK)) {
+                CDK_SERVICE.retryPending(player);
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().onJoin(player);
@@ -170,7 +181,9 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.DIAGNOSE,
                             CommandAction.COMMAND_MENU_OPEN, CommandAction.COMMAND_MENU_CLOSE,
                             CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY,
-                            CommandAction.REWARDS_ADMIN))
+                            CommandAction.REWARDS_ADMIN, CommandAction.CHECKIN_MAKEUP,
+                            CommandAction.CHECKIN_CARDS_BUY, CommandAction.CHECKIN_CARDS_ADMIN,
+                            CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -181,6 +194,8 @@ public final class ModMindEntry implements ModInitializer {
                     .then(titleCommand("titles"))
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
+                    .then(checkinCardsAndMakeupCommand())
+                    .then(cdkCommand())
                     .then(sidebarCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
@@ -209,13 +224,17 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
-                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR))
+                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR,
+                            CommandAction.CHECKIN_MAKEUP, CommandAction.CHECKIN_CARDS_BUY,
+                            CommandAction.CHECKIN_CARDS_ADMIN))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(onlineTimeCommand())
                     .then(shopCommand())
                     .then(titleCommand())
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
+                    .then(checkinCardsCommand())
+                    .then(checkinMakeupCommand())
                     .then(clearCommand())
                     .then(walletCommand("currency"))
                     .then(Commands.literal("balance")
@@ -248,6 +267,14 @@ public final class ModMindEntry implements ModInitializer {
 
     public static RewardGrantService rewardGrantService() {
         return REWARD_GRANT_SERVICE;
+    }
+
+    static CheckinMakeupService checkinMakeupService() {
+        return CHECKIN_MAKEUP_SERVICE;
+    }
+
+    static CdkService cdkService() {
+        return CDK_SERVICE;
     }
 
     static OnlineTimeRewardService onlineTimeRewardService() {
@@ -318,6 +345,7 @@ public final class ModMindEntry implements ModInitializer {
         titleConfig = snapshot.titles();
         titleEffectConfig = snapshot.titleEffects();
         cloudStorageConfig = snapshot.cloudStorage();
+        CDK_SERVICE.replace(snapshot.cdk());
         // Keep existing achievement menus bound to the live service. Its revision
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
@@ -541,6 +569,194 @@ public final class ModMindEntry implements ModInitializer {
                         .then(Commands.literal("revoke")
                                 .requires(COMMAND_PERMISSIONS.requirement(CommandAction.TITLE_REVOKE))
                                 .then(titleChangeArgument(false))));
+    }
+
+    /** Shared path for /omnitools checkin cards|makeup, intentionally separate from the GUI. */
+    private static LiteralArgumentBuilder<CommandSourceStack> checkinCardsAndMakeupCommand() {
+        return Commands.literal("checkin")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
+                        CommandAction.CHECKIN_MAKEUP, CommandAction.CHECKIN_CARDS_BUY,
+                        CommandAction.CHECKIN_CARDS_ADMIN))
+                .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
+                .then(checkinCardsCommand())
+                .then(checkinMakeupCommand());
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> checkinCardsCommand() {
+        return Commands.literal("cards")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_MAKEUP,
+                        CommandAction.CHECKIN_CARDS_BUY, CommandAction.CHECKIN_CARDS_ADMIN)
+                        .and(source -> isModuleEnabled(ModuleId.DAILY_CHECKIN)))
+                .executes(context -> showMakeupCards(context.getSource()))
+                .then(Commands.literal("buy")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_CARDS_BUY))
+                        .then(Commands.argument("amount", LongArgumentType.longArg(1L, 1_000_000L))
+                                .executes(context -> buyMakeupCards(context.getSource(),
+                                        LongArgumentType.getLong(context, "amount")))))
+                .then(Commands.literal("admin")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_CARDS_ADMIN))
+                        .then(Commands.literal("give")
+                                .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                        .then(Commands.argument("amount", LongArgumentType.longArg(1L, 1_000_000L))
+                                                .executes(context -> changeMakeupCards(context, true)))))
+                        .then(Commands.literal("take")
+                                .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                        .then(Commands.argument("amount", LongArgumentType.longArg(1L, 1_000_000L))
+                                                .executes(context -> changeMakeupCards(context, false))))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> checkinMakeupCommand() {
+        return Commands.literal("makeup")
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_MAKEUP)
+                        .and(source -> isModuleEnabled(ModuleId.DAILY_CHECKIN)))
+                .then(Commands.argument("date", StringArgumentType.word())
+                        .executes(context -> makeupCheckin(context.getSource(),
+                                StringArgumentType.getString(context, "date"))));
+    }
+
+    private static int showMakeupCards(CommandSourceStack source)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        CheckinMakeupService.CardStatus status = checkinMakeupService().status(player);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.checkin.cards.status", status.cards(),
+                status.maxCards(), status.monthlyUses(), status.maxMonthlyUses()), false);
+        return 1;
+    }
+
+    private static int buyMakeupCards(CommandSourceStack source, long amount)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        CheckinData.MakeupPurchaseResult result = checkinMakeupService().buy(player, amount);
+        if (!result.applied()) {
+            String key = switch (result.status()) {
+                case DISABLED -> "command.omnitools.checkin.cards.purchase_disabled";
+                case CARD_LIMIT -> "command.omnitools.checkin.cards.limit";
+                case INSUFFICIENT_CURRENCY -> "command.omnitools.checkin.cards.insufficient";
+                case APPLIED -> throw new IllegalStateException("handled above");
+            };
+            source.sendFailure(ServerText.translatable(key));
+            return 0;
+        }
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.checkin.cards.bought", amount,
+                result.cost(), result.cards(), result.balance()), false);
+        return 1;
+    }
+
+    private static int changeMakeupCards(CommandContext<CommandSourceStack> context, boolean give)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        long amount = LongArgumentType.getLong(context, "amount");
+        int changed = 0;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            CheckinData data = CheckinData.get(context.getSource().getServer());
+            if (give) {
+                CheckinData.MakeupCardResult result = data.addMakeupCards(profile.id(), amount,
+                        rewardService().makeup().maxCards(), profile.name());
+                if (result == CheckinData.MakeupCardResult.LIMIT_REACHED) {
+                    context.getSource().sendFailure(ServerText.translatable("command.omnitools.checkin.cards.admin_limit",
+                            profile.name()));
+                    continue;
+                }
+                changed++;
+            } else {
+                data.removeMakeupCards(profile.id(), amount, profile.name());
+                changed++;
+            }
+            long balance = data.getMakeupCards(profile.id());
+            context.getSource().sendSuccess(() -> ServerText.translatable(give
+                    ? "command.omnitools.checkin.cards.given" : "command.omnitools.checkin.cards.taken",
+                    amount, profile.name(), balance), true);
+        }
+        return changed;
+    }
+
+    private static int makeupCheckin(CommandSourceStack source, String dateText)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        LocalDate date;
+        try {
+            date = LocalDate.parse(dateText);
+        } catch (java.time.format.DateTimeParseException exception) {
+            source.sendFailure(ServerText.translatable("command.omnitools.checkin.makeup.invalid_date"));
+            return 0;
+        }
+        ServerPlayer player = source.getPlayerOrException();
+        CheckinData.MakeupResult result = checkinMakeupService().makeup(player, date);
+        if (!result.applied()) {
+            source.sendFailure(ServerText.translatable("command.omnitools.checkin.makeup."
+                    + result.status().name().toLowerCase(java.util.Locale.ROOT)));
+            return 0;
+        }
+        CheckinMakeupService.CardStatus cards = checkinMakeupService().status(player);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.checkin.makeup.success", date,
+                result.stats().streakDays(), cards.cards()), false);
+        return 1;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> cdkCommand() {
+        return Commands.literal("cdk")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN)
+                        .and(source -> isModuleEnabled(ModuleId.CDK)))
+                .then(Commands.literal("redeem")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CDK_REDEEM))
+                        .then(Commands.argument("code", StringArgumentType.word())
+                                .executes(context -> redeemCdk(context.getSource(),
+                                        StringArgumentType.getString(context, "code")))))
+                .then(Commands.literal("status")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CDK_REDEEM))
+                        .executes(context -> cdkStatus(context.getSource())))
+                .then(Commands.literal("admin")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CDK_ADMIN))
+                        .then(Commands.literal("list").executes(context -> cdkAuditList(context.getSource())))
+                        .then(Commands.literal("audit")
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .executes(context -> cdkAudit(context.getSource(),
+                                                StringArgumentType.getString(context, "id"))))));
+    }
+
+    private static int redeemCdk(CommandSourceStack source, String code)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        CdkService.RedemptionResult result = cdkService().redeem(player, code);
+        if (result.status() == CdkService.Status.SUCCESS) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.cdk.redeem.success", result.granted()), false);
+            return 1;
+        }
+        if (result.status() == CdkService.Status.PENDING) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.cdk.redeem.pending"), false);
+            return 1;
+        }
+        source.sendFailure(ServerText.translatable("command.omnitools.cdk.redeem.unavailable"));
+        return 0;
+    }
+
+    private static int cdkStatus(CommandSourceStack source)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        java.util.List<CdkService.PlayerCampaignStatus> claims = cdkService().status(player);
+        if (claims.isEmpty()) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.cdk.status.empty"), false);
+            return 1;
+        }
+        for (CdkService.PlayerCampaignStatus claim : claims) {
+            source.sendSuccess(() -> ServerText.translatable(claim.delivered()
+                    ? "command.omnitools.cdk.status.delivered" : "command.omnitools.cdk.status.pending",
+                    claim.campaignId()), false);
+        }
+        return claims.size();
+    }
+
+    private static int cdkAuditList(CommandSourceStack source) {
+        for (CdkData.CampaignAudit audit : cdkService().audits(source.getServer())) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.cdk.audit", audit.campaignId(),
+                    audit.uses(), audit.uniquePlayers()), false);
+        }
+        return 1;
+    }
+
+    private static int cdkAudit(CommandSourceStack source, String campaignId) {
+        CdkData.CampaignAudit audit = cdkService().audit(source.getServer(), campaignId);
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.cdk.audit", audit.campaignId(),
+                audit.uses(), audit.uniquePlayers()), false);
+        return 1;
     }
 
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> clearCommand() {
@@ -895,6 +1111,9 @@ public final class ModMindEntry implements ModInitializer {
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
             commandRewards += countCommandRewards(achievement.rewards());
         }
+        for (CdkConfig.Campaign campaign : snapshot.cdk().campaigns()) {
+            commandRewards += countCommandRewards(campaign.rewards());
+        }
         String menus = affectedMenus.isEmpty()
                 ? ServerText.translatable("command.omnitools.diagnose.none").getString()
                 : String.join(", ", affectedMenus);
@@ -959,6 +1178,7 @@ public final class ModMindEntry implements ModInitializer {
             }
             boolean accepted = isModuleEnabled(ModuleId.DAILY_CHECKIN) && rewardService().retryEvent(player, eventId);
             accepted |= isModuleEnabled(ModuleId.ACHIEVEMENTS) && achievementService().retryEvent(player, eventId);
+            accepted |= isModuleEnabled(ModuleId.CDK) && cdkService().retryEvent(player, eventId);
             if (accepted) {
                 retried++;
                 context.getSource().sendSuccess(() -> Component.literal("Retried reward event " + eventId
@@ -1032,13 +1252,28 @@ public final class ModMindEntry implements ModInitializer {
         events.addAll(ledger.eventIdsStartingWith("checkin:" + playerId + ":"));
         events.addAll(ledger.eventIdsStartingWith("achievement:" + playerId + ":"));
         events.addAll(ledger.eventIdsStartingWith("online:" + playerId + ":"));
+        ledger.eventIds().stream().filter(event -> isCdkEventForPlayer(event, playerId)).forEach(events::add);
         return events;
     }
 
     private static boolean belongsToPlayer(String eventId, java.util.UUID playerId) {
         return eventId != null && (eventId.startsWith("checkin:" + playerId + ":")
                 || eventId.startsWith("achievement:" + playerId + ":")
-                || eventId.startsWith("online:" + playerId + ":"));
+                || eventId.startsWith("online:" + playerId + ":")
+                || isCdkEventForPlayer(eventId, playerId));
+    }
+
+    private static boolean isCdkEventForPlayer(String eventId, java.util.UUID playerId) {
+        String[] parts = eventId == null ? new String[0] : eventId.split(":", -1);
+        if (parts.length != 3 || !parts[0].equals("cdk")) {
+            return false;
+        }
+        try {
+            return parts[1].matches(RewardDefinition.ID_PATTERN.pattern())
+                    && java.util.UUID.fromString(parts[2]).equals(playerId);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private static String formatLedgerEntries(String playerName, String eventId,
@@ -1092,6 +1327,9 @@ public final class ModMindEntry implements ModInitializer {
         }
         if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
             known |= onlineTimeRewardService().retryEvent(player, eventId);
+        }
+        if (isModuleEnabled(ModuleId.CDK)) {
+            known |= cdkService().retryEvent(player, eventId);
         }
         if (!known) {
             System.err.println("[omnitools] Delivered reward inbox item for an unknown source event: " + eventId);
@@ -1166,6 +1404,9 @@ public final class ModMindEntry implements ModInitializer {
         }
         if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
             onlineTimeRewardService().retryPending(player);
+        }
+        if (isModuleEnabled(ModuleId.CDK)) {
+            cdkService().retryPending(player);
         }
         if (player.containerMenu instanceof CheckinScreenHandler checkinMenu) {
             checkinMenu.refreshAfterRewardRetry();

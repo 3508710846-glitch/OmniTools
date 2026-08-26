@@ -9,6 +9,8 @@ import dev.modmind.omnitools.CheckinRewardConfig;
 import dev.modmind.omnitools.OnlineRewardConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
+import dev.modmind.omnitools.cdk.CdkConfig;
+import dev.modmind.omnitools.cdk.CdkData;
 import net.minecraft.server.MinecraftServer;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
@@ -95,6 +97,10 @@ public final class OmniToolsConfigManager {
                 ? CloudStorageConfig.load() : CloudStorageConfig.defaultConfig();
         AchievementConfig achievements = root.enabled(ModuleId.ACHIEVEMENTS)
                 ? AchievementConfig.load(server.registryAccess()) : AchievementConfig.empty();
+        CdkConfig cdk = root.enabled(ModuleId.CDK) ? CdkConfig.load(server.registryAccess()) : CdkConfig.empty();
+        if (root.enabled(ModuleId.CDK)) {
+            CdkData.get(server).validateConfiguration(cdk);
+        }
         CommandMenuConfig commandMenus = root.enabled(ModuleId.COMMAND_MENU)
                 ? CommandMenuConfig.load() : CommandMenuConfig.empty();
         SidebarConfig sidebar = root.enabled(ModuleId.SIDEBAR)
@@ -107,7 +113,7 @@ public final class OmniToolsConfigManager {
                     ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                storage, achievements, commandMenus, sidebar, commandPermissions, statuses, revisions.get() + 1L);
+                storage, achievements, cdk, commandMenus, sidebar, commandPermissions, statuses, revisions.get() + 1L);
         ConfigValidator.validate(candidate);
         return candidate;
     }
@@ -116,7 +122,7 @@ public final class OmniToolsConfigManager {
         long revision = revisions.incrementAndGet();
         OmniToolsConfigSnapshot published = new OmniToolsConfigSnapshot(candidate.root(), candidate.rewards(),
                 candidate.onlineRewards(), candidate.shop(), candidate.titles(), candidate.titleEffects(),
-                candidate.cloudStorage(), candidate.achievements(), candidate.commandMenus(),
+                candidate.cloudStorage(), candidate.achievements(), candidate.cdk(), candidate.commandMenus(),
                 candidate.sidebar(), candidate.commandPermissions(), candidate.statuses(), revision);
         snapshot = published;
         return published;
@@ -156,7 +162,7 @@ public final class OmniToolsConfigManager {
         }
         return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
-                AchievementConfig.empty(), CommandMenuConfig.empty(), SidebarConfig.empty(),
+                AchievementConfig.empty(), CdkConfig.empty(), CommandMenuConfig.empty(), SidebarConfig.empty(),
                 CommandPermissionConfig.defaults(), statuses, 0L);
     }
 }

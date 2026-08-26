@@ -15,6 +15,7 @@
 ## 模块
 
 - [每日签到](modules/daily-checkin.md)
+- [CDK 与补签卡](modules/cdk.md)
 - [在线奖励](modules/online-reward.md)
 - [商店与货币](modules/shop-and-currency.md)
 - [称号](modules/titles.md)

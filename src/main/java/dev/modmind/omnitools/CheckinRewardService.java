@@ -51,6 +51,10 @@ public final class CheckinRewardService {
         return config.ui();
     }
 
+    public CheckinRewardConfig.MakeupConfig makeup() {
+        return config.makeup();
+    }
+
     /** The sign-in is already permanent before this method runs; failures remain retryable in the ledger. */
     public void grant(ServerPlayer player, CheckinData.SignInResult result) {
         if (!result.newlySigned()) {
@@ -59,7 +63,22 @@ public final class CheckinRewardService {
         RewardGrantResult daily = grants.grant(player, RewardEvent.checkinDaily(player.getUUID(), result.day()),
                 config.dailyRewards());
         showResult(player, daily, "daily");
-        grantEligibleMonthly(player, result.day(), result.stats().monthlyDays());
+        grantEligibleMonthly(player, result.day(), monthlyMilestoneDays(player, result.day()));
+    }
+
+    /** Delivers the explicitly configured subset of rewards after an already-persisted makeup sign-in. */
+    public void grantMakeup(ServerPlayer player, CheckinData.MakeupResult result) {
+        if (!result.applied()) {
+            return;
+        }
+        if (config.makeup().dailyRewardPolicy() == CheckinRewardConfig.DailyRewardPolicy.GRANT) {
+            RewardGrantResult daily = grants.grant(player, RewardEvent.checkinDaily(player.getUUID(), result.day()),
+                    config.dailyRewards());
+            showResult(player, daily, "makeup_daily");
+        }
+        if (config.makeup().countsForMonthlyMilestones()) {
+            grantEligibleMonthly(player, result.day(), monthlyMilestoneDays(player, result.day()));
+        }
     }
 
     public void retryPending(ServerPlayer player) {
@@ -71,7 +90,7 @@ public final class CheckinRewardService {
         long today = CheckinData.today(player.level().getServer()).toEpochDay();
         CheckinData data = CheckinData.get(player);
         if (data.hasSigned(player.getUUID(), today)) {
-            grantEligibleMonthly(player, today, data.getStats(player.getUUID(), today).monthlyDays());
+            grantEligibleMonthly(player, today, monthlyMilestoneDays(player, today));
         }
     }
 
@@ -141,6 +160,11 @@ public final class CheckinRewardService {
             }
             showResult(player, result, "monthly_" + milestone);
         }
+    }
+
+    private int monthlyMilestoneDays(ServerPlayer player, long day) {
+        return CheckinData.get(player).monthlyMilestoneDays(player.getUUID(), day,
+                config.makeup().countsForMonthlyMilestones());
     }
 
     private static void showResult(ServerPlayer player, RewardGrantResult result, String event) {

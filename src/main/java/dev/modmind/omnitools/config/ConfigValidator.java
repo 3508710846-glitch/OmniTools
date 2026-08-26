@@ -10,6 +10,7 @@ import dev.modmind.omnitools.commandmenu.CommandMenuDefinition;
 import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
+import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
@@ -30,6 +31,7 @@ public final class ConfigValidator {
         if (snapshot.root() == null || snapshot.rewards() == null || snapshot.shop() == null
                 || snapshot.titles() == null || snapshot.titleEffects() == null
                 || snapshot.cloudStorage() == null || snapshot.achievements() == null
+                || snapshot.cdk() == null
                 || snapshot.commandMenus() == null
                 || snapshot.sidebar() == null
                 || snapshot.commandPermissions() == null) {
@@ -46,6 +48,11 @@ public final class ConfigValidator {
             if (!containsPositiveStatistic(achievement.condition())) {
                 throw new IllegalArgumentException("achievement " + achievement.id()
                         + " must contain at least one positive statistic condition");
+            }
+        }
+        for (CdkConfig.Campaign campaign : snapshot.cdk().campaigns()) {
+            for (RewardDefinition reward : campaign.rewards()) {
+                validateReward(snapshot, reward, "CDK campaign " + campaign.id());
             }
         }
         Set<String> effects = new HashSet<>();
@@ -155,6 +162,14 @@ public final class ConfigValidator {
             }
             if (!snapshot.root().commandSecurity().allows(reward.command())) {
                 throw new IllegalArgumentException(context + " command reward is not allowed by global.command_security");
+            }
+        }
+        if (reward.type() == RewardType.MAKEUP_CARD) {
+            if (!snapshot.enabled(ModuleId.DAILY_CHECKIN) || !snapshot.rewards().makeup().enabled()) {
+                throw new IllegalArgumentException(context + " contains a makeup-card reward but makeup is disabled");
+            }
+            if (reward.amount() < 1L || reward.amount() > snapshot.rewards().makeup().maxCards()) {
+                throw new IllegalArgumentException(context + " has a makeup-card amount outside the configured limit");
             }
         }
     }

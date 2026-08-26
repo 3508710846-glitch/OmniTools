@@ -25,11 +25,13 @@ import java.util.UUID;
 public final class CheckinRecordsScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int RECORD_SLOT_COUNT = 5 * 9;
-    public static final int BACK_SLOT = 45;
-    public static final int PREVIOUS_PAGE_SLOT = 47;
-    public static final int PAGE_INFO_SLOT = 49;
-    public static final int NEXT_PAGE_SLOT = 51;
+    public static final int RECORD_SLOT_COUNT = GuiSlots.CONTENT_SLOT_COUNT_54;
+    public static final int BACK_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    public static final int PREVIOUS_PAGE_SLOT = 46;
+    public static final int PAGE_INFO_SLOT = GuiSlots.CENTER_54;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final SimpleContainer recordsContainer;
@@ -84,10 +86,16 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
 
         if (slotId == BACK_SLOT) {
             ModMindEntry.openCheckinMenu(serverPlayer);
+            GuiFeedbackService.click(serverPlayer);
         } else if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             openPage(serverPlayer, page - 1);
+            GuiFeedbackService.click(serverPlayer);
         } else if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             openPage(serverPlayer, page + 1);
+            GuiFeedbackService.click(serverPlayer);
+        } else if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
         }
     }
 
@@ -103,40 +111,34 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
         this.pageCount = Math.max(1, (records.size() + RECORD_SLOT_COUNT - 1) / RECORD_SLOT_COUNT);
         this.page = Math.min(page, pageCount - 1);
 
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            recordsContainer.setItem(slot, emptySlot());
-        }
+        GuiTheme.clear(recordsContainer);
 
         int firstRecord = page * RECORD_SLOT_COUNT;
         int visibleRecords = Math.min(RECORD_SLOT_COUNT, records.size() - firstRecord);
         for (int index = 0; index < visibleRecords; index++) {
             CheckinData.DailySignInRecord record = records.get(firstRecord + index);
-            recordsContainer.setItem(index, createPlayerHead(owner, record, firstRecord + index + 1));
+            recordsContainer.setItem(GuiSlots.contentSlot54(index), createPlayerHead(owner, record, firstRecord + index + 1));
         }
+        recordsContainer.setItem(GuiSlots.HEADER_LEFT_54, GuiTheme.status(Items.WRITABLE_BOOK,
+                ServerText.translatable("gui.omnitools.records.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.records.total", records.size())
+                        .withStyle(ChatFormatting.GRAY)), false));
+        recordsContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.CLOCK,
+                ServerText.translatable("gui.omnitools.records.subtitle"), ChatFormatting.GOLD,
+                List.of(ServerText.translatable("gui.omnitools.records.page", page + 1, pageCount)
+                        .withStyle(ChatFormatting.GRAY)), false));
+        recordsContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
 
         recordsContainer.setItem(BACK_SLOT, namedItem(
                 Items.ARROW,
                 ServerText.translatable("gui.omnitools.records.back").withStyle(ChatFormatting.GOLD),
                 List.of(ServerText.translatable("gui.omnitools.records.back_hint").withStyle(ChatFormatting.GRAY))));
         if (page > 0) {
-            recordsContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(
-                    Items.ARROW,
-                    ServerText.translatable("gui.omnitools.records.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.records.previous_hint")
-                            .withStyle(ChatFormatting.GRAY))));
+            recordsContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        recordsContainer.setItem(PAGE_INFO_SLOT, namedItem(
-                Items.PAPER,
-                ServerText.translatable("gui.omnitools.records.page", page + 1, pageCount)
-                        .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD),
-                List.of(ServerText.translatable("gui.omnitools.records.total", records.size())
-                        .withStyle(ChatFormatting.GRAY))));
+        recordsContainer.setItem(PAGE_INFO_SLOT, GuiNavigationService.page(page + 1, pageCount, records.size()));
         if (page + 1 < pageCount) {
-            recordsContainer.setItem(NEXT_PAGE_SLOT, namedItem(
-                    Items.ARROW,
-                    ServerText.translatable("gui.omnitools.records.next").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.records.next_hint")
-                            .withStyle(ChatFormatting.GRAY))));
+            recordsContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
     }
 
@@ -175,10 +177,6 @@ public final class CheckinRecordsScreenHandler extends ChestMenu {
         player.openMenu(new net.minecraft.world.SimpleMenuProvider(
                 (syncId, inventory, ignored) -> createServer(syncId, inventory, player, targetPage),
                 ServerText.translatable("gui.omnitools.records.title")));
-    }
-
-    private static ItemStack emptySlot() {
-        return GuiTheme.emptySlot();
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name,

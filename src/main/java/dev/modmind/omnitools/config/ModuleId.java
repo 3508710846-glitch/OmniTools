@@ -3,6 +3,7 @@ package dev.modmind.omnitools.config;
 /** Stable identifiers used by the root configuration and runtime gates. */
 public enum ModuleId {
     DAILY_CHECKIN("daily_checkin"),
+    CDK("cdk"),
     ONLINE_REWARD("online_reward"),
     SHOP("shop"),
     TITLES("titles"),

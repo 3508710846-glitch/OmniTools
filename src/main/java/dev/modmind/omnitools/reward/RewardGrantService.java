@@ -143,6 +143,7 @@ public final class RewardGrantService {
         try {
             return switch (reward.type()) {
                 case CURRENCY -> grantCurrency(player, reward, ledger, event);
+                case MAKEUP_CARD -> grantMakeupCard(player, reward, ledger, event);
                 case ITEM -> grantItem(player, reward, ledger, event);
                 case TITLE -> grantTitle(player, reward, ledger, event);
                 case COMMAND -> grantCommand(player, reward, ledger, event);
@@ -164,6 +165,7 @@ public final class RewardGrantService {
                                          RewardEvent event, RewardClaimLedger.Entry entry) {
         return switch (reward.type()) {
             case CURRENCY -> grantCurrency(player, reward, ledger, event);
+            case MAKEUP_CARD -> grantMakeupCard(player, reward, ledger, event);
             case TITLE -> grantTitle(player, reward, ledger, event);
             case ITEM -> blocked(ledger, event, reward, "item_delivery_outcome_unknown");
             case COMMAND -> blocked(ledger, event, reward, "command_dispatch_outcome_unknown");
@@ -178,6 +180,23 @@ public final class RewardGrantService {
         if (result == CheckinData.CurrencyRewardResult.OVERFLOW) {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "currency_overflow");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "currency_overflow");
+        }
+        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+        return SingleResult.granted();
+    }
+
+    private SingleResult grantMakeupCard(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
+                                         RewardEvent event) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.DAILY_CHECKIN)
+                || !ModMindEntry.configSnapshot().rewards().makeup().enabled()) {
+            return blocked(ledger, event, reward, "makeup_cards_disabled");
+        }
+        ledger.beginApplying(event, reward.id(), "makeup_card_apply");
+        CheckinData.MakeupCardResult result = CheckinData.get(player).applyRewardMakeupCards(player.getUUID(),
+                event.id(), reward.id(), reward.amount(), ModMindEntry.configSnapshot().rewards().makeup().maxCards(),
+                player.getGameProfile().name());
+        if (result == CheckinData.MakeupCardResult.LIMIT_REACHED) {
+            return blocked(ledger, event, reward, "makeup_card_limit");
         }
         ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
         return SingleResult.granted();

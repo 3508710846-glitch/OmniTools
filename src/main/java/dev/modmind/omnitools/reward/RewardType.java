@@ -9,7 +9,9 @@ public enum RewardType {
     CURRENCY,
     ITEM,
     TITLE,
-    COMMAND;
+    COMMAND,
+    /** A server-owned daily check-in makeup-card entitlement, never an inventory item. */
+    MAKEUP_CARD;
 
     public static RewardType parse(String value) {
         if (value == null || value.isBlank()) {

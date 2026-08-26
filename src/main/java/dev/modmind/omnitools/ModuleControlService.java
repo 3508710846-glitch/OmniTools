@@ -66,7 +66,9 @@ public final class ModuleControlService {
                 .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
         boolean achievements = snapshot.achievements().achievements().stream().flatMap(achievement -> achievement.rewards().stream())
                 .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
-        return daily || monthly || online || achievements;
+        boolean cdk = snapshot.cdk().campaigns().stream().flatMap(campaign -> campaign.rewards().stream())
+                .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.TITLE);
+        return daily || monthly || online || achievements || cdk;
     }
 
     public enum DependencyBlock {

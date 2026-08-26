@@ -39,10 +39,13 @@ import java.util.UUID;
 public final class AchievementScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int ACHIEVEMENT_SLOTS = 45;
+    public static final int ACHIEVEMENT_SLOTS = GuiSlots.CONTENT_SLOT_COUNT_54;
     public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
     public static final int PROFILE_SLOT = GuiSlots.CENTER_54;
     public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    public static final int HEADER_PROFILE_SLOT = GuiSlots.HEADER_LEFT_54;
+    public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
     private final SimpleContainer achievementContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -97,21 +100,29 @@ public final class AchievementScreenHandler extends ChestMenu {
 
         List<AchievementConfig.AchievementDefinition> achievements = service.config().achievements();
         int pageCount = pageCount(achievements.size());
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
-        if (slotId >= ACHIEVEMENT_SLOTS) {
+        int localIndex = GuiSlots.contentIndex54(slotId);
+        if (localIndex < 0) {
             return;
         }
 
-        int achievementIndex = page * ACHIEVEMENT_SLOTS + slotId;
+        int achievementIndex = page * ACHIEVEMENT_SLOTS + localIndex;
         if (achievementIndex >= achievements.size()) {
             return;
         }
@@ -184,31 +195,32 @@ public final class AchievementScreenHandler extends ChestMenu {
         GuiTheme.clear(achievementContainer);
 
         if (achievements.isEmpty()) {
-            achievementContainer.setItem(22, namedItem(Items.BOOK,
+            achievementContainer.setItem(22, GuiTheme.named(Items.BOOK,
                     ServerText.translatable("gui.omnitools.achievement.empty_title").withStyle(ChatFormatting.GRAY),
                     List.of(ServerText.translatable("gui.omnitools.achievement.empty_hint")
                             .withStyle(ChatFormatting.DARK_GRAY))));
         }
 
+        achievementContainer.setItem(HEADER_PROFILE_SLOT, profileItem(achievements.size()));
+        achievementContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.NETHER_STAR,
+                ServerText.translatable("gui.omnitools.achievement.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.achievement.total", achievements.size())
+                        .withStyle(ChatFormatting.GRAY)), false));
+        achievementContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+
         int firstAchievement = page * ACHIEVEMENT_SLOTS;
-        for (int slot = 0; slot < ACHIEVEMENT_SLOTS && firstAchievement + slot < achievements.size(); slot++) {
-            AchievementConfig.AchievementDefinition achievement = achievements.get(firstAchievement + slot);
+        for (int index = 0; index < ACHIEVEMENT_SLOTS && firstAchievement + index < achievements.size(); index++) {
+            AchievementConfig.AchievementDefinition achievement = achievements.get(firstAchievement + index);
             AchievementService.Evaluation evaluation = menuSnapshot.evaluation(achievement.id());
-            achievementContainer.setItem(slot, achievementItem(achievement, evaluation));
+            achievementContainer.setItem(GuiSlots.contentSlot54(index), achievementItem(achievement, evaluation));
         }
 
         if (page > 0) {
-            achievementContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.achievement.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.achievement.previous_hint")
-                            .withStyle(ChatFormatting.GRAY))));
+            achievementContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        achievementContainer.setItem(PROFILE_SLOT, profileItem(achievements.size(), page + 1, pageCount));
+        achievementContainer.setItem(PROFILE_SLOT, GuiNavigationService.page(page + 1, pageCount, achievements.size()));
         if (page + 1 < pageCount) {
-            achievementContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.achievement.next").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.achievement.next_hint")
-                            .withStyle(ChatFormatting.GRAY))));
+            achievementContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
         lastRefreshTick = owner.level().getServer().getTickCount();
         lastConfigRevision = service.revision();
@@ -218,29 +230,19 @@ public final class AchievementScreenHandler extends ChestMenu {
                                       AchievementService.Evaluation evaluation) {
         ConditionProgress progress = evaluation.progress();
         AchievementService.State state = evaluation.state();
-        ChatFormatting color = stateColor(achievement, state, progress);
-        ItemStack item = switch (state) {
-            case IN_PROGRESS -> new ItemStack(Items.BOOK);
-            case CLAIMABLE -> new ItemStack(Items.CHEST);
-            case PENDING -> new ItemStack(Items.HOPPER);
-            case CLAIMED -> new ItemStack(Items.EMERALD);
-        };
-        if (state == AchievementService.State.CLAIMABLE) {
-            item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-        }
-        item.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, achievement.display()).copy()
-                .withStyle(color, ChatFormatting.BOLD));
+        GuiStatusItem.State visualState = visualState(state, progress);
+        ChatFormatting color = visualState.color();
         List<Component> lore = new ArrayList<>();
         lore.add(TextTemplateRenderer.render(owner, achievement.description()).copy().withStyle(ChatFormatting.GRAY));
         appendConditionLore(achievement.condition(), progress, lore, color, 0);
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
-        lore.add(ServerText.translatable(stateTranslationKey(state)).withStyle(color));
-        item.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
-        return item;
+        return GuiStatusItem.create(new ItemStack(achievement.icon()),
+                TextTemplateRenderer.render(owner, achievement.display()), visualState,
+                GuiTextService.cardLore(lore, ServerText.translatable(stateTranslationKey(state)).withStyle(color)));
     }
 
-    private ItemStack profileItem(int totalAchievements, int pageNumber, int pageCount) {
+    private ItemStack profileItem(int totalAchievements) {
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
         profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.achievement.profile")
@@ -251,25 +253,18 @@ public final class AchievementScreenHandler extends ChestMenu {
                 ServerText.translatable("gui.omnitools.achievement.claimed", service.claimedCount(owner))
                         .withStyle(ChatFormatting.GREEN),
                 ServerText.translatable("gui.omnitools.achievement.total", totalAchievements)
-                        .withStyle(ChatFormatting.GRAY),
-                ServerText.translatable("gui.omnitools.achievement.page", pageNumber, pageCount)
                         .withStyle(ChatFormatting.DARK_GRAY))));
         return profile;
     }
 
-    private ChatFormatting stateColor(AchievementConfig.AchievementDefinition achievement,
-                                      AchievementService.State state, ConditionProgress progress) {
-        if (state == AchievementService.State.CLAIMED) {
-            return ChatFormatting.GOLD;
-        }
-        if (state == AchievementService.State.CLAIMABLE) {
-            return ChatFormatting.GREEN;
-        }
-        if (state == AchievementService.State.PENDING) {
-            return ChatFormatting.YELLOW;
-        }
-        return hasProgress(progress)
-                ? ChatFormatting.RED : ChatFormatting.DARK_GRAY;
+    private GuiStatusItem.State visualState(AchievementService.State state, ConditionProgress progress) {
+        return switch (state) {
+            case CLAIMABLE -> GuiStatusItem.State.ACTIONABLE;
+            case CLAIMED -> GuiStatusItem.State.COMPLETED;
+            case PENDING -> GuiStatusItem.State.PENDING;
+            case IN_PROGRESS -> hasProgress(progress) ? GuiStatusItem.State.IN_PROGRESS
+                    : GuiStatusItem.State.INACTIVE;
+        };
     }
 
     private static boolean hasProgress(ConditionProgress progress) {
@@ -353,6 +348,12 @@ public final class AchievementScreenHandler extends ChestMenu {
         if (currency > 0L) {
             lore.add(ServerText.translatable("gui.omnitools.achievement.reward_coins", currency)
                     .withStyle(ChatFormatting.GOLD));
+        }
+        long makeupCards = rewards.stream().filter(reward -> reward.type() == RewardType.MAKEUP_CARD)
+                .mapToLong(RewardDefinition::amount).sum();
+        if (makeupCards > 0L) {
+            lore.add(ServerText.translatable("gui.omnitools.reward.makeup_card", makeupCards)
+                    .withStyle(ChatFormatting.AQUA));
         }
         for (RewardDefinition reward : rewards) {
             if (reward.type() == RewardType.ITEM) {
@@ -500,12 +501,4 @@ public final class AchievementScreenHandler extends ChestMenu {
         return Math.max(1, (achievementCount + ACHIEVEMENT_SLOTS - 1) / ACHIEVEMENT_SLOTS);
     }
 
-    private static ItemStack namedItem(Item item, Component name, List<Component> lore) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(DataComponents.CUSTOM_NAME, name);
-        if (!lore.isEmpty()) {
-            stack.set(DataComponents.LORE, new ItemLore(lore));
-        }
-        return stack;
-    }
 }

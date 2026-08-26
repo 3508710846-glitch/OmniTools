@@ -6,6 +6,9 @@ import java.util.Optional;
 /** Canonical command actions. Aliases must always use the same action. */
 public enum CommandAction {
     CHECKIN_OPEN("checkin.open", CommandRole.PLAYER),
+    CHECKIN_MAKEUP("checkin.makeup", CommandRole.PLAYER),
+    CHECKIN_CARDS_BUY("checkin.cards.buy", CommandRole.PLAYER),
+    CHECKIN_CARDS_ADMIN("checkin.cards.admin", CommandRole.ADMIN),
     ONLINE_OPEN("online.open", CommandRole.PLAYER),
     SHOP_OPEN("shop.open", CommandRole.PLAYER),
     TITLE_OPEN("title.open", CommandRole.PLAYER),
@@ -25,7 +28,9 @@ public enum CommandAction {
     SIDEBAR_TOGGLE("sidebar.toggle", CommandRole.PLAYER),
     SIDEBAR_STATUS("sidebar.status", CommandRole.PLAYER),
     REWARDS_RETRY("rewards.retry", CommandRole.PLAYER),
-    REWARDS_ADMIN("rewards.admin", CommandRole.ADMIN);
+    REWARDS_ADMIN("rewards.admin", CommandRole.ADMIN),
+    CDK_REDEEM("cdk.redeem", CommandRole.PLAYER),
+    CDK_ADMIN("cdk.admin", CommandRole.ADMIN);
 
     private final String id;
     private final CommandRole defaultRole;

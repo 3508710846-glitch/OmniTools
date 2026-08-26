@@ -126,8 +126,8 @@ public final class CheckinScreenHandler extends ChestMenu {
             playClick(serverPlayer, ui);
             return;
         }
-        if (slotId == CheckinTheme.HELP_SLOT) {
-            serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.checkin.help"), true);
+        if (slotId == CheckinTheme.MAKEUP_SLOT) {
+            openMakeupPurchase(serverPlayer);
             playClick(serverPlayer, ui);
             return;
         }
@@ -137,6 +137,20 @@ public final class CheckinScreenHandler extends ChestMenu {
             return;
         }
         LocalDate selectedDate = getOpenedDate().withDayOfMonth(day);
+        if (selectedDate.isBefore(today())
+                && !CheckinData.get(serverPlayer).hasSigned(serverPlayer.getUUID(), selectedDate.toEpochDay())) {
+            CheckinData.MakeupStatus makeupStatus = CheckinData.get(serverPlayer).makeupStatus(serverPlayer.getUUID(),
+                    selectedDate.toEpochDay(), today().toEpochDay(), ModMindEntry.rewardService().makeup());
+            if (makeupStatus == CheckinData.MakeupStatus.APPLIED) {
+                openMakeupConfirm(serverPlayer, selectedDate);
+                playClick(serverPlayer, ui);
+            } else {
+                serverPlayer.displayClientMessage(ServerText.translatable("command.omnitools.checkin.makeup."
+                        + makeupStatus.name().toLowerCase(java.util.Locale.ROOT)), true);
+                playFailure(serverPlayer, ui);
+            }
+            return;
+        }
         if (!selectedDate.equals(today())
                 && ModMindEntry.rewardService().monthlyRewards().containsKey(day)
                 && ui.showRewardPreview()) {
@@ -252,7 +266,7 @@ public final class CheckinScreenHandler extends ChestMenu {
         checkinContainer.setItem(STREAK_SLOT, CheckinRenderService.streakStack(stats.streakDays()));
         checkinContainer.setItem(BALANCE_SLOT, CheckinRenderService.balanceStack(data.getBalance(player.getUUID())));
         checkinContainer.setItem(CheckinTheme.REWARD_INBOX_SLOT, CheckinRenderService.inboxStack(player));
-        checkinContainer.setItem(CheckinTheme.HELP_SLOT, CheckinRenderService.helpStack());
+        checkinContainer.setItem(CheckinTheme.MAKEUP_SLOT, CheckinRenderService.makeupCardStack(player));
         checkinContainer.setItem(CheckinTheme.REFRESH_SLOT, CheckinRenderService.refreshStack());
         checkinContainer.setItem(CheckinTheme.CLOSE_SLOT, CheckinRenderService.closeStack());
         lastRevision = ModMindEntry.configSnapshot().revision();
@@ -280,6 +294,18 @@ public final class CheckinScreenHandler extends ChestMenu {
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         ModMindEntry.achievementService(), 0),
                 ServerText.translatable("gui.omnitools.achievement.title")));
+    }
+
+    private static void openMakeupConfirm(ServerPlayer player, LocalDate day) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> CheckinMakeupConfirmScreenHandler.forDate(syncId, inventory, player, day),
+                ServerText.translatable("gui.omnitools.checkin.makeup_confirm_title")));
+    }
+
+    private static void openMakeupPurchase(ServerPlayer player) {
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> CheckinMakeupConfirmScreenHandler.forPurchase(syncId, inventory, player),
+                ServerText.translatable("gui.omnitools.checkin.makeup_purchase_title")));
     }
 
     private static void playClick(ServerPlayer player, CheckinUiConfig ui) {

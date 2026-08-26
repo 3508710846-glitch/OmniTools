@@ -6,7 +6,6 @@ import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
@@ -17,7 +16,6 @@ import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.ItemLore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,10 +25,13 @@ import java.util.UUID;
 public final class OnlineTimeRewardScreenHandler extends ChestMenu {
     public static final int ROWS = 3;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    private static final List<Integer> REWARD_SLOTS = List.of(10, 11, 12, 13, 14, 15, 16);
+    private static final int REWARD_SLOT_COUNT = GuiSlots.CONTENT_SLOT_COUNT_27;
     private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_27;
     private static final int PAGE_INFO_SLOT = GuiSlots.CENTER_27;
     private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_27;
+    private static final int HEADER_NEXT_REWARD_SLOT = GuiSlots.HEADER_LEFT_27;
+    private static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_27;
+    private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_27;
 
     private final SimpleContainer rewardContainer;
     private final UUID ownerId;
@@ -79,6 +80,11 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                 || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP) {
             return;
         }
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents(serverPlayer, getOnlineMinutes(serverPlayer));
@@ -92,12 +98,12 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
             return;
         }
 
-        int localIndex = REWARD_SLOTS.indexOf(slotId);
+        int localIndex = GuiSlots.contentIndex27(slotId);
         if (localIndex < 0) {
             return;
         }
-        int rewardIndex = page * REWARD_SLOTS.size() + localIndex;
-        List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
+        int rewardIndex = page * REWARD_SLOT_COUNT + localIndex;
+        java.util.List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
         if (rewardIndex >= rewards.size()) {
             return;
         }
@@ -106,6 +112,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                 .status(serverPlayer, rewardIndex, reward);
         if (state != OnlineTimeRewardService.RewardStatus.AVAILABLE
                 && state != OnlineTimeRewardService.RewardStatus.PENDING) {
+            GuiFeedbackService.failure(serverPlayer);
             return;
         }
         OnlineTimeRewardService.ClaimResult result = ModMindEntry.onlineTimeRewardService()
@@ -166,30 +173,30 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
 
     private void refreshContents(ServerPlayer player, int onlineMinutes) {
         displayedOnlineMinutes = onlineMinutes;
-        List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
-        pageCount = Math.max(1, (rewards.size() + REWARD_SLOTS.size() - 1) / REWARD_SLOTS.size());
+        java.util.List<CheckinRewardConfig.OnlineTimeReward> rewards = ModMindEntry.rewardService().onlineTimeRewards();
+        pageCount = Math.max(1, (rewards.size() + REWARD_SLOT_COUNT - 1) / REWARD_SLOT_COUNT);
         page = Math.min(page, pageCount - 1);
         GuiTheme.clear(rewardContainer);
-        rewardContainer.setItem(4, GuiTheme.status(Items.CLOCK,
+        rewardContainer.setItem(HEADER_NEXT_REWARD_SLOT, nextRewardStack(player, rewards, onlineMinutes));
+        rewardContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.CLOCK,
                 ServerText.translatable("gui.omnitools.online_reward.menu_title"), ChatFormatting.AQUA,
                 List.of(ServerText.translatable("gui.omnitools.online_reward.today_summary", onlineMinutes),
                         ServerText.translatable("gui.omnitools.online_reward.reward_count", rewards.size())), false));
-        int first = page * REWARD_SLOTS.size();
-        for (int localIndex = 0; localIndex < REWARD_SLOTS.size(); localIndex++) {
+        rewardContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+        int first = page * REWARD_SLOT_COUNT;
+        for (int localIndex = 0; localIndex < REWARD_SLOT_COUNT; localIndex++) {
             int rewardIndex = first + localIndex;
             if (rewardIndex >= rewards.size()) {
                 break;
             }
             CheckinRewardConfig.OnlineTimeReward reward = rewards.get(rewardIndex);
-            rewardContainer.setItem(REWARD_SLOTS.get(localIndex), rewardStack(player, rewardIndex, reward,
+            rewardContainer.setItem(GuiSlots.contentSlot27(localIndex), rewardStack(player, rewardIndex, reward,
                     onlineMinutes));
         }
         if (page > 0) {
             rewardContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        rewardContainer.setItem(PAGE_INFO_SLOT, GuiTheme.named(Items.CLOCK,
-                ServerText.translatable("gui.omnitools.online_reward.page", page + 1, pageCount, rewards.size()),
-                List.of(ServerText.translatable("gui.omnitools.online_reward.progress", onlineMinutes, onlineMinutes))));
+        rewardContainer.setItem(PAGE_INFO_SLOT, GuiNavigationService.page(page + 1, pageCount, rewards.size()));
         if (page + 1 < pageCount) {
             rewardContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
@@ -200,36 +207,48 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                                          CheckinRewardConfig.OnlineTimeReward reward, int onlineMinutes) {
         OnlineTimeRewardService service = ModMindEntry.onlineTimeRewardService();
         OnlineTimeRewardService.RewardStatus status = service.status(player, rewardIndex, reward);
-        ItemStack stack = switch (status) {
-            case NOT_READY -> new ItemStack(Items.PAPER);
-            case AVAILABLE -> new ItemStack(Items.CHEST);
-            case CLAIMED -> new ItemStack(Items.EMERALD);
-            case PENDING -> new ItemStack(Items.HOPPER);
-            case BLOCKED, FAILED -> new ItemStack(Items.BARRIER);
-        };
-        ChatFormatting color = switch (status) {
-            case AVAILABLE -> ChatFormatting.GOLD;
-            case CLAIMED -> ChatFormatting.GREEN;
-            case PENDING -> ChatFormatting.YELLOW;
-            case BLOCKED, FAILED -> ChatFormatting.RED;
-            case NOT_READY -> ChatFormatting.GRAY;
-        };
-        if (status == OnlineTimeRewardService.RewardStatus.AVAILABLE) {
-            stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-        }
         List<Component> lore = new ArrayList<>();
+        GuiStatusItem.State visualState = visualState(status);
+        ChatFormatting color = visualState.color();
         lore.add(ServerText.translatable("gui.omnitools.online_reward.progress",
                 Math.min(onlineMinutes, reward.minutes()), reward.minutes()).withStyle(color));
-        lore.add(ServerText.translatable(statusKey(status)).withStyle(color));
         appendRewardPreview(player, reward.rewards(), lore);
         String reason = service.statusReason(player, reward);
         if (!reason.isBlank() && status != OnlineTimeRewardService.RewardStatus.CLAIMED) {
             lore.add(ServerText.translatable("gui.omnitools.reward.pending", reason).withStyle(ChatFormatting.YELLOW));
         }
-        stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.online_reward.title", reward.minutes())
-                .withStyle(color, ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(lore));
-        return stack;
+        Component footer = status == OnlineTimeRewardService.RewardStatus.AVAILABLE
+                ? ServerText.translatable("gui.omnitools.online_reward.claim_hint").withStyle(ChatFormatting.GREEN)
+                : ServerText.translatable(statusKey(status)).withStyle(color);
+        return GuiStatusItem.create(previewStack(player, reward),
+                ServerText.translatable("gui.omnitools.online_reward.title", reward.minutes()), visualState,
+                GuiTextService.cardLore(lore, footer));
+    }
+
+    private static ItemStack nextRewardStack(ServerPlayer player,
+                                             java.util.List<CheckinRewardConfig.OnlineTimeReward> rewards,
+                                             int onlineMinutes) {
+        OnlineTimeRewardService service = ModMindEntry.onlineTimeRewardService();
+        for (int index = 0; index < rewards.size(); index++) {
+            CheckinRewardConfig.OnlineTimeReward reward = rewards.get(index);
+            OnlineTimeRewardService.RewardStatus status = service.status(player, index, reward);
+            if (status == OnlineTimeRewardService.RewardStatus.CLAIMED) {
+                continue;
+            }
+            GuiStatusItem.State visualState = visualState(status);
+            List<Component> lore = new ArrayList<>();
+            lore.add(ServerText.translatable("gui.omnitools.online_reward.progress",
+                    Math.min(onlineMinutes, reward.minutes()), reward.minutes()).withStyle(visualState.color()));
+            appendRewardPreview(player, reward.rewards(), lore);
+            return GuiStatusItem.create(previewStack(player, reward),
+                    ServerText.translatable("gui.omnitools.online_reward.next", reward.minutes()), visualState,
+                    GuiTextService.cardLore(lore, ServerText.translatable(statusKey(status))
+                            .withStyle(visualState.color())));
+        }
+        return GuiStatusItem.create(new ItemStack(Items.EMERALD),
+                ServerText.translatable("gui.omnitools.online_reward.all_claimed"), GuiStatusItem.State.COMPLETED,
+                List.of(ServerText.translatable("gui.omnitools.online_reward.reward_count", rewards.size())
+                        .withStyle(ChatFormatting.GRAY)));
     }
 
     private static ItemStack previewStack(ServerPlayer player, CheckinRewardConfig.OnlineTimeReward milestone) {
@@ -239,6 +258,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         RewardDefinition first = milestone.rewards().getFirst();
         return switch (first.type()) {
             case CURRENCY -> new ItemStack(first.amount() >= 1_000 ? Items.GOLD_INGOT : Items.GOLD_NUGGET);
+            case MAKEUP_CARD -> new ItemStack(Items.CLOCK);
             case ITEM -> TextTemplateRenderer.renderItemText(player, first.createItemStack());
             case TITLE -> new ItemStack(Items.NAME_TAG);
             case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
@@ -251,8 +271,12 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
             return;
         }
         for (RewardDefinition reward : rewards) {
+            if (lore.size() >= 3) {
+                break;
+            }
             Component preview = switch (reward.type()) {
                 case CURRENCY -> ServerText.translatable("gui.omnitools.reward.currency", reward.amount());
+                case MAKEUP_CARD -> ServerText.translatable("gui.omnitools.reward.makeup_card", reward.amount());
                 case ITEM -> {
                     ItemStack item = TextTemplateRenderer.renderItemText(player, reward.createItemStack());
                     yield ServerText.translatable("gui.omnitools.reward.item", item.getHoverName(), item.getCount());
@@ -279,13 +303,14 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
         };
     }
 
-    private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(DataComponents.CUSTOM_NAME, name);
-        if (!lore.isEmpty()) {
-            stack.set(DataComponents.LORE, new ItemLore(lore));
-        }
-        return stack;
+    private static GuiStatusItem.State visualState(OnlineTimeRewardService.RewardStatus status) {
+        return switch (status) {
+            case AVAILABLE -> GuiStatusItem.State.ACTIONABLE;
+            case CLAIMED -> GuiStatusItem.State.COMPLETED;
+            case PENDING -> GuiStatusItem.State.PENDING;
+            case BLOCKED, FAILED -> GuiStatusItem.State.BLOCKED;
+            case NOT_READY -> GuiStatusItem.State.IN_PROGRESS;
+        };
     }
 
     private static int getOnlineMinutes(ServerPlayer player) {

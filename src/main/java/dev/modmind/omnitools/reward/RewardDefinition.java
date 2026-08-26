@@ -89,6 +89,10 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         return new RewardDefinition(id, RewardType.CURRENCY, amount, ItemStack.EMPTY, "", "");
     }
 
+    public static RewardDefinition makeupCard(String id, long amount) {
+        return new RewardDefinition(id, RewardType.MAKEUP_CARD, amount, ItemStack.EMPTY, "", "");
+    }
+
     public static RewardDefinition title(String id, String titleId) {
         return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId,
                 TimedEntitlement.permanentGrant(), "");
@@ -114,7 +118,7 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         object.addProperty("id", id);
         object.addProperty("type", type.serializedName());
         switch (type) {
-            case CURRENCY -> object.addProperty("amount", amount);
+            case CURRENCY, MAKEUP_CARD -> object.addProperty("amount", amount);
             case TITLE -> {
                 object.addProperty("title", titleId);
                 if (!titleGrant.mode().equals(TimedEntitlement.Mode.PERMANENT)) {
@@ -145,6 +149,14 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
             case CURRENCY -> {
                 rejectTitleTimingFields(object, context);
                 yield currency(id, nonNegativeLong(object, "amount", context));
+            }
+            case MAKEUP_CARD -> {
+                rejectTitleTimingFields(object, context);
+                long amount = positiveLong(object, "amount", context);
+                if (amount > Integer.MAX_VALUE) {
+                    throw new JsonParseException(context + ".amount exceeds the makeup-card limit");
+                }
+                yield makeupCard(id, amount);
             }
             case ITEM -> {
                 rejectTitleTimingFields(object, context);

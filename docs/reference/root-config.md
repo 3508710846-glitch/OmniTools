@@ -31,7 +31,7 @@
 }
 ```
 
-可直接复制版。下面十个模块开关均存在，按需改为 `false`：
+可直接复制版。下面十一个模块开关均存在，按需改为 `false`：
 
 ```json
 {
@@ -54,6 +54,7 @@
   "integrations": { "placeholder_api": { "enabled": true } },
   "modules": {
     "daily_checkin": { "enabled": true },
+    "cdk": { "enabled": true },
     "online_reward": { "enabled": true },
     "shop": { "enabled": true },
     "titles": { "enabled": true },

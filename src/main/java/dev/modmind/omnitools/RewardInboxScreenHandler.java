@@ -27,10 +27,12 @@ import java.util.UUID;
 public final class RewardInboxScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = 54;
-    private static final int CONTENT_SLOTS = 45;
+    private static final int CONTENT_SLOTS = GuiSlots.CONTENT_SLOT_COUNT_54;
     private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
     private static final int PAGE_INFO_SLOT = GuiSlots.CENTER_54;
     private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    private static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
 
     private final SimpleContainer container;
     private final ServerPlayer owner;
@@ -74,18 +76,26 @@ public final class RewardInboxScreenHandler extends ChestMenu {
             super.clicked(slotId, button, clickType, player);
             return;
         }
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
-        if (slotId < CONTENT_SLOTS) {
-            int index = page * CONTENT_SLOTS + slotId;
+        int localIndex = GuiSlots.contentIndex54(slotId);
+        if (localIndex >= 0) {
+            int index = page * CONTENT_SLOTS + localIndex;
             if (index < visibleEntries.size()) {
                 retryDelivery(serverPlayer, visibleEntries.get(index));
             }
@@ -142,18 +152,23 @@ public final class RewardInboxScreenHandler extends ChestMenu {
         int first = page * CONTENT_SLOTS;
         int visible = Math.min(CONTENT_SLOTS, visibleEntries.size() - first);
         for (int index = 0; index < visible; index++) {
-            container.setItem(index, displayStack(visibleEntries.get(first + index)));
+            container.setItem(GuiSlots.contentSlot54(index), displayStack(visibleEntries.get(first + index)));
         }
+        container.setItem(GuiSlots.HEADER_LEFT_54, GuiTheme.status(Items.CHEST,
+                ServerText.translatable("gui.omnitools.rewards.inbox.title"), ChatFormatting.GOLD,
+                List.of(ServerText.translatable("gui.omnitools.rewards.inbox_page",
+                        page + 1, pageCount, visibleEntries.size()).withStyle(ChatFormatting.GRAY)), false));
+        container.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.HOPPER,
+                ServerText.translatable("gui.omnitools.rewards.inbox.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.rewards.inbox.click_deliver")
+                        .withStyle(ChatFormatting.GRAY)), false));
+        container.setItem(CLOSE_SLOT, GuiNavigationService.close());
         if (page > 0) {
-            container.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.previous"), List.of()));
+            container.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        container.setItem(PAGE_INFO_SLOT, namedItem(Items.PAPER,
-                ServerText.translatable("gui.omnitools.rewards.inbox_page", page + 1, pageCount, visibleEntries.size()),
-                List.of()));
+        container.setItem(PAGE_INFO_SLOT, GuiNavigationService.page(page + 1, pageCount, visibleEntries.size()));
         if (page + 1 < pageCount) {
-            container.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.next"), List.of()));
+            container.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
     }
 
@@ -164,17 +179,14 @@ public final class RewardInboxScreenHandler extends ChestMenu {
         }
         ItemLore existingLore = stack.get(DataComponents.LORE);
         List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
-        if (lore.size() > ItemLore.MAX_LINES - 3) {
-            lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 3));
-        }
         lore.add(ServerText.translatable(sourceKey(entry.eventId())).withStyle(ChatFormatting.GRAY));
         if (!entry.entry().reason().isBlank()) {
             lore.add(ServerText.translatable("gui.omnitools.rewards.reason", entry.entry().reason())
                     .withStyle(ChatFormatting.GOLD));
         }
-        lore.add(ServerText.translatable("gui.omnitools.rewards.inbox.click_deliver").withStyle(ChatFormatting.YELLOW));
-        stack.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
-        return stack;
+        return GuiStatusItem.create(stack, stack.getHoverName(), GuiStatusItem.State.ACTIONABLE,
+                GuiTextService.cardLore(lore, ServerText.translatable("gui.omnitools.rewards.inbox.click_deliver")
+                        .withStyle(ChatFormatting.GREEN)));
     }
 
     private static String sourceKey(String eventId) {

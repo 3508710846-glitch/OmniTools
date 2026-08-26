@@ -19,5 +19,6 @@ class RewardEventTest {
                 RewardEvent.achievement(PLAYER, "Stone_Expert").id());
         assertEquals("online:" + PLAYER + ":20691:online_60m",
                 RewardEvent.online(PLAYER, 20691L, "Online_60M").id());
+        assertEquals("cdk:welcome_2026:" + PLAYER, RewardEvent.cdk("Welcome_2026", PLAYER).id());
     }
 }

@@ -10,6 +10,7 @@ import dev.modmind.omnitools.OnlineRewardConfig;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
+import dev.modmind.omnitools.cdk.CdkConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -20,6 +21,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     OnlineRewardConfig onlineRewards,
                                     ShopConfig shop, TitleConfig titles, TitleEffectConfig titleEffects,
                                     CloudStorageConfig cloudStorage, AchievementConfig achievements,
+                                    CdkConfig cdk,
                                     CommandMenuConfig commandMenus,
                                     SidebarConfig sidebar,
                                     CommandPermissionConfig commandPermissions,
@@ -35,6 +37,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         }
         statuses = Map.copyOf(copy);
         commandPermissions = commandPermissions == null ? CommandPermissionConfig.defaults() : commandPermissions;
+        cdk = cdk == null ? CdkConfig.empty() : cdk;
     }
 
     public boolean enabled(ModuleId module) {

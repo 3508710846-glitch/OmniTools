@@ -59,6 +59,15 @@ class RewardDefinitionTest {
                 RewardDefinition.parseTitleGrant(serialized, "reward").mode());
     }
 
+    @Test
+    void makeupCardsAreScalarIdempotentRewards() {
+        RewardDefinition definition = RewardDefinition.makeupCard("makeup_cards", 2L);
+
+        assertEquals(RewardType.MAKEUP_CARD, definition.type());
+        assertEquals(2L, definition.toJsonObject().get("amount").getAsLong());
+        assertEquals("makeup_card", definition.toJsonObject().get("type").getAsString());
+    }
+
     private static JsonObject timedTitleReward(String mode, Integer days, String renewal) {
         JsonObject reward = new JsonObject();
         JsonObject duration = new JsonObject();

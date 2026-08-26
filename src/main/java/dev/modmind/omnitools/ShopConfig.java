@@ -81,6 +81,11 @@ public final class ShopConfig {
         return products.size();
     }
 
+    /** Highest configured position; retained so a visual layout can preserve sparse indexes. */
+    public int highestProductIndex() {
+        return products.keySet().stream().mapToInt(Integer::intValue).max().orElse(-1);
+    }
+
     public static Path path() {
         return FILE;
     }

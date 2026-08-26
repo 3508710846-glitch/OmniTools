@@ -24,10 +24,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Daily and monthly rewards. Version 2 uses stable, idempotent reward definitions. */
+/** Daily, monthly, and virtual makeup-card rules. Version 2 introduced stable reward ids. */
 public final class CheckinRewardConfig {
     public static final String FILE_NAME = "omnitools-rewards.json";
-    public static final int CURRENT_FORMAT_VERSION = 2;
+    public static final int CURRENT_FORMAT_VERSION = 3;
     public static final List<Integer> MONTHLY_MILESTONES = List.of(5, 10, 15, 25);
     /** Legacy slot bound retained for reading old day:slot online-reward claim keys. */
     public static final int ONLINE_TIME_REWARD_COUNT = 3;
@@ -38,16 +38,19 @@ public final class CheckinRewardConfig {
     private final Map<Integer, List<RewardDefinition>> monthlyRewards;
     private final List<OnlineTimeReward> onlineTimeRewards;
     private final CheckinUiConfig ui;
+    private final MakeupConfig makeup;
 
     private CheckinRewardConfig(List<RewardDefinition> dailyRewards,
                                 Map<Integer, List<RewardDefinition>> monthlyRewards,
-                                List<OnlineTimeReward> onlineTimeRewards, CheckinUiConfig ui) {
+                                List<OnlineTimeReward> onlineTimeRewards, CheckinUiConfig ui,
+                                MakeupConfig makeup) {
         this.dailyRewards = List.copyOf(dailyRewards);
         Map<Integer, List<RewardDefinition>> copy = new LinkedHashMap<>();
         monthlyRewards.forEach((milestone, rewards) -> copy.put(milestone, List.copyOf(rewards)));
         this.monthlyRewards = Map.copyOf(copy);
         this.onlineTimeRewards = List.copyOf(onlineTimeRewards);
         this.ui = ui == null ? CheckinUiConfig.defaults() : ui;
+        this.makeup = makeup == null ? MakeupConfig.defaults() : makeup;
     }
 
     public static CheckinRewardConfig load(HolderLookup.Provider registries) {
@@ -85,15 +88,19 @@ public final class CheckinRewardConfig {
         return ui;
     }
 
+    public MakeupConfig makeup() {
+        return makeup;
+    }
+
     public static CheckinRewardConfig empty() {
-        return new CheckinRewardConfig(List.of(), Map.of(), List.of(), CheckinUiConfig.defaults());
+        return new CheckinRewardConfig(List.of(), Map.of(), List.of(), CheckinUiConfig.defaults(), MakeupConfig.defaults());
     }
 
     public static CheckinRewardConfig withOnlineRewards(CheckinRewardConfig daily, OnlineRewardConfig online) {
         List<OnlineTimeReward> rewards = online.rewards().stream()
                 .map(reward -> new OnlineTimeReward(reward.id(), reward.minutes(), reward.rewards()))
                 .toList();
-        return new CheckinRewardConfig(daily.dailyRewards, daily.monthlyRewards, rewards, daily.ui);
+        return new CheckinRewardConfig(daily.dailyRewards, daily.monthlyRewards, rewards, daily.ui, daily.makeup);
     }
 
     public static Path path() {
@@ -114,7 +121,7 @@ public final class CheckinRewardConfig {
 
     private static CheckinRewardConfig parseV2(JsonObject root, HolderLookup.Provider registries) {
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
-        if (version != CURRENT_FORMAT_VERSION) {
+        if (version != 2 && version != CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported daily check-in format_version: " + version);
         }
         JsonObject daily = requiredObject(root, "daily");
@@ -130,7 +137,8 @@ public final class CheckinRewardConfig {
         }
         CheckinUiConfig ui = CheckinUiConfig.parse(root);
         ui.validateItems();
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui);
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui,
+                MakeupConfig.parse(root));
     }
 
     private static CheckinRewardConfig parseLegacy(JsonObject root, HolderLookup.Provider registries) {
@@ -150,7 +158,8 @@ public final class CheckinRewardConfig {
         }
         CheckinUiConfig ui = CheckinUiConfig.parse(root);
         ui.validateItems();
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui);
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui,
+                MakeupConfig.defaults());
     }
 
     private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root, HolderLookup.Provider registries) {
@@ -207,7 +216,8 @@ public final class CheckinRewardConfig {
                         new OnlineTimeReward("online_60m", 60,
                                 List.of(RewardDefinition.currency("currency", 100L))),
                         new OnlineTimeReward("online_120m", 120,
-                                List.of(RewardDefinition.currency("currency", 250L)))), CheckinUiConfig.defaults());
+                                List.of(RewardDefinition.currency("currency", 250L)))), CheckinUiConfig.defaults(),
+                MakeupConfig.defaults());
     }
 
     private static void write(CheckinRewardConfig config) {
@@ -221,6 +231,7 @@ public final class CheckinRewardConfig {
             JsonObject monthly = new JsonObject();
             config.monthlyRewards.forEach((days, rewards) -> monthly.add(Integer.toString(days), writeRewards(rewards)));
             root.add("monthly", monthly);
+            root.add("makeup", config.makeup.toJson());
             CheckinUiConfig.writeDefault(root);
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
@@ -265,6 +276,17 @@ public final class CheckinRewardConfig {
         if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
                 || element.getAsString().isBlank()) {
             throw new JsonParseException(key + " must be a non-empty string");
+        }
+        return element.getAsString();
+    }
+
+    private static String optionalString(JsonObject object, String key) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return null;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException(key + " must be a string");
         }
         return element.getAsString();
     }
@@ -355,5 +377,154 @@ public final class CheckinRewardConfig {
             this("online_" + minutes + "m", minutes,
                     List.of(RewardDefinition.currency("legacy_currency", coins)));
         }
+    }
+
+    public enum EarliestEligibleDay {
+        FIRST_SEEN;
+
+        static EarliestEligibleDay parse(String value) {
+            if (value == null || value.isBlank() || value.trim().equalsIgnoreCase("first_seen")) {
+                return FIRST_SEEN;
+            }
+            throw new JsonParseException("makeup.earliest_eligible_day must be first_seen");
+        }
+
+        String serializedName() {
+            return "first_seen";
+        }
+    }
+
+    public enum DailyRewardPolicy {
+        NONE,
+        GRANT;
+
+        static DailyRewardPolicy parse(String value) {
+            if (value == null || value.isBlank()) {
+                return NONE;
+            }
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException("makeup.daily_reward_policy must be none or grant");
+            }
+        }
+
+        String serializedName() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
+    /** Immutable bounded policy for server-owned cards and historical check-ins. */
+    public record MakeupConfig(boolean enabled, int maxCards, int maxBackfillDays, int maxUsesPerCalendarMonth,
+                               EarliestEligibleDay earliestEligibleDay, boolean affectsStreak,
+                               DailyRewardPolicy dailyRewardPolicy, boolean countsForMonthlyMilestones,
+                               PurchaseConfig purchase) {
+        public MakeupConfig {
+            if (maxCards < 0 || maxCards > 1_000_000) {
+                throw new IllegalArgumentException("makeup.max_cards must be between 0 and 1000000");
+            }
+            if (maxBackfillDays < 1 || maxBackfillDays > 366) {
+                throw new IllegalArgumentException("makeup.max_backfill_days must be between 1 and 366");
+            }
+            if (maxUsesPerCalendarMonth < 1 || maxUsesPerCalendarMonth > 31) {
+                throw new IllegalArgumentException("makeup.max_uses_per_calendar_month must be between 1 and 31");
+            }
+            earliestEligibleDay = earliestEligibleDay == null ? EarliestEligibleDay.FIRST_SEEN : earliestEligibleDay;
+            dailyRewardPolicy = dailyRewardPolicy == null ? DailyRewardPolicy.NONE : dailyRewardPolicy;
+            purchase = purchase == null ? PurchaseConfig.defaults() : purchase;
+        }
+
+        static MakeupConfig defaults() {
+            return new MakeupConfig(true, 99, 7, 3, EarliestEligibleDay.FIRST_SEEN, true,
+                    DailyRewardPolicy.NONE, true, PurchaseConfig.defaults());
+        }
+
+        static MakeupConfig parse(JsonObject root) {
+            JsonElement element = root.get("makeup");
+            if (element == null) {
+                return defaults();
+            }
+            if (!element.isJsonObject()) {
+                throw new JsonParseException("makeup must be an object");
+            }
+            JsonObject makeup = element.getAsJsonObject();
+            MakeupConfig defaults = defaults();
+            boolean enabled = booleanValue(makeup, "enabled", defaults.enabled);
+            int maxCards = boundedInt(makeup, "max_cards", defaults.maxCards, 0, 1_000_000);
+            int maxBackfillDays = boundedInt(makeup, "max_backfill_days", defaults.maxBackfillDays, 1, 366);
+            int monthlyUses = boundedInt(makeup, "max_uses_per_calendar_month", defaults.maxUsesPerCalendarMonth, 1, 31);
+            EarliestEligibleDay earliest = EarliestEligibleDay.parse(optionalString(makeup, "earliest_eligible_day"));
+            boolean affectsStreak = booleanValue(makeup, "affects_streak", defaults.affectsStreak);
+            DailyRewardPolicy dailyPolicy = DailyRewardPolicy.parse(optionalString(makeup, "daily_reward_policy"));
+            boolean countsMonthly = booleanValue(makeup, "counts_for_monthly_milestones",
+                    defaults.countsForMonthlyMilestones);
+            return new MakeupConfig(enabled, maxCards, maxBackfillDays, monthlyUses, earliest, affectsStreak,
+                    dailyPolicy, countsMonthly, PurchaseConfig.parse(makeup));
+        }
+
+        JsonObject toJson() {
+            JsonObject result = new JsonObject();
+            result.addProperty("enabled", enabled);
+            result.addProperty("max_cards", maxCards);
+            result.addProperty("max_backfill_days", maxBackfillDays);
+            result.addProperty("max_uses_per_calendar_month", maxUsesPerCalendarMonth);
+            result.addProperty("earliest_eligible_day", earliestEligibleDay.serializedName());
+            result.addProperty("affects_streak", affectsStreak);
+            result.addProperty("daily_reward_policy", dailyRewardPolicy.serializedName());
+            result.addProperty("counts_for_monthly_milestones", countsForMonthlyMilestones);
+            result.add("purchase", purchase.toJson());
+            return result;
+        }
+    }
+
+    public record PurchaseConfig(boolean enabled, long price) {
+        public PurchaseConfig {
+            if (price < 0L) {
+                throw new IllegalArgumentException("makeup.purchase.price must be non-negative");
+            }
+        }
+
+        static PurchaseConfig defaults() {
+            return new PurchaseConfig(true, 200L);
+        }
+
+        static PurchaseConfig parse(JsonObject makeup) {
+            JsonElement element = makeup.get("purchase");
+            if (element == null) {
+                return defaults();
+            }
+            if (!element.isJsonObject()) {
+                throw new JsonParseException("makeup.purchase must be an object");
+            }
+            JsonObject purchase = element.getAsJsonObject();
+            return new PurchaseConfig(booleanValue(purchase, "enabled", true),
+                    nonNegativeLong(purchase, "price", 200L));
+        }
+
+        JsonObject toJson() {
+            JsonObject result = new JsonObject();
+            result.addProperty("enabled", enabled);
+            result.addProperty("price", price);
+            return result;
+        }
+    }
+
+    private static boolean booleanValue(JsonObject object, String key, boolean fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
+            throw new JsonParseException(key + " must be a boolean");
+        }
+        return element.getAsBoolean();
+    }
+
+    private static int boundedInt(JsonObject object, String key, int fallback, int min, int max) {
+        int value = integer(object, key, fallback);
+        if (value < min || value > max) {
+            throw new JsonParseException(key + " is out of range");
+        }
+        return value;
     }
 }

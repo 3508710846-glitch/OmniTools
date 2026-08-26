@@ -39,6 +39,9 @@
   "allow_title_command_grants": false,
   "commands": {
     "checkin.open": "PLAYER",
+    "checkin.makeup": "PLAYER",
+    "checkin.cards.buy": "PLAYER",
+    "checkin.cards.admin": "ADMIN",
     "online.open": "PLAYER",
     "shop.open": "PLAYER",
     "title.open": "PLAYER",
@@ -58,7 +61,9 @@
     "sidebar.toggle": "PLAYER",
     "sidebar.status": "PLAYER",
     "rewards.retry": "PLAYER",
-    "rewards.admin": "ADMIN"
+    "rewards.admin": "ADMIN",
+    "cdk.redeem": "PLAYER",
+    "cdk.admin": "ADMIN"
   }
 }
 ```

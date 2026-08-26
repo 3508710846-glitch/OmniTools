@@ -12,7 +12,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
@@ -25,19 +24,23 @@ import java.util.UUID;
 public final class TitleScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int TITLE_SLOTS = 45;
+    public static final int TITLE_SLOTS = GuiSlots.CONTENT_SLOT_COUNT_54;
     public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
     public static final int EFFECTS_SLOT = 47;
     public static final int UNEQUIP_SLOT = 48;
     public static final int PROFILE_SLOT = GuiSlots.CENTER_54;
     public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    public static final int HEADER_PROFILE_SLOT = GuiSlots.HEADER_LEFT_54;
+    public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
     private final SimpleContainer titleContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
-    private final TitleConfig config;
+    private TitleConfig config;
     private int page;
     private int stateHash = Integer.MIN_VALUE;
     private long lastStateCheckTick = Long.MIN_VALUE;
+    private long lastConfigRevision = Long.MIN_VALUE;
 
     public TitleScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, TitleConfig.empty());
@@ -79,9 +82,15 @@ public final class TitleScreenHandler extends ChestMenu {
                 || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP) {
             return;
         }
+        refreshConfigIfChanged();
 
         List<TitleConfig.TitleDefinition> unlockedTitles = config.unlockedTitles(ownerId);
         int pageCount = pageCount(unlockedTitles);
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
@@ -113,11 +122,12 @@ public final class TitleScreenHandler extends ChestMenu {
             refreshContents();
             return;
         }
-        if (slotId >= TITLE_SLOTS) {
+        int localIndex = GuiSlots.contentIndex54(slotId);
+        if (localIndex < 0) {
             return;
         }
 
-        int titleIndex = page * TITLE_SLOTS + slotId;
+        int titleIndex = page * TITLE_SLOTS + localIndex;
         if (titleIndex >= unlockedTitles.size()) {
             return;
         }
@@ -148,7 +158,7 @@ public final class TitleScreenHandler extends ChestMenu {
             long tick = owner.level().getServer().getTickCount();
             if (lastStateCheckTick == Long.MIN_VALUE || tick - lastStateCheckTick >= 10L) {
                 lastStateCheckTick = tick;
-                if (currentStateHash() != stateHash) {
+                if (!refreshConfigIfChanged() && currentStateHash() != stateHash) {
                     refreshContents();
                 }
             }
@@ -165,23 +175,26 @@ public final class TitleScreenHandler extends ChestMenu {
         GuiTheme.clear(titleContainer);
 
         if (unlockedTitles.isEmpty()) {
-            titleContainer.setItem(22, namedItem(Items.BOOK,
+            titleContainer.setItem(22, GuiTheme.named(Items.BOOK,
                     ServerText.translatable("gui.omnitools.title.empty_title").withStyle(ChatFormatting.GRAY),
                     List.of(ServerText.translatable("gui.omnitools.title.empty_hint").withStyle(ChatFormatting.DARK_GRAY))));
         }
 
+        titleContainer.setItem(HEADER_PROFILE_SLOT, profileItem(unlockedTitles.size(), selectedId));
+        titleContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.NAME_TAG,
+                ServerText.translatable("gui.omnitools.title.menu_title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.title.unlocked_count", unlockedTitles.size())
+                        .withStyle(ChatFormatting.GRAY)), false));
+        titleContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+
         int firstTitle = page * TITLE_SLOTS;
-        for (int slot = 0; slot < TITLE_SLOTS && firstTitle + slot < unlockedTitles.size(); slot++) {
-            TitleConfig.TitleDefinition title = unlockedTitles.get(firstTitle + slot);
+        for (int index = 0; index < TITLE_SLOTS && firstTitle + index < unlockedTitles.size(); index++) {
+            TitleConfig.TitleDefinition title = unlockedTitles.get(firstTitle + index);
             boolean selected = title.id().equals(selectedId);
             boolean temporary = config.entitlement(ownerId, title.id()).map(entitlement -> !entitlement.isPermanent())
                     .orElse(false);
             ItemStack titleItem = new ItemStack(selected ? Items.LIME_DYE
                     : temporary ? Items.CLOCK : Items.NAME_TAG);
-            titleItem.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(owner, title.display()));
-            if (selected) {
-                titleItem.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-            }
             List<Component> lore = new java.util.ArrayList<>();
             lore.add(ServerText.translatable("gui.omnitools.title.rarity." + title.rarity().serializedName())
                     .withStyle(rarityColor(title.rarity())));
@@ -193,31 +206,40 @@ public final class TitleScreenHandler extends ChestMenu {
             } else {
                 lore.addAll(title.effects().stream().map(this::effectComponent).toList());
             }
-            lore.add(ServerText.translatable(selected ? "gui.omnitools.title.selected" : "gui.omnitools.title.select_hint")
-                    .withStyle(selected ? ChatFormatting.GOLD : ChatFormatting.GRAY));
-            titleItem.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
-            titleContainer.setItem(slot, titleItem);
+            GuiStatusItem.State visualState = selected ? GuiStatusItem.State.ACTIONABLE
+                    : temporary ? GuiStatusItem.State.TEMPORARY : GuiStatusItem.State.OWNED;
+            titleContainer.setItem(GuiSlots.contentSlot54(index), GuiStatusItem.create(titleItem,
+                    TextTemplateRenderer.render(owner, title.display()), visualState,
+                    GuiTextService.cardLore(lore, ServerText.translatable(
+                            selected ? "gui.omnitools.title.selected" : "gui.omnitools.title.select_hint")
+                            .withStyle(selected ? ChatFormatting.GREEN : ChatFormatting.GRAY))));
         }
 
         if (page > 0) {
-            titleContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.title.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.title.previous_hint").withStyle(ChatFormatting.GRAY))));
+            titleContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        titleContainer.setItem(UNEQUIP_SLOT, namedItem(Items.BARRIER,
-                ServerText.translatable("gui.omnitools.title.unequip").withStyle(ChatFormatting.RED),
-                    List.of(ServerText.translatable("gui.omnitools.title.unequip_hint").withStyle(ChatFormatting.GRAY))));
+        titleContainer.setItem(UNEQUIP_SLOT, GuiStatusItem.create(new ItemStack(Items.BARRIER),
+                ServerText.translatable("gui.omnitools.title.unequip"), GuiStatusItem.State.BLOCKED,
+                List.of(ServerText.translatable("gui.omnitools.title.unequip_hint").withStyle(ChatFormatting.GRAY))));
         titleContainer.setItem(EFFECTS_SLOT, effectsItem(selectedId));
-        titleContainer.setItem(PROFILE_SLOT, profileItem(unlockedTitles.size(), selectedId, page + 1, pageCount));
+        titleContainer.setItem(PROFILE_SLOT, GuiNavigationService.page(page + 1, pageCount, unlockedTitles.size()));
         if (page + 1 < pageCount) {
-            titleContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.title.next").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.title.next_hint").withStyle(ChatFormatting.GRAY))));
+            titleContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
         stateHash = currentStateHash();
+        lastConfigRevision = ModMindEntry.configSnapshot().revision();
     }
 
-    private ItemStack profileItem(int unlockedCount, String selectedId, int pageNumber, int pageCount) {
+    private boolean refreshConfigIfChanged() {
+        if (ModMindEntry.configSnapshot().revision() == lastConfigRevision) {
+            return false;
+        }
+        config = ModMindEntry.titleConfig();
+        refreshContents();
+        return true;
+    }
+
+    private ItemStack profileItem(int unlockedCount, String selectedId) {
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
         profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.title.profile")
@@ -231,8 +253,7 @@ public final class TitleScreenHandler extends ChestMenu {
                 ServerText.translatable("gui.omnitools.title.unlocked_count", unlockedCount).withStyle(ChatFormatting.AQUA),
                 ServerText.translatable("gui.omnitools.title.current").append(equipped).withStyle(ChatFormatting.GRAY),
                 selectedId.isEmpty() ? ServerText.translatable("gui.omnitools.title.no_selection")
-                        .withStyle(ChatFormatting.DARK_GRAY) : entitlementComponent(selectedId),
-                ServerText.translatable("gui.omnitools.title.page", pageNumber, pageCount).withStyle(ChatFormatting.DARK_GRAY))));
+                        .withStyle(ChatFormatting.DARK_GRAY) : entitlementComponent(selectedId))));
         return profile;
     }
 
@@ -282,10 +303,9 @@ public final class TitleScreenHandler extends ChestMenu {
         boolean enabled = config.effectsEnabled(ownerId);
         List<Component> lore = new java.util.ArrayList<>();
         lore.add(ServerText.translatable("gui.omnitools.title.effects_hint").withStyle(ChatFormatting.GRAY));
-        ItemStack item = namedItem(enabled ? Items.LIME_DYE : Items.GRAY_DYE,
-                ServerText.translatable(enabled ? "gui.omnitools.title.effects_on" : "gui.omnitools.title.effects_off")
-                        .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY),
-                lore);
+        ItemStack item = GuiTheme.status(enabled ? Items.LIME_DYE : Items.GRAY_DYE,
+                ServerText.translatable(enabled ? "gui.omnitools.title.effects_on" : "gui.omnitools.title.effects_off"),
+                enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY, lore, false);
         if (!selectedId.isEmpty()) {
             config.definition(selectedId).ifPresent(title -> {
                 for (String effectId : title.effects()) {
@@ -303,12 +323,4 @@ public final class TitleScreenHandler extends ChestMenu {
                 .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
     }
 
-    private static ItemStack namedItem(Item item, Component name, List<Component> lore) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(DataComponents.CUSTOM_NAME, name);
-        if (!lore.isEmpty()) {
-            stack.set(DataComponents.LORE, new ItemLore(lore));
-        }
-        return stack;
-    }
 }

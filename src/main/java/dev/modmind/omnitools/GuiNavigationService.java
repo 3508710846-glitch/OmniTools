@@ -10,12 +10,12 @@ public final class GuiNavigationService {
     }
 
     public static ItemStack previous() {
-        return GuiTheme.navigation(Items.ARROW, ServerText.translatable("gui.omnitools.rewards.previous"),
+        return GuiTheme.navigation(Items.ARROW, ServerText.translatable("gui.omnitools.gui.previous"),
                 ServerText.translatable("gui.omnitools.gui.previous_hint"));
     }
 
     public static ItemStack next() {
-        return GuiTheme.navigation(Items.ARROW, ServerText.translatable("gui.omnitools.rewards.next"),
+        return GuiTheme.navigation(Items.ARROW, ServerText.translatable("gui.omnitools.gui.next"),
                 ServerText.translatable("gui.omnitools.gui.next_hint"));
     }
 
@@ -25,7 +25,7 @@ public final class GuiNavigationService {
     }
 
     public static ItemStack close() {
-        return GuiTheme.navigation(Items.BARRIER, ServerText.translatable("gui.omnitools.checkin.close"),
-                ServerText.translatable("gui.omnitools.checkin.close_hint"));
+        return GuiTheme.navigation(Items.BARRIER, ServerText.translatable("gui.omnitools.gui.close"),
+                ServerText.translatable("gui.omnitools.gui.close_hint"));
     }
 }

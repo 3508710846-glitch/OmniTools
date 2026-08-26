@@ -2974,3 +2974,390 @@ ServerText
 5. 最后再做多人压力测试和新模块扩展。
 
 本次为只读分析，未修改文件、未构建、未运行测试。
+
+---
+
+## Development request 2026/8/26 15:48:30
+
+建议采用“统一交互骨架 + 模块专属信息布局”的方案。OmniTools 是纯服务端模组，不能依赖自定义客户端纹理，因此美观应来自原版物品图标、清晰的槽位分区、稳定的颜色语义、简短 Lore 和一致的导航，而不是整页玻璃板填充。
+
+**总体目标**
+
+- 玩家一眼识别：这是哪个模块、当前状态、下一步能做什么。
+- 所有常用操作固定在相同位置，减少学习成本。
+- 空槽默认留白；仅用少量分隔物品建立区域，不再铺满玻璃板。
+- 颜色永远配合图标和文字，不用“仅靠颜色”表达状态。
+- 不改变既有命令、奖励、权限和数据格式，只调整展示与交互层。
+
+**统一视觉规范**
+
+| 用途 | 图标与样式 | 文本规则 |
+|---|---|---|
+| 模块标题 | 代表性物品，如日历、书、箱子、徽章 | 金色粗体标题 |
+| 可操作/可领取 | 对应真实物品 + 附魔光效 | 绿色状态行，明确“左键领取/购买/选择” |
+| 进行中 | 配置的主图标，不替换为通用物品 | 黄色进度行，显示精确进度 |
+| 已完成/已领取 | 原图标保留，降低视觉权重 | 深绿色或灰色状态行 |
+| 锁定/不可用 | 原图标保留或屏障图标 | 红色原因文本，不只写“不可用” |
+| 说明/统计 | 书、纸、指南针、玩家头颅 | 水色标题、灰色说明 |
+| 翻页与关闭 | 箭头、纸、屏障 | 固定位置、固定文案与点击提示 |
+
+每个可点击卡片的 Lore 顺序统一为：
+
+```text
+功能说明
+核心数据：进度 / 价格 / 剩余时间
+奖励或结果
+当前状态
+操作提示
+```
+
+限制为 4-6 行。较长内容通过详情页展示，不能把配置、规则和奖励全部塞进一张物品 Lore。
+
+**统一布局骨架**
+
+54 格菜单采用固定结构：
+
+```text
+第 1 行：模块标识 / 标题 / 当前玩家信息 / 帮助 / 关闭
+第 2-5 行：模块核心内容区，最多 36 个卡片
+第 6 行：返回或上一页 / 筛选或说明 / 页码 / 下一页 / 关闭
+```
+
+27 格菜单采用紧凑结构：
+
+```text
+第 1 行：标题、关键状态、关闭
+第 2-3 行：核心内容
+第 4 行：操作与导航
+```
+
+固定槽位建议：
+
+- `0`：模块图标或玩家头像。
+- `4`：当前页标题或关键摘要。
+- `8`：关闭。
+- `45`：返回或上一页。
+- `49`：页码、数量、当前筛选条件。
+- `53`：下一页。
+
+现有 [GuiTheme.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java)、[GuiNavigationService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiNavigationService.java)、[GuiFeedbackService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiFeedbackService.java) 应作为统一基础，逐个迁移界面，不再让各 `ScreenHandler` 自行定义一套按钮与 Lore 逻辑。
+
+**各模块布局**
+
+| GUI | 优化重点 |
+|---|---|
+| 签到 | 保留当前“7 列日历 + 2 列信息栏”方向。首行显示月份、连续签到、关闭；右侧只保留今日状态、下一里程碑、奖励预览，避免重复说明。日期格只显示日期、奖励图标、已签到/可签到状态。 |
+| 成就 | 使用配置中的 `icon` 作为所有状态的主图标，不能因为“可领取”替换为箱子。状态通过边框感、名称颜色、发光、进度和 Lore 表达。顶部显示已完成/总数，正文为成就卡片，底部翻页。 |
+| 在线奖励 | 做成清晰的奖励时间线：每张卡显示“30 分钟”“已在线 18/30 分钟”“奖励内容”“可领取/未解锁”。下一档奖励应有明显的高亮。 |
+| 商店 | 顶部显示玩家货币与商店说明；商品卡固定显示物品、单价、拥有数量、左键购买提示。买不起时仍显示商品，但在 Lore 中写明差额。 |
+| 称号 | 顶部显示当前佩戴称号、剩余有效佩戴时间、效果状态；正文显示称号卡。限时称号必须展示剩余时间，永久称号显示“永久”。已拥有、已佩戴、未拥有不可混淆。 |
+| 成就奖励箱 | 按“可领取、处理中、需管理员处理、已完成”明确分组或筛选，不让玩家把异常奖励误认为丢失。 |
+| 云存储 | 保持容器操作区最大化，减少装饰。顶部只放容量、页码和关闭；禁止装饰品占用实际储物格。 |
+| 模块管理 | 一模块一卡片，显示启用状态、配置路径、依赖关系和失败原因。切换高风险模块时增加确认页，避免误关称号或奖励来源。 |
+| 命令菜单 | 仍由服主配置位置与物品，但提供推荐布局模板。空菜单应显示“尚未配置菜单项”，不能只留空白界面。 |
+| 侧边栏 | 保持 5-8 行，优先显示玩家最常用的信息。长文本截断，不连续刷新不变内容；标题与正文避免同时使用粗体和彩色格式。 |
+
+**实现边界**
+
+不要把核心模块的每一个槽位都暴露给配置。签到、成就、商店等高频界面应保留稳定的信息架构；可配置项只包括：
+
+```json
+{
+  "ui": {
+    "show_action_hints": true,
+    "show_progress_bar": true,
+    "show_reward_preview": true,
+    "sounds": {
+      "open": true,
+      "click": true,
+      "success": true,
+      "failure": true
+    }
+  }
+}
+```
+
+命令菜单是例外，它的用途就是让服主自由编排，因此继续允许完整槽位配置、左右键动作和子菜单跳转。
+
+**实施顺序**
+
+1. 先修复成就图标：使用 `achievement.icon()`，状态不再覆盖图标。
+2. 补一个通用 `GuiStatusItem` 或等价工厂，统一状态名称、颜色、发光、操作提示。
+3. 统一底部导航、关闭按钮、页码与点击音效。
+4. 优先迁移签到、成就、在线奖励、称号四个玩家高频 GUI。
+5. 再迁移商店、奖励箱、云存储、模块管理。
+6. 最后为命令菜单提供推荐模板，并为所有 GUI 做不同屏幕语言、空状态、满页、最后一页和模块热重载验收。
+
+验收标准是：任何模块打开后，玩家在三秒内能知道“当前是什么、我有什么、我能做什么、下一步在哪里”；同类按钮位置一致；没有只靠颜色区分的状态；没有无意义的大面积玻璃板。
+
+---
+
+## Development request 2026/8/26 19:37:40
+
+原因已定位，Tab 列表的拼接顺序写反了。
+
+当前 [TitleDisplayService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleDisplayService.java) 的 `tabListDisplayName` 是：
+
+```java
+玩家名 + 空格 + 称号
+```
+
+因此 Tab 显示为：
+
+```text
+玩家名 [称号]
+```
+
+而聊天框的 `chatName` 与头顶计分板队伍前缀都是：
+
+```text
+称号 + 玩家名
+```
+
+所以三处不一致。
+
+应交给工作台的修复要求：
+
+```java
+return TextTemplateRenderer.render(player, selected.get().display())
+        .copy()
+        .append(Component.literal(player.getGameProfile().name())
+                .withStyle(ChatFormatting.RESET));
+```
+
+若要保留其他模组的外部计分板队伍格式，则顺序应为：
+
+```text
+称号 + 外部队伍前缀/玩家名/外部队伍后缀
+```
+
+即只把 OmniTools 称号放在完整玩家显示名之前，不能把称号追加在已格式化玩家名之后。
+
+修复后验证：
+
+1. 无外部队伍时：Tab、聊天、头顶都是 `[称号] 玩家名`。
+2. 有外部队伍且配置为保留外部队伍时：称号在最前，外部前后缀仍完整。
+3. 卸下、切换、到期称号和 `/omnitools reload` 后，Tab 会立即刷新。
+4. 关闭称号模块后，Tab 恢复原版或外部队伍显示名。
+
+---
+
+## Development request 2026/8/26 20:16:17
+
+继续
+
+---
+
+## Development request 2026/8/26 20:27:57
+
+可以，建议做成两个相互独立、但复用统一奖励体系的能力：
+
+```text
+CDK 模块
+  兑换码校验、全服次数、每人一次、有效期、奖励发放、审计
+
+签到模块中的补签卡
+  虚拟卡数量、购买/奖励来源、历史日期补签、连续签到与月度奖励规则
+```
+
+补签卡不要做成可交易实体物品，建议做成玩家数据中的虚拟权益。这样不会因丢弃、复制、背包满或 NBT 篡改造成问题，且与当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java) 的货币和签到记录存储方式一致。
+
+**1. CDK 模块**
+
+新增模块开关：
+
+```json
+"cdk": { "enabled": true }
+```
+
+配置路径：
+
+```text
+config/omnitools/cdk/config.json
+```
+
+示例：
+
+```json
+{
+  "format_version": 1,
+  "security": {
+    "max_code_length": 64,
+    "cooldown_ticks": 20,
+    "max_failed_attempts": 5,
+    "lockout_seconds": 60
+  },
+  "campaigns": [
+    {
+      "id": "welcome_2026",
+      "code": "OMNI-2026-WELCOME",
+      "starts_at": "2026-08-01T00:00:00Z",
+      "expires_at": "2026-09-01T00:00:00Z",
+      "max_uses": 0,
+      "rewards": [
+        { "id": "coins", "type": "currency", "amount": 500 },
+        { "id": "makeup_cards", "type": "makeup_card", "amount": 2 },
+        {
+          "id": "vip_7d",
+          "type": "title",
+          "title": "vip",
+          "duration": { "mode": "active_days", "days": 7 },
+          "renewal": "extend"
+        }
+      ]
+    }
+  ]
+}
+```
+
+规则：
+
+- `id` 为永久稳定 ID，已发放后不能改名或复用。
+- `max_uses: 0` 表示不限全服总次数；其他正整数表示全服总次数。
+- 每个玩家对同一 `campaign.id` 永远只能兑换一次，以 UUID 判断，不受改名影响。
+- 配置加载后仅在内存保留规范化后的码值或哈希，不在日志、报错、管理员审计中回显原始 CDK。
+- 配置中的同一活动一旦已有兑换记录，禁止修改其奖励、总次数或有效期；需要新活动时创建新的 `id`，防止旧玩家因重载获得新增奖励。
+- CDK 奖励复用 [RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 与奖励账本，事件 ID 固定为：
+
+```text
+cdk:<campaign-id>:<player-uuid>
+```
+
+这样重连、重复输入、奖励箱领取、服务器中断恢复都不会重复发奖。
+
+建议命令：
+
+```text
+/omnitools cdk redeem <code>      玩家
+/omnitools cdk status             玩家查看自己的待处理兑换
+/omnitools cdk admin list         管理员
+/omnitools cdk admin audit <id>   管理员查看兑换数量和异常记录
+```
+
+玩家端只返回“CDK 无效或当前不可用”，不要区分“码不存在、已过期、已用完”，避免被暴力枚举。详细原因只写管理员日志或审计 GUI。
+
+**2. 统一奖励增加补签卡类型**
+
+现有奖励类型为货币、物品、称号、指令。应新增第五种：
+
+```json
+{
+  "id": "makeup_cards",
+  "type": "makeup_card",
+  "amount": 2
+}
+```
+
+它可用于 CDK、签到、在线奖励、成就，以及未来远征世界的怪物掉落。实现上应和货币奖励一样，在同一玩家数据事务中以 `eventId + rewardId` 做幂等标记，不能通过“先加卡、后记账”的两步流程。
+
+**3. 补签卡配置**
+
+补签属于签到模块，因此放在：
+
+```text
+config/omnitools/daily_checkin/config.json
+```
+
+示例：
+
+```json
+{
+  "format_version": 3,
+  "daily": {
+    "rewards": [
+      { "id": "daily_currency", "type": "currency", "amount": 100 }
+    ]
+  },
+  "makeup": {
+    "enabled": true,
+    "max_cards": 99,
+    "max_backfill_days": 7,
+    "max_uses_per_calendar_month": 3,
+    "earliest_eligible_day": "first_seen",
+    "affects_streak": true,
+    "daily_reward_policy": "none",
+    "counts_for_monthly_milestones": true,
+    "purchase": {
+      "enabled": true,
+      "price": 200
+    }
+  }
+}
+```
+
+建议默认规则：
+
+- 只能补今天之前的漏签日期，不能补今天或未来日期。
+- 最多补过去 7 天，且每自然月最多使用 3 张。
+- 不能补早于玩家首次进入服务器的日期，避免新玩家补出历史签到。
+- 已签到日期不可再次补签，不消耗卡。
+- 补签成功后会重新计算总签到天数和连续签到天数。
+- 默认不发放当日每日奖励，避免玩家大量补历史日期造成经济通胀。
+- 默认计入月度签到进度；是否能触发月度里程碑奖励由 `counts_for_monthly_milestones` 明确控制。
+- 若服主希望补签也获得每日奖励，设置 `daily_reward_policy: "grant"`，但应在文档中标为高经济影响选项。
+
+补签的核心事务必须是一个 `CheckinData` 同步操作：
+
+```text
+验证日期与月度额度
+  -> 验证持有补签卡
+  -> 扣除 1 张卡
+  -> 写入补签日期与来源 make_up
+  -> 重算连续签到
+  -> 持久化
+```
+
+任何验证失败都不能扣卡。若后续奖励进入奖励箱或暂时失败，签到与卡消耗不回滚，奖励由现有账本重试机制继续完成。
+
+**4. 玩家交互**
+
+在签到日历中：
+
+- 已签到日期：绿色或灰色，显示签到时间。
+- 可补签的漏签日期：时钟图标，显示“补签需 1 张，剩余 X 张”。
+- 不可补签日期：灰色，显示具体原因，例如“超过补签期限”或“本月额度已用完”。
+- 点击可补签日期先打开确认页，再点击确认才扣卡。
+- 签到主页增加一张“补签卡”信息卡，显示持有数量、本月已用次数与购买入口。
+
+建议命令：
+
+```text
+/omnitools checkin cards
+/omnitools checkin makeup <yyyy-MM-dd>
+/omnitools checkin cards buy <amount>
+/omnitools checkin admin cards give <player> <amount>
+/omnitools checkin admin cards take <player> <amount>
+```
+
+对应新增权限节点：
+
+```text
+checkin.makeup          PLAYER
+checkin.cards.buy       PLAYER
+checkin.cards.admin     ADMIN
+cdk.redeem              PLAYER
+cdk.admin               ADMIN
+```
+
+**5. 需要新增的结构**
+
+- `CdkConfig`：加载并校验活动、时间、码格式、奖励。
+- `CdkData`：保存全服兑换次数、玩家兑换记录、活动定义指纹和审计时间。
+- `CdkService`：兑换、限制、奖励账本衔接、重试恢复。
+- `RewardType.MAKEUP_CARD`：统一奖励第五种类型。
+- `CheckinData`：补签卡余额、每月使用次数、首次见到日期、补签来源。
+- `CheckinMakeupService`：日期规则、原子补签和连续签到重算。
+- `CdkScreenHandler` 不建议作为 MVP。纯服务端容器 GUI 无法安全输入文本，首版用命令兑换即可；GUI 只用于查看卡片和补签确认。
+
+**6. 验收重点**
+
+1. 同一 CDK 连续输入两次，只发一次奖励。
+2. 两个玩家同时兑换最后一个限量 CDK，只有一人成功。
+3. CDK 奖励含 NBT 物品、限时称号和补签卡时，重启后不重复发放。
+4. 修改已兑换活动的奖励后，系统拒绝继续兑换并提示管理员新建活动 ID。
+5. 无卡、已签到、超期、未来日期、月度额度耗尽时，均不扣卡。
+6. 补昨天后连续签到正确衔接；补签不增加“今日第几位签到者”统计。
+7. 时区跨日和跨月时，补签资格、月度额度和月度奖励正确计算。
+8. `/omnitools reload` 失败时，旧 CDK 与补签规则继续生效。
+
+这套设计能直接复用现有签到数据、货币、统一奖励和奖励账本，不会为 CDK 或补签另造一套不一致的经济逻辑。本次仅完成方案设计，未修改文件。

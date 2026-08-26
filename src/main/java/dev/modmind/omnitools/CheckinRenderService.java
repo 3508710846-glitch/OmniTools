@@ -33,7 +33,10 @@ public final class CheckinRenderService {
                 : day.isBefore(month) ? (signed ? DateState.PAST_SIGNED : DateState.MISSED) : DateState.FUTURE;
         boolean milestone = !today && rewards.monthlyRewards().containsKey(day.getDayOfMonth())
                 && state != DateState.MISSED;
-        Item icon = milestone ? ui.icons().milestone() : switch (state) {
+        CheckinData.MakeupStatus makeupStatus = state == DateState.MISSED
+                ? data.makeupStatus(player.getUUID(), day.toEpochDay(), month.toEpochDay(), rewards.makeup()) : null;
+        boolean makeup = makeupStatus == CheckinData.MakeupStatus.APPLIED;
+        Item icon = makeup ? Items.CLOCK : milestone ? ui.icons().milestone() : switch (state) {
             case AVAILABLE -> ui.icons().available();
             case SIGNED -> ui.icons().signed();
             case PAST_SIGNED -> ui.icons().pastSigned();
@@ -58,6 +61,13 @@ public final class CheckinRenderService {
         } else if (state == DateState.SIGNED && hasPendingRewards(player, month, data.getStats(player.getUUID(), month.toEpochDay()).monthlyDays())) {
             lore.add(ServerText.translatable("gui.omnitools.checkin.rewards_pending").withStyle(ChatFormatting.YELLOW));
         }
+        if (makeup) {
+            lore.add(ServerText.translatable("gui.omnitools.checkin.makeup_date_hint")
+                    .withStyle(ChatFormatting.AQUA));
+        } else if (makeupStatus != null && makeupStatus != CheckinData.MakeupStatus.ALREADY_SIGNED) {
+            lore.add(ServerText.translatable("command.omnitools.checkin.makeup."
+                    + makeupStatus.name().toLowerCase(java.util.Locale.ROOT)).withStyle(ChatFormatting.GRAY));
+        }
         if (milestone && ui.showRewardPreview()) {
             lore.add(ServerText.translatable("gui.omnitools.checkin.journal.action_rewards")
                     .withStyle(ChatFormatting.AQUA));
@@ -71,7 +81,7 @@ public final class CheckinRenderService {
     }
 
     public static ItemStack emptyCalendarStack(CheckinUiConfig ui) {
-        return namedItem(ui.icons().empty(), ServerText.translatable("gui.omnitools.checkin.journal.empty"), List.of());
+        return GuiTheme.emptySlot();
     }
 
     public static ItemStack profileStack(ServerPlayer player, CheckinData.PlayerStats stats) {
@@ -154,6 +164,21 @@ public final class CheckinRenderService {
                         ServerText.translatable("gui.omnitools.checkin.reward_inbox_hint")));
     }
 
+    public static ItemStack makeupCardStack(ServerPlayer player) {
+        CheckinMakeupService.CardStatus status = ModMindEntry.checkinMakeupService().status(player);
+        ItemStack stack = namedItem(Items.CLOCK, ServerText.translatable("gui.omnitools.checkin.makeup_cards")
+                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD), List.of(
+                ServerText.translatable("gui.omnitools.checkin.makeup_cards_balance", status.cards(), status.maxCards())
+                        .withStyle(ChatFormatting.GOLD),
+                ServerText.translatable("gui.omnitools.checkin.makeup_cards_month", status.monthlyUses(),
+                        status.maxMonthlyUses()).withStyle(ChatFormatting.GRAY),
+                ServerText.translatable("gui.omnitools.checkin.makeup_cards_hint").withStyle(ChatFormatting.AQUA)));
+        if (status.cards() > 0L) {
+            stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+        }
+        return stack;
+    }
+
     public static ItemStack helpStack() {
         return namedItem(Items.BOOK, ServerText.translatable("gui.omnitools.checkin.help"), List.of(
                 ServerText.translatable("gui.omnitools.checkin.help_available").withStyle(ChatFormatting.GOLD),
@@ -168,8 +193,7 @@ public final class CheckinRenderService {
     }
 
     public static ItemStack closeStack() {
-        return namedItem(Items.BARRIER, ServerText.translatable("gui.omnitools.checkin.close"),
-                List.of(ServerText.translatable("gui.omnitools.checkin.close_hint")));
+        return GuiNavigationService.close();
     }
 
     private static ItemStack rewardIcon(ServerPlayer player, List<RewardDefinition> rewards) {
@@ -178,6 +202,7 @@ public final class CheckinRenderService {
             stack = switch (reward.type()) {
                 case ITEM -> reward.createItemStack();
                 case CURRENCY -> new ItemStack(Items.GOLD_INGOT);
+                case MAKEUP_CARD -> new ItemStack(Items.CLOCK);
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
             };

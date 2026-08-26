@@ -417,6 +417,9 @@ public final class RewardClaimLedger extends SavedData {
             return Optional.empty();
         }
         try {
+            if (parts.length == 3 && parts[0].equals("cdk")) {
+                return Optional.of(UUID.fromString(parts[2]));
+            }
             return Optional.of(UUID.fromString(parts[1]));
         } catch (IllegalArgumentException ignored) {
             return Optional.empty();

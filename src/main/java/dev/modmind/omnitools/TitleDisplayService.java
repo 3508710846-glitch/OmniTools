@@ -47,8 +47,11 @@ public final class TitleDisplayService {
         if (team != null && !isManagedTeam(team)) {
             playerName = PlayerTeam.formatNameForTeam(team, playerName);
         }
-        return playerName.copy().append(Component.literal(" "))
-                .append(TextTemplateRenderer.render(player, selected.get().display()));
+        // The title template owns its separator (the built-in templates end with a space),
+        // so keep it before the complete vanilla/external-team player display name.
+        return TextTemplateRenderer.render(player, selected.get().display())
+                .copy()
+                .append(playerName.copy().withStyle(ChatFormatting.RESET));
     }
 
     public static Component chatName(ServerPlayer player, TitleConfig.TitleDefinition title) {

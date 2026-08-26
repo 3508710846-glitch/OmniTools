@@ -43,6 +43,11 @@ public final class CheckinData extends SavedData {
     private static final String ONLINE_TIME_MILLIS_KEY = "online_time_millis";
     private static final String ONLINE_TIME_REWARDS_KEY = "online_time_rewards";
     private static final String MONTHLY_SUMMARIES_KEY = "monthly_summaries";
+    private static final String MAKEUP_CARDS_KEY = "makeup_cards";
+    private static final String MAKEUP_REWARD_EVENTS_KEY = "makeup_card_reward_events";
+    private static final String MAKEUP_DAYS_KEY = "makeup_days";
+    private static final String MAKEUP_MONTHLY_USES_KEY = "makeup_monthly_uses";
+    private static final String FIRST_SEEN_DAY_KEY = "first_seen_day";
 
     public static final SavedDataType<CheckinData> TYPE = new SavedDataType<>(
             DATA_ID,
@@ -95,6 +100,9 @@ public final class CheckinData extends SavedData {
 
     public synchronized SignInResult signIn(UUID playerId, long day, String playerName, long signedAt) {
         PlayerRecord record = players.computeIfAbsent(playerId, ignored -> new PlayerRecord());
+        if (record.firstSeenDay == Long.MIN_VALUE) {
+            record.firstSeenDay = earliestSignedDay(record, day);
+        }
         if (playerName != null && !playerName.isBlank() && !playerName.equals(record.lastKnownName)) {
             record.lastKnownName = playerName;
             setDirty();
@@ -141,6 +149,163 @@ public final class CheckinData extends SavedData {
     public synchronized long getBalance(UUID playerId) {
         PlayerRecord record = players.get(playerId);
         return record == null ? 0L : record.balance;
+    }
+
+    /** Records the first eligible server day without changing any sign-in state. */
+    public synchronized void ensureFirstSeen(UUID playerId, long day, String playerName) {
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.firstSeenDay == Long.MIN_VALUE) {
+            record.firstSeenDay = earliestSignedDay(record, day);
+            setDirty();
+        }
+    }
+
+    public synchronized long getMakeupCards(UUID playerId) {
+        PlayerRecord record = players.get(playerId);
+        return record == null ? 0L : record.makeupCards;
+    }
+
+    public synchronized int getMakeupUses(UUID playerId, YearMonth month) {
+        PlayerRecord record = players.get(playerId);
+        return record == null ? 0 : record.makeupMonthlyUses.getOrDefault(month.toString(), 0);
+    }
+
+    /** Adds administrator-issued cards, capped by the active check-in configuration. */
+    public synchronized MakeupCardResult addMakeupCards(UUID playerId, long amount, int maxCards, String playerName) {
+        if (amount < 0L || maxCards < 0) {
+            throw new IllegalArgumentException("Makeup-card amounts must be non-negative");
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (amount > Integer.MAX_VALUE || record.makeupCards > maxCards - amount) {
+            return MakeupCardResult.LIMIT_REACHED;
+        }
+        record.makeupCards += amount;
+        setDirty();
+        return MakeupCardResult.APPLIED;
+    }
+
+    /**
+     * Applies a makeup-card reward exactly once in this SavedData transaction. The ledger may be
+     * replayed after a stop without duplicating the player-owned virtual entitlement.
+     */
+    public synchronized MakeupCardResult applyRewardMakeupCards(UUID playerId, String eventId, String rewardId,
+                                                                 long amount, int maxCards, String playerName) {
+        if (amount < 1L || amount > Integer.MAX_VALUE || maxCards < 0) {
+            throw new IllegalArgumentException("Invalid makeup-card reward");
+        }
+        String key = rewardEventKey(eventId, rewardId);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.makeupCardRewardEvents.contains(key)) {
+            return MakeupCardResult.ALREADY_APPLIED;
+        }
+        if (record.makeupCards > maxCards - amount) {
+            return MakeupCardResult.LIMIT_REACHED;
+        }
+        record.makeupCards += amount;
+        record.makeupCardRewardEvents.add(key);
+        setDirty();
+        return MakeupCardResult.APPLIED;
+    }
+
+    public synchronized long removeMakeupCards(UUID playerId, long amount, String playerName) {
+        requireNonNegative(amount);
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        long removed = Math.min(record.makeupCards, amount);
+        if (removed > 0L) {
+            record.makeupCards -= removed;
+            setDirty();
+        }
+        return removed;
+    }
+
+    /** Charges currency and credits virtual cards under one CheckinData monitor and save boundary. */
+    public synchronized MakeupPurchaseResult purchaseMakeupCards(UUID playerId, long amount,
+                                                                  CheckinRewardConfig.MakeupConfig config,
+                                                                  String playerName) {
+        if (amount < 1L || config == null || !config.enabled() || !config.purchase().enabled()) {
+            return MakeupPurchaseResult.rejected(MakeupPurchaseStatus.DISABLED, getBalance(playerId),
+                    getMakeupCards(playerId));
+        }
+        if (amount > Integer.MAX_VALUE || amount > config.maxCards()) {
+            return MakeupPurchaseResult.rejected(MakeupPurchaseStatus.CARD_LIMIT, getBalance(playerId),
+                    getMakeupCards(playerId));
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.makeupCards > config.maxCards() - amount) {
+            return MakeupPurchaseResult.rejected(MakeupPurchaseStatus.CARD_LIMIT, record.balance, record.makeupCards);
+        }
+        long price = config.purchase().price();
+        if (price > 0L && amount > Long.MAX_VALUE / price) {
+            return MakeupPurchaseResult.rejected(MakeupPurchaseStatus.INSUFFICIENT_CURRENCY, record.balance,
+                    record.makeupCards);
+        }
+        long cost = amount * price;
+        if (record.balance < cost) {
+            return MakeupPurchaseResult.rejected(MakeupPurchaseStatus.INSUFFICIENT_CURRENCY, record.balance,
+                    record.makeupCards);
+        }
+        record.balance -= cost;
+        record.makeupCards += amount;
+        setDirty();
+        return MakeupPurchaseResult.applied(cost, record.balance, record.makeupCards);
+    }
+
+    /** Atomically validates, consumes a virtual card, and records a historical sign-in. */
+    public synchronized MakeupResult makeupSignIn(UUID playerId, long targetDay, long todayDay, String playerName,
+                                                   CheckinRewardConfig.MakeupConfig config) {
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.firstSeenDay == Long.MIN_VALUE) {
+            record.firstSeenDay = earliestSignedDay(record, todayDay);
+            setDirty();
+        }
+        MakeupStatus eligibility = makeupStatus(record, targetDay, todayDay, config);
+        if (eligibility != MakeupStatus.APPLIED) {
+            return MakeupResult.rejected(eligibility, getStats(playerId, todayDay));
+        }
+        YearMonth currentMonth = YearMonth.from(LocalDate.ofEpochDay(todayDay));
+
+        record.makeupCards--;
+        record.makeupMonthlyUses.merge(currentMonth.toString(), 1, Integer::sum);
+        record.signedDays.add(targetDay);
+        record.makeupDays.add(targetDay);
+        record.signInOrdinals.put(targetDay, dailySigners.getOrDefault(targetDay, 0) + 1);
+        record.signInTimes.put(targetDay, System.currentTimeMillis());
+        record.totalDays++;
+        if (config.affectsStreak()) {
+            rebuildLatestStats(record);
+        }
+        statsCache.clear();
+        setDirty();
+        return MakeupResult.applied(targetDay, getStats(playerId, targetDay));
+    }
+
+    /** Non-mutating eligibility for journal rendering and confirmation-page gating. */
+    public synchronized MakeupStatus makeupStatus(UUID playerId, long targetDay, long todayDay,
+                                                  CheckinRewardConfig.MakeupConfig config) {
+        if (config == null) {
+            return MakeupStatus.DISABLED;
+        }
+        PlayerRecord record = players.get(playerId);
+        if (record == null) {
+            return config.enabled() && targetDay < todayDay ? MakeupStatus.BEFORE_FIRST_SEEN : MakeupStatus.DISABLED;
+        }
+        return makeupStatus(record, targetDay, todayDay, config);
+    }
+
+    public synchronized int monthlyMilestoneDays(UUID playerId, long day, boolean includeMakeup) {
+        PlayerRecord record = players.get(playerId);
+        if (record == null) {
+            return 0;
+        }
+        YearMonth month = YearMonth.from(LocalDate.ofEpochDay(day));
+        int count = 0;
+        for (long signedDay : record.signedDays) {
+            if (YearMonth.from(LocalDate.ofEpochDay(signedDay)).equals(month)
+                    && (includeMakeup || !record.makeupDays.contains(signedDay))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public synchronized long addCurrency(UUID playerId, long amount, String playerName) {
@@ -328,6 +493,38 @@ public final class CheckinData extends SavedData {
         return count;
     }
 
+    private static MakeupStatus makeupStatus(PlayerRecord record, long targetDay, long todayDay,
+                                              CheckinRewardConfig.MakeupConfig config) {
+        if (!config.enabled()) {
+            return MakeupStatus.DISABLED;
+        }
+        if (targetDay >= todayDay) {
+            return MakeupStatus.NOT_HISTORICAL;
+        }
+        if (targetDay < todayDay - config.maxBackfillDays()) {
+            return MakeupStatus.TOO_OLD;
+        }
+        long firstSeenDay = record.firstSeenDay == Long.MIN_VALUE ? earliestSignedDay(record, todayDay)
+                : record.firstSeenDay;
+        if (config.earliestEligibleDay() == CheckinRewardConfig.EarliestEligibleDay.FIRST_SEEN
+                && targetDay < firstSeenDay) {
+            return MakeupStatus.BEFORE_FIRST_SEEN;
+        }
+        if (record.signedDays.contains(targetDay)) {
+            return MakeupStatus.ALREADY_SIGNED;
+        }
+        YearMonth currentMonth = YearMonth.from(LocalDate.ofEpochDay(todayDay));
+        if (record.makeupMonthlyUses.getOrDefault(currentMonth.toString(), 0)
+                >= config.maxUsesPerCalendarMonth()) {
+            return MakeupStatus.MONTHLY_LIMIT;
+        }
+        return record.makeupCards < 1L ? MakeupStatus.NO_CARDS : MakeupStatus.APPLIED;
+    }
+
+    private static long earliestSignedDay(PlayerRecord record, long fallback) {
+        return record.signedDays.stream().mapToLong(Long::longValue).min().orElse(fallback);
+    }
+
     private static void requireNonNegative(long amount) {
         if (amount < 0L) {
             throw new IllegalArgumentException("Currency amount must not be negative");
@@ -446,6 +643,7 @@ public final class CheckinData extends SavedData {
             record.signedDays.removeIf(day -> day < cutoff);
             record.signInOrdinals.keySet().removeIf(day -> day < cutoff);
             record.signInTimes.keySet().removeIf(day -> day < cutoff);
+            record.makeupDays.removeIf(day -> day < cutoff);
         }
         dailySigners.keySet().removeIf(day -> day < cutoff);
         statsCache.clear();
@@ -548,6 +746,16 @@ public final class CheckinData extends SavedData {
                 record.lastKnownName = playerTag.getStringOr(LAST_KNOWN_NAME_KEY, "");
                 record.balance = Math.max(0L, playerTag.getLongOr(BALANCE_KEY, 0L));
                 readIds(playerTag.getListOrEmpty(CURRENCY_REWARD_EVENTS_KEY), record.currencyRewardEvents);
+                record.makeupCards = Math.max(0L, playerTag.getLongOr(MAKEUP_CARDS_KEY, 0L));
+                readIds(playerTag.getListOrEmpty(MAKEUP_REWARD_EVENTS_KEY), record.makeupCardRewardEvents);
+                for (long day : playerTag.getLongArray(MAKEUP_DAYS_KEY).orElseGet(() -> new long[0])) {
+                    record.makeupDays.add(day);
+                }
+                CompoundTag makeupUses = playerTag.getCompoundOrEmpty(MAKEUP_MONTHLY_USES_KEY);
+                for (String month : makeupUses.keySet()) {
+                    record.makeupMonthlyUses.put(month, Math.max(0, makeupUses.getIntOr(month, 0)));
+                }
+                record.firstSeenDay = playerTag.getLongOr(FIRST_SEEN_DAY_KEY, Long.MIN_VALUE);
                 CompoundTag claimedTags = playerTag.getCompoundOrEmpty(MONTHLY_REWARDS_KEY);
                 record.claimedMonthlyRewards.addAll(claimedTags.keySet());
                 record.onlineTimeDay = playerTag.getLongOr(ONLINE_TIME_DAY_KEY, Long.MIN_VALUE);
@@ -605,6 +813,15 @@ public final class CheckinData extends SavedData {
             playerTag.putString(LAST_KNOWN_NAME_KEY, record.lastKnownName);
             playerTag.putLong(BALANCE_KEY, record.balance);
             playerTag.put(CURRENCY_REWARD_EVENTS_KEY, writeIds(record.currencyRewardEvents));
+            playerTag.putLong(MAKEUP_CARDS_KEY, record.makeupCards);
+            playerTag.put(MAKEUP_REWARD_EVENTS_KEY, writeIds(record.makeupCardRewardEvents));
+            playerTag.putLongArray(MAKEUP_DAYS_KEY, record.makeupDays.stream().mapToLong(Long::longValue).toArray());
+            CompoundTag makeupUses = new CompoundTag();
+            record.makeupMonthlyUses.forEach(makeupUses::putInt);
+            playerTag.put(MAKEUP_MONTHLY_USES_KEY, makeupUses);
+            if (record.firstSeenDay != Long.MIN_VALUE) {
+                playerTag.putLong(FIRST_SEEN_DAY_KEY, record.firstSeenDay);
+            }
             CompoundTag claimedTags = new CompoundTag();
             for (String rewardKey : record.claimedMonthlyRewards) {
                 claimedTags.putBoolean(rewardKey, true);
@@ -663,6 +880,58 @@ public final class CheckinData extends SavedData {
         OVERFLOW
     }
 
+    public enum MakeupCardResult {
+        APPLIED,
+        ALREADY_APPLIED,
+        LIMIT_REACHED
+    }
+
+    public enum MakeupStatus {
+        APPLIED,
+        DISABLED,
+        NOT_HISTORICAL,
+        TOO_OLD,
+        BEFORE_FIRST_SEEN,
+        ALREADY_SIGNED,
+        MONTHLY_LIMIT,
+        NO_CARDS
+    }
+
+    public record MakeupResult(MakeupStatus status, long day, PlayerStats stats) {
+        static MakeupResult rejected(MakeupStatus status, PlayerStats stats) {
+            return new MakeupResult(status, Long.MIN_VALUE, stats);
+        }
+
+        static MakeupResult applied(long day, PlayerStats stats) {
+            return new MakeupResult(MakeupStatus.APPLIED, day, stats);
+        }
+
+        public boolean applied() {
+            return status == MakeupStatus.APPLIED;
+        }
+    }
+
+    public enum MakeupPurchaseStatus {
+        APPLIED,
+        DISABLED,
+        CARD_LIMIT,
+        INSUFFICIENT_CURRENCY
+    }
+
+    public record MakeupPurchaseResult(MakeupPurchaseStatus status, long cost, long balance, long cards) {
+        static MakeupPurchaseResult applied(long cost, long balance, long cards) {
+            return new MakeupPurchaseResult(MakeupPurchaseStatus.APPLIED, cost, balance, cards);
+        }
+
+        static MakeupPurchaseResult rejected(MakeupPurchaseStatus status, long balance, long cards) {
+            return new MakeupPurchaseResult(status, 0L, balance, cards);
+        }
+
+        public boolean applied() {
+            return status == MakeupPurchaseStatus.APPLIED;
+        }
+    }
+
     private record CachedPlayerStats(long day, PlayerStats stats) {
     }
 
@@ -676,6 +945,11 @@ public final class CheckinData extends SavedData {
         private long lastSignedDay = Long.MIN_VALUE;
         private long balance;
         private final Set<String> currencyRewardEvents = new HashSet<>();
+        private long makeupCards;
+        private final Set<String> makeupCardRewardEvents = new HashSet<>();
+        private final Set<Long> makeupDays = new HashSet<>();
+        private final Map<String, Integer> makeupMonthlyUses = new HashMap<>();
+        private long firstSeenDay = Long.MIN_VALUE;
         private final Set<String> claimedMonthlyRewards = new HashSet<>();
         private long onlineTimeDay = Long.MIN_VALUE;
         private long onlineTimeMillis;

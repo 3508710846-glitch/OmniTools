@@ -24,18 +24,22 @@ import java.util.UUID;
 public final class ShopScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int PRODUCT_SLOT_COUNT = ShopConfig.PRODUCTS_PER_PAGE;
+    public static final int PRODUCT_SLOT_COUNT = GuiSlots.CONTENT_SLOT_COUNT_54;
     public static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
-    public static final int PLAYER_HEAD_SLOT = GuiSlots.CENTER_54;
+    public static final int PLAYER_HEAD_SLOT = GuiSlots.HEADER_LEFT_54;
+    public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
+    public static final int PAGE_SLOT = GuiSlots.CENTER_54;
     public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer shopContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
-    private final ShopConfig config;
+    private ShopConfig config;
     private int page;
     private int pageCount;
     private long displayedBalance = Long.MIN_VALUE;
     private long lastBalanceCheckTick = Long.MIN_VALUE;
+    private long lastConfigRevision = Long.MIN_VALUE;
 
     public ShopScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), null, ShopConfig.empty(), 0);
@@ -79,20 +83,29 @@ public final class ShopScreenHandler extends ChestMenu {
                 || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP) {
             return;
         }
+        refreshConfigIfChanged();
 
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             openPage(serverPlayer, page - 1);
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             openPage(serverPlayer, page + 1);
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
-        if (slotId >= PRODUCT_SLOT_COUNT) {
+        int localIndex = GuiSlots.contentIndex54(slotId);
+        if (localIndex < 0) {
             return;
         }
 
-        ShopConfig.ShopItem product = config.get(page * PRODUCT_SLOT_COUNT + slotId);
+        ShopConfig.ShopItem product = config.get(page * PRODUCT_SLOT_COUNT + localIndex);
         if (product != null) {
             purchase(serverPlayer, product);
         }
@@ -110,7 +123,7 @@ public final class ShopScreenHandler extends ChestMenu {
             if (lastBalanceCheckTick == Long.MIN_VALUE || tick - lastBalanceCheckTick >= 10L) {
                 lastBalanceCheckTick = tick;
                 long balance = CheckinData.get(owner).getBalance(ownerId);
-                if (balance != displayedBalance) {
+                if (!refreshConfigIfChanged() && balance != displayedBalance) {
                     refreshContents(owner);
                 }
             }
@@ -154,27 +167,16 @@ public final class ShopScreenHandler extends ChestMenu {
     }
 
     private void refreshContents(ServerPlayer owner) {
-        pageCount = config.pageCount();
+        pageCount = Math.max(1, (config.highestProductIndex() + PRODUCT_SLOT_COUNT) / PRODUCT_SLOT_COUNT);
         page = clampPage(page);
         GuiTheme.clear(shopContainer);
 
         int firstIndex = page * PRODUCT_SLOT_COUNT;
-        for (int slot = 0; slot < PRODUCT_SLOT_COUNT; slot++) {
-            ShopConfig.ShopItem product = config.get(firstIndex + slot);
+        for (int index = 0; index < PRODUCT_SLOT_COUNT; index++) {
+            ShopConfig.ShopItem product = config.get(firstIndex + index);
             if (product != null) {
-                shopContainer.setItem(slot, displayProduct(owner, product));
+                shopContainer.setItem(GuiSlots.contentSlot54(index), displayProduct(owner, product));
             }
-        }
-
-        if (page > 0) {
-            shopContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.shop.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.shop.previous_hint").withStyle(ChatFormatting.GRAY))));
-        }
-        if (page + 1 < pageCount) {
-            shopContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.shop.next").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.shop.next_hint").withStyle(ChatFormatting.GRAY))));
         }
 
         CheckinData data = CheckinData.get(owner);
@@ -184,33 +186,41 @@ public final class ShopScreenHandler extends ChestMenu {
         profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.shop.balance_title")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
         profile.set(DataComponents.LORE, new ItemLore(List.of(
-                ServerText.translatable("gui.omnitools.shop.balance", balance)
-                        .withStyle(ChatFormatting.GOLD),
-                ServerText.translatable("gui.omnitools.shop.page", page + 1, pageCount)
-                        .withStyle(ChatFormatting.GRAY))));
+                ServerText.translatable("gui.omnitools.shop.balance", balance).withStyle(ChatFormatting.GOLD),
+                ServerText.translatable("gui.omnitools.shop.page", page + 1, pageCount).withStyle(ChatFormatting.GRAY))));
         shopContainer.setItem(PLAYER_HEAD_SLOT, profile);
+        shopContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.EMERALD,
+                ServerText.translatable("gui.omnitools.shop.title"), ChatFormatting.GOLD,
+                List.of(ServerText.translatable("gui.omnitools.shop.page", page + 1, pageCount)
+                        .withStyle(ChatFormatting.GRAY)), false));
+        shopContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+
+        if (page > 0) {
+            shopContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
+        }
+        shopContainer.setItem(PAGE_SLOT, GuiNavigationService.page(page + 1, pageCount, config.productCount()));
+        if (page + 1 < pageCount) {
+            shopContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
+        }
         displayedBalance = balance;
+        lastConfigRevision = ModMindEntry.configSnapshot().revision();
     }
 
     private ItemStack displayProduct(ServerPlayer player, ShopConfig.ShopItem product) {
         // Rendering only affects this menu copy; purchases keep the exact configured item stack.
         ItemStack display = TextTemplateRenderer.renderItemText(player, product.createStack());
         boolean affordable = CheckinData.get(player).getBalance(player.getUUID()) >= product.price();
-        display.set(DataComponents.CUSTOM_NAME, display.getHoverName().copy()
-                .withStyle(affordable ? ChatFormatting.GOLD : ChatFormatting.RED, ChatFormatting.BOLD));
         ItemLore existingLore = display.get(DataComponents.LORE);
         List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
-        if (lore.size() >= ItemLore.MAX_LINES) {
-            lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 1));
-        }
         lore.add(ServerText.translatable("gui.omnitools.shop.price", product.price()).withStyle(ChatFormatting.GOLD));
         lore.add(ServerText.translatable("gui.omnitools.shop.quantity", product.stack().getCount())
                 .withStyle(ChatFormatting.WHITE));
         lore.add(ServerText.translatable(affordable ? "gui.omnitools.shop.affordable"
                 : "gui.omnitools.shop.insufficient").withStyle(affordable ? ChatFormatting.GOLD : ChatFormatting.RED));
-        lore.add(ServerText.translatable("gui.omnitools.shop.purchase_hint").withStyle(ChatFormatting.YELLOW));
-        display.set(DataComponents.LORE, new ItemLore(lore));
-        return display;
+        return GuiStatusItem.create(display, display.getHoverName(), affordable
+                        ? GuiStatusItem.State.ACTIONABLE : GuiStatusItem.State.BLOCKED,
+                GuiTextService.cardLore(lore, ServerText.translatable("gui.omnitools.shop.purchase_hint")
+                        .withStyle(affordable ? ChatFormatting.GREEN : ChatFormatting.RED)));
     }
 
     private void openPage(ServerPlayer player, int targetPage) {
@@ -222,6 +232,16 @@ public final class ShopScreenHandler extends ChestMenu {
     private int clampPage(int candidate) {
         return Math.max(0, Math.min(candidate, pageCount - 1));
     }
+
+    private boolean refreshConfigIfChanged() {
+        if (ModMindEntry.configSnapshot().revision() == lastConfigRevision) {
+            return false;
+        }
+        config = ModMindEntry.shopConfig();
+        refreshContents(owner);
+        return true;
+    }
+
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {
         ItemStack stack = new ItemStack(item);

@@ -30,7 +30,8 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     public static final int BALANCE_SLOT = 47;
     public static final int STATUS_SLOT = GuiSlots.CENTER_54;
     public static final int UPGRADE_SLOT = 51;
-    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    public static final int NEXT_PAGE_SLOT = 52;
+    public static final int CLOSE_SLOT = GuiSlots.LAST_SLOT_54;
     private final SimpleContainer storageContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -167,12 +168,19 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     }
 
     private void handleActionClick(ServerPlayer player, int slotId) {
+        if (slotId == CLOSE_SLOT) {
+            player.closeContainer();
+            GuiFeedbackService.click(player);
+            return;
+        }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             openPage(player, page - 1);
+            GuiFeedbackService.click(player);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < availablePages()) {
             openPage(player, page + 1);
+            GuiFeedbackService.click(player);
             return;
         }
         if (slotId == UPGRADE_SLOT) {
@@ -254,20 +262,16 @@ public final class CloudStorageScreenHandler extends ChestMenu {
             return;
         }
         for (int slot = PREVIOUS_PAGE_SLOT; slot < CONTAINER_SIZE; slot++) {
-            storageContainer.setItem(slot, filler());
+            storageContainer.setItem(slot, ItemStack.EMPTY);
         }
 
         int unlockedPages = availablePages();
         long balance = CheckinData.get(owner).getBalance(ownerId);
         if (page > 0) {
-            storageContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.storage.previous").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.storage.previous_hint").withStyle(ChatFormatting.GRAY))));
+            storageContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
         if (page + 1 < unlockedPages) {
-            storageContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.storage.next").withStyle(ChatFormatting.AQUA),
-                    List.of(ServerText.translatable("gui.omnitools.storage.next_hint").withStyle(ChatFormatting.GRAY))));
+            storageContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
 
         storageContainer.setItem(BALANCE_SLOT, namedItem(Items.GOLD_INGOT,
@@ -285,6 +289,7 @@ public final class CloudStorageScreenHandler extends ChestMenu {
                 ServerText.translatable("gui.omnitools.storage.capacity", unlockedPages * STORAGE_SLOT_COUNT)
                         .withStyle(ChatFormatting.GRAY))));
         storageContainer.setItem(STATUS_SLOT, status);
+        storageContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
 
         if (unlockedPages < config.maxPages()) {
             storageContainer.setItem(UPGRADE_SLOT, namedItem(Items.EMERALD,
@@ -317,10 +322,6 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     private int clampPage(int candidate) {
         return Math.max(0, Math.min(candidate, availablePages() - 1));
-    }
-
-    private static ItemStack filler() {
-        return GuiTheme.emptySlot();
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

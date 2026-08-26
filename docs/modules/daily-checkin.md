@@ -22,7 +22,7 @@
 
 ```jsonc
 {
-  "format_version": 2, // 每日签到的新格式版本，必须为 2。
+  "format_version": 3, // 每日签到的新格式版本，必须为 3。
   "daily": { // 每天签到时发放的奖励。
     "rewards": [
       { "id": "daily_coins", "type": "currency", "amount": 100 }, // 稳定奖励 ID、类型和数量。
@@ -36,6 +36,17 @@
     "7": [
       { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }
     ]
+  },
+  "makeup": {
+    "enabled": true,
+    "max_cards": 99,
+    "max_backfill_days": 7,
+    "max_uses_per_calendar_month": 3,
+    "earliest_eligible_day": "first_seen",
+    "affects_streak": true,
+    "daily_reward_policy": "none",
+    "counts_for_monthly_milestones": true,
+    "purchase": { "enabled": true, "price": 200 }
   }
 }
 ```
@@ -44,7 +55,7 @@
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "daily": {
     "rewards": [
       { "id": "daily_coins", "type": "currency", "amount": 100 },
@@ -61,6 +72,17 @@
     "7": [
       { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }
     ]
+  },
+  "makeup": {
+    "enabled": true,
+    "max_cards": 99,
+    "max_backfill_days": 7,
+    "max_uses_per_calendar_month": 3,
+    "earliest_eligible_day": "first_seen",
+    "affects_streak": true,
+    "daily_reward_policy": "none",
+    "counts_for_monthly_milestones": true,
+    "purchase": { "enabled": true, "price": 200 }
   }
 }
 ```
@@ -69,13 +91,25 @@
 
 | 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
 | --- | --- | --- | --- | --- |
-| `format_version` | 整数 | 是 | 必须 `2` | 在新格式中使用 `1`。 |
+| `format_version` | 整数 | 是 | 必须 `3` | 在新格式中使用 `1` 或 `2`。 |
 | `daily.rewards` | 奖励数组 | 是 | 可为空 | 同一数组的奖励 ID 重复。 |
 | `monthly` | 对象 | 是 | 键为正整数天数 | 写成数组或使用 `0`。 |
 | `monthly.<天数>` | 奖励数组 | 是 | 每个里程碑独立 | 用旧货币数字代替数组。 |
+| `makeup` | 对象 | 否 | 默认启用补签卡 | 缺失时使用默认补签规则。 |
+| `makeup.max_cards` | 整数 | 否 | `0-1000000`，默认 `99` | 设为负数或小于当前卡片余额。 |
+| `makeup.max_backfill_days` | 整数 | 否 | `1-366`，默认 `7` | 允许补签今天或未来日期。 |
+| `makeup.daily_reward_policy` | 枚举 | 否 | `none` 或 `grant` | 未评估经济影响就使用 `grant`。 |
 | `ui.style` | 字符串 | 否 | `journal` | 使用未支持的主题名。 |
 | `ui.icons.*` | 原版物品 ID | 否 | 见第 13 节 | 使用 `minecraft:air` 或不存在的物品。 |
 | `ui.sounds.*` | 布尔值 | 否 | 全部为 `true` | 写成字符串 `"true"`。 |
+
+### 补签卡规则
+
+补签卡是保存在玩家数据中的虚拟权益，不会生成实体物品。可通过统一奖励中的
+`makeup_card` 类型、购买命令或管理员命令获得。默认只能补今天之前、首次进入服务器之后的
+7 天内漏签；每自然月最多补 3 次。补签会扣除一张卡、写入补签来源并重算连续签到，默认不补发
+每日奖励，但会计入月度里程碑。设置 `daily_reward_policy: "grant"` 会补发每日奖励，应先评估
+经济影响。完整的 CDK 与补签卡示例见 [兑换码与补签卡](cdk.md)。
 
 ## 8. 全部配置场景
 
@@ -119,7 +153,7 @@
 
 ```jsonc
 {
-  "format_version": 2,
+  "format_version": 3,
   "daily": { "rewards": [{ "id": "daily_coins", "type": "currency", "amount": 100 }] },
   "monthly": { "7": [{ "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }] },
   "ui": {
@@ -151,7 +185,7 @@
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "daily": {
     "rewards": [
       { "id": "daily_coins", "type": "currency", "amount": 100 }

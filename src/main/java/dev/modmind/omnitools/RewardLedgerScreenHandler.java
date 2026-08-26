@@ -27,16 +27,19 @@ import java.util.UUID;
 public final class RewardLedgerScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = 54;
-    private static final int CONTENT_SLOTS = 45;
-    private static final int ALL_SLOT = 45;
-    private static final int PENDING_SLOT = 46;
-    private static final int APPLYING_SLOT = 47;
-    private static final int BLOCKED_SLOT = 48;
-    private static final int FAILED_SLOT = 49;
-    private static final int GRANTED_SLOT = 50;
-    private static final int PREVIOUS_PAGE_SLOT = 51;
-    private static final int PAGE_INFO_SLOT = 52;
-    private static final int NEXT_PAGE_SLOT = 53;
+    private static final int CONTENT_SLOTS = GuiSlots.CONTENT_SLOT_COUNT_54;
+    private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    private static final int ALL_SLOT = 46;
+    private static final int PENDING_SLOT = 47;
+    private static final int APPLYING_SLOT = 48;
+    private static final int PAGE_INFO_SLOT = GuiSlots.CENTER_54;
+    private static final int BLOCKED_SLOT = 50;
+    private static final int FAILED_SLOT = 51;
+    private static final int GRANTED_SLOT = 52;
+    private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    private static final int HEADER_SUMMARY_SLOT = GuiSlots.HEADER_LEFT_54;
+    private static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
 
     private final SimpleContainer container;
     private final ServerPlayer owner;
@@ -81,21 +84,30 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
             super.clicked(slotId, button, clickType, player);
             return;
         }
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
         if (applyFilter(slotId)) {
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
-        if (slotId < CONTENT_SLOTS) {
-            int index = page * CONTENT_SLOTS + slotId;
+        int localIndex = GuiSlots.contentIndex54(slotId);
+        if (localIndex >= 0) {
+            int index = page * CONTENT_SLOTS + localIndex;
             if (index < filteredEntries.size()) {
                 resolve(serverPlayer, filteredEntries.get(index), button == 0
                         ? RewardClaimLedger.EntryStatus.GRANTED
@@ -128,7 +140,8 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
             case GRANTED_SLOT -> RewardClaimLedger.EntryStatus.GRANTED;
             default -> null;
         };
-        if (slotId < ALL_SLOT || slotId > GRANTED_SLOT) {
+        if (slotId != ALL_SLOT && slotId != PENDING_SLOT && slotId != APPLYING_SLOT
+                && slotId != BLOCKED_SLOT && slotId != FAILED_SLOT && slotId != GRANTED_SLOT) {
             return false;
         }
         filter = requested;
@@ -174,8 +187,19 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
         int first = page * CONTENT_SLOTS;
         int visible = Math.min(CONTENT_SLOTS, filteredEntries.size() - first);
         for (int index = 0; index < visible; index++) {
-            container.setItem(index, displayStack(filteredEntries.get(first + index)));
+            container.setItem(GuiSlots.contentSlot54(index), displayStack(filteredEntries.get(first + index)));
         }
+        container.setItem(HEADER_SUMMARY_SLOT, GuiTheme.status(Items.COMPASS,
+                ServerText.translatable("gui.omnitools.rewards.admin.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.rewards.admin_page",
+                        page + 1, pageCount, filteredEntries.size()).withStyle(ChatFormatting.GRAY)), false));
+        container.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.WRITABLE_BOOK,
+                ServerText.translatable("gui.omnitools.rewards.filter_status", filterName()), ChatFormatting.GOLD,
+                List.of(ServerText.translatable("gui.omnitools.rewards.admin.left_grant")
+                        .withStyle(ChatFormatting.GREEN),
+                        ServerText.translatable("gui.omnitools.rewards.admin.right_fail")
+                                .withStyle(ChatFormatting.RED)), false));
+        container.setItem(CLOSE_SLOT, GuiNavigationService.close());
         filterButton(ALL_SLOT, null, Items.COMPASS);
         filterButton(PENDING_SLOT, RewardClaimLedger.EntryStatus.PENDING, Items.CLOCK);
         filterButton(APPLYING_SLOT, RewardClaimLedger.EntryStatus.APPLYING, Items.BLAZE_POWDER);
@@ -183,15 +207,11 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
         filterButton(FAILED_SLOT, RewardClaimLedger.EntryStatus.FAILED, Items.REDSTONE);
         filterButton(GRANTED_SLOT, RewardClaimLedger.EntryStatus.GRANTED, Items.EMERALD);
         if (page > 0) {
-            container.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.previous"), List.of()));
+            container.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        container.setItem(PAGE_INFO_SLOT, namedItem(Items.PAPER,
-                ServerText.translatable("gui.omnitools.rewards.admin_page", page + 1, pageCount, filteredEntries.size()),
-                List.of()));
+        container.setItem(PAGE_INFO_SLOT, GuiNavigationService.page(page + 1, pageCount, filteredEntries.size()));
         if (page + 1 < pageCount) {
-            container.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.rewards.next"), List.of()));
+            container.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
     }
 
@@ -210,37 +230,24 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
     private ItemStack displayStack(RewardClaimLedger.LedgerEntry entry) {
         ItemStack stack = iconFor(entry);
         List<Component> lore = new ArrayList<>();
+        lore.add(ServerText.translatable("gui.omnitools.rewards.admin.status", entry.entry().status().name())
+                .withStyle(statusColor(entry.entry().status())));
         lore.add(ServerText.translatable("gui.omnitools.rewards.admin.event", entry.eventId())
                 .withStyle(ChatFormatting.DARK_GRAY));
         lore.add(ServerText.translatable("gui.omnitools.rewards.admin.player", entry.displayPlayer(),
                 entry.playerId() == null ? "unknown" : entry.playerId()).withStyle(ChatFormatting.DARK_GRAY));
         lore.add(ServerText.translatable("gui.omnitools.rewards.reward_id", entry.rewardId()).withStyle(ChatFormatting.DARK_GRAY));
-        lore.add(ServerText.translatable("gui.omnitools.rewards.admin.type", entry.entry().rewardType())
-                .withStyle(ChatFormatting.GRAY));
-        lore.add(ServerText.translatable("gui.omnitools.rewards.admin.status", entry.entry().status().name())
-                .withStyle(statusColor(entry.entry().status())));
-        if (!entry.entry().reason().isBlank()) {
-            lore.add(ServerText.translatable("gui.omnitools.rewards.reason", entry.entry().reason())
-                    .withStyle(ChatFormatting.GOLD));
-        }
-        if (!entry.entry().dispatchedCommand().isBlank()) {
-            lore.add(ServerText.translatable("gui.omnitools.rewards.admin.command", entry.entry().dispatchedCommand())
-                    .withStyle(ChatFormatting.AQUA));
-        }
-        if (!entry.entry().audit().isBlank()) {
-            lore.add(ServerText.translatable("gui.omnitools.rewards.admin.audit", entry.entry().audit())
-                    .withStyle(ChatFormatting.DARK_GRAY));
-        }
-        if (entry.playerId() != null) {
-            lore.add(ServerText.translatable("gui.omnitools.rewards.admin.left_grant").withStyle(ChatFormatting.GREEN));
-            lore.add(ServerText.translatable("gui.omnitools.rewards.admin.right_fail").withStyle(ChatFormatting.RED));
-        } else {
-            lore.add(ServerText.translatable("gui.omnitools.rewards.admin.invalid_event").withStyle(ChatFormatting.RED));
-        }
-        stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.rewards.admin.entry",
-                entry.rewardId()).withStyle(statusColor(entry.entry().status()), ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(lore));
-        return stack;
+        Component detail = !entry.entry().audit().isBlank()
+                ? ServerText.translatable("gui.omnitools.rewards.admin.audit", entry.entry().audit())
+                : !entry.entry().reason().isBlank()
+                ? ServerText.translatable("gui.omnitools.rewards.reason", entry.entry().reason())
+                : ServerText.translatable("gui.omnitools.rewards.admin.type", entry.entry().rewardType());
+        lore.add(detail.copy().withStyle(ChatFormatting.GRAY));
+        Component action = entry.playerId() == null
+                ? ServerText.translatable("gui.omnitools.rewards.admin.invalid_event").withStyle(ChatFormatting.RED)
+                : ServerText.translatable("gui.omnitools.rewards.admin.left_grant").withStyle(ChatFormatting.GREEN);
+        return GuiStatusItem.create(stack, ServerText.translatable("gui.omnitools.rewards.admin.entry",
+                        entry.rewardId()), statusVisualState(entry.entry().status()), GuiTextService.cardLore(lore, action));
     }
 
     private ItemStack iconFor(RewardClaimLedger.LedgerEntry entry) {
@@ -267,6 +274,19 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
             case BLOCKED -> ChatFormatting.RED;
             case FAILED -> ChatFormatting.DARK_RED;
         };
+    }
+
+    private GuiStatusItem.State statusVisualState(RewardClaimLedger.EntryStatus status) {
+        return switch (status) {
+            case PENDING, APPLYING -> GuiStatusItem.State.PENDING;
+            case GRANTED -> GuiStatusItem.State.COMPLETED;
+            case BLOCKED, FAILED -> GuiStatusItem.State.BLOCKED;
+        };
+    }
+
+    private Component filterName() {
+        return filter == null ? ServerText.translatable("gui.omnitools.rewards.filter_all")
+                : Component.literal(filter.name());
     }
 
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {

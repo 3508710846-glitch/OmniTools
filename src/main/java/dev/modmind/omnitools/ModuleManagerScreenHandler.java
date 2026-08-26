@@ -6,7 +6,6 @@ import dev.modmind.omnitools.config.OmniToolsConfigManager;
 import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
@@ -18,9 +17,8 @@ import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.ItemLore;
 
-import java.util.EnumMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,22 +29,29 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     public static final int ROWS = 3;
     public static final int CONTAINER_SIZE = ROWS * 9;
     public static final int RELOAD_SLOT = GuiSlots.CENTER_27;
-    private static final Map<ModuleId, Integer> MODULE_SLOTS = moduleSlots();
-    private static final Map<ModuleId, Item> MODULE_ICONS = Map.of(
-            ModuleId.DAILY_CHECKIN, Items.CLOCK,
-            ModuleId.ONLINE_REWARD, Items.CLOCK,
-            ModuleId.SHOP, Items.EMERALD,
-            ModuleId.TITLES, Items.NAME_TAG,
-            ModuleId.TITLE_EFFECTS, Items.BLAZE_POWDER,
-            ModuleId.ACHIEVEMENTS, Items.KNOWLEDGE_BOOK,
-            ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST,
-            ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK,
-            ModuleId.COMMAND_MENU, Items.CHEST,
-            ModuleId.SIDEBAR, Items.PAPER);
+    private static final int PREVIOUS_PAGE_SLOT = GuiSlots.FIRST_ACTION_SLOT_27;
+    private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_27;
+    private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_27;
+    private static final List<ModuleId> MODULES = List.copyOf(Arrays.asList(ModuleId.values()));
+    private static final Map<ModuleId, Item> MODULE_ICONS = Map.ofEntries(
+            Map.entry(ModuleId.DAILY_CHECKIN, Items.CLOCK),
+            Map.entry(ModuleId.CDK, Items.TRIPWIRE_HOOK),
+            Map.entry(ModuleId.ONLINE_REWARD, Items.CLOCK),
+            Map.entry(ModuleId.SHOP, Items.EMERALD),
+            Map.entry(ModuleId.TITLES, Items.NAME_TAG),
+            Map.entry(ModuleId.TITLE_EFFECTS, Items.BLAZE_POWDER),
+            Map.entry(ModuleId.ACHIEVEMENTS, Items.KNOWLEDGE_BOOK),
+            Map.entry(ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST),
+            Map.entry(ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK),
+            Map.entry(ModuleId.COMMAND_MENU, Items.CHEST),
+            Map.entry(ModuleId.SIDEBAR, Items.PAPER));
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
+    private int page;
+    private int pageCount = 1;
+    private ModuleId pendingConfirmation;
     private long lastConfigRevision = Long.MIN_VALUE;
 
     public ModuleManagerScreenHandler(int syncId, Inventory inventory) {
@@ -80,12 +85,39 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             return;
         }
 
+        if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
+        if (pendingConfirmation != null) {
+            handleConfirmation(serverPlayer, slotId);
+            return;
+        }
         if (slotId == RELOAD_SLOT) {
             reloadFromDisk(serverPlayer);
             return;
         }
-        ModuleId module = moduleAt(slotId);
+        if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
+            page--;
+            refreshContents();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
+        if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
+            page++;
+            refreshContents();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
+        ModuleId module = moduleAt(GuiSlots.contentIndex27(slotId));
         if (module == null) {
+            return;
+        }
+        if (requiresConfirmation(module)) {
+            pendingConfirmation = module;
+            refreshContents();
+            GuiFeedbackService.click(serverPlayer);
             return;
         }
         updateModule(serverPlayer, module);
@@ -156,18 +188,38 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private void refreshContents() {
         OmniToolsConfigSnapshot snapshot = ModMindEntry.configSnapshot();
         GuiTheme.clear(moduleContainer);
-        moduleContainer.setItem(4, GuiTheme.status(Items.COMPASS,
+        if (pendingConfirmation != null) {
+            renderConfirmation(snapshot);
+            lastConfigRevision = snapshot.revision();
+            return;
+        }
+        pageCount = Math.max(1, (MODULES.size() + GuiSlots.CONTENT_SLOT_COUNT_27 - 1)
+                / GuiSlots.CONTENT_SLOT_COUNT_27);
+        page = Math.max(0, Math.min(page, pageCount - 1));
+        moduleContainer.setItem(GuiSlots.HEADER_LEFT_27, GuiTheme.status(Items.COMPASS,
                 ServerText.translatable("gui.omnitools.modules.title"), ChatFormatting.AQUA,
-                List.of(ServerText.translatable("gui.omnitools.modules.revision", snapshot.revision()),
-                        ServerText.translatable("gui.omnitools.modules.reload_hint")), false));
-        for (Map.Entry<ModuleId, Integer> entry : MODULE_SLOTS.entrySet()) {
-            ModuleId module = entry.getKey();
+                List.of(ServerText.translatable("gui.omnitools.modules.revision", snapshot.revision())
+                        .withStyle(ChatFormatting.GRAY)), false));
+        moduleContainer.setItem(GuiSlots.HEADER_CENTER_27, GuiTheme.status(Items.WRITABLE_BOOK,
+                ServerText.translatable("gui.omnitools.modules.title"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.modules.reload_hint")
+                        .withStyle(ChatFormatting.GRAY)), false));
+        moduleContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+        int first = page * GuiSlots.CONTENT_SLOT_COUNT_27;
+        for (int index = 0; index < GuiSlots.CONTENT_SLOT_COUNT_27 && first + index < MODULES.size(); index++) {
+            ModuleId module = MODULES.get(first + index);
             boolean enabled = snapshot.enabled(module);
             Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
                     .dependencyBlock(snapshot, module, !enabled);
-            moduleContainer.setItem(entry.getValue(), moduleItem(module, enabled, block));
+            moduleContainer.setItem(GuiSlots.contentSlot27(index), moduleItem(module, enabled, block));
+        }
+        if (page > 0) {
+            moduleContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
         moduleContainer.setItem(RELOAD_SLOT, reloadItem());
+        if (page + 1 < pageCount) {
+            moduleContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
+        }
         lastConfigRevision = snapshot.revision();
     }
 
@@ -175,12 +227,6 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
                                          Optional<ModuleControlService.DependencyBlock> block) {
         ChatFormatting color = block.isPresent() ? ChatFormatting.YELLOW
                 : enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY;
-        ItemStack item = new ItemStack(block.isPresent() ? Items.YELLOW_DYE
-                : enabled ? Items.LIME_DYE : Items.GRAY_DYE);
-        if (enabled) {
-            item.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-        }
-        item.set(DataComponents.CUSTOM_NAME, moduleName(module).copy().withStyle(color, ChatFormatting.BOLD));
         List<Component> lore = new java.util.ArrayList<>();
         lore.add(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled)).withStyle(color));
         lore.add(ServerText.translatable("gui.omnitools.modules.id", module.id()).withStyle(ChatFormatting.DARK_GRAY));
@@ -188,21 +234,18 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
                 .withStyle(ChatFormatting.DARK_GRAY));
         if (block.isPresent()) {
             lore.add(ServerText.translatable("gui.omnitools.modules.blocked").withStyle(ChatFormatting.YELLOW));
-            lore.add(ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW));
-        } else {
-            lore.add(ServerText.translatable("gui.omnitools.modules.toggle_hint").withStyle(ChatFormatting.GRAY));
         }
-        item.set(DataComponents.LORE, new ItemLore(lore));
-        return item;
+        GuiStatusItem.State state = block.isPresent() ? GuiStatusItem.State.PENDING
+                : enabled ? GuiStatusItem.State.ACTIONABLE : GuiStatusItem.State.INACTIVE;
+        return GuiStatusItem.create(new ItemStack(MODULE_ICONS.get(module)), moduleName(module), state,
+                GuiTextService.cardLore(lore, block.isPresent()
+                        ? ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW)
+                        : ServerText.translatable("gui.omnitools.modules.toggle_hint").withStyle(ChatFormatting.GRAY)));
     }
 
     private static ItemStack reloadItem() {
-        ItemStack item = new ItemStack(Items.RECOVERY_COMPASS);
-        item.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.modules.reload")
-                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
-        item.set(DataComponents.LORE, new ItemLore(List.of(
-                ServerText.translatable("gui.omnitools.modules.reload_hint").withStyle(ChatFormatting.GRAY))));
-        return item;
+        return GuiTheme.navigation(Items.RECOVERY_COMPASS, ServerText.translatable("gui.omnitools.modules.reload"),
+                ServerText.translatable("gui.omnitools.modules.reload_hint"));
     }
 
     private static Component moduleName(ModuleId module) {
@@ -225,27 +268,52 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
                 .withStyle(ChatFormatting.RED);
     }
 
-    private static ModuleId moduleAt(int slot) {
-        for (Map.Entry<ModuleId, Integer> entry : MODULE_SLOTS.entrySet()) {
-            if (entry.getValue() == slot) {
-                return entry.getKey();
-            }
-        }
-        return null;
+    private ModuleId moduleAt(int contentIndex) {
+        int index = page * GuiSlots.CONTENT_SLOT_COUNT_27 + contentIndex;
+        return contentIndex < 0 || index >= MODULES.size() ? null : MODULES.get(index);
     }
 
-    private static Map<ModuleId, Integer> moduleSlots() {
-        EnumMap<ModuleId, Integer> slots = new EnumMap<>(ModuleId.class);
-        slots.put(ModuleId.DAILY_CHECKIN, 10);
-        slots.put(ModuleId.ONLINE_REWARD, 11);
-        slots.put(ModuleId.SHOP, 12);
-        slots.put(ModuleId.TITLES, 13);
-        slots.put(ModuleId.TITLE_EFFECTS, 14);
-        slots.put(ModuleId.ACHIEVEMENTS, 15);
-        slots.put(ModuleId.CLOUD_STORAGE, 16);
-        slots.put(ModuleId.PERMISSIONS, 17);
-        slots.put(ModuleId.COMMAND_MENU, 18);
-        slots.put(ModuleId.SIDEBAR, 19);
-        return Map.copyOf(slots);
+    private void handleConfirmation(ServerPlayer player, int slotId) {
+        if (slotId == PREVIOUS_PAGE_SLOT) {
+            pendingConfirmation = null;
+            refreshContents();
+            GuiFeedbackService.click(player);
+            return;
+        }
+        if (slotId == RELOAD_SLOT) {
+            ModuleId confirmed = pendingConfirmation;
+            pendingConfirmation = null;
+            updateModule(player, confirmed);
+        }
+    }
+
+    private void renderConfirmation(OmniToolsConfigSnapshot snapshot) {
+        ModuleId module = pendingConfirmation;
+        boolean enabled = snapshot.enabled(module);
+        Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
+                .dependencyBlock(snapshot, module, !enabled);
+        moduleContainer.setItem(GuiSlots.HEADER_LEFT_27, GuiTheme.status(MODULE_ICONS.get(module), moduleName(module),
+                enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY,
+                List.of(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled))
+                        .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY)), false));
+        moduleContainer.setItem(GuiSlots.HEADER_CENTER_27, GuiTheme.status(Items.BARRIER,
+                ServerText.translatable("gui.omnitools.modules.confirm_title"), ChatFormatting.RED,
+                List.of(ServerText.translatable("gui.omnitools.modules.confirm_detail", moduleName(module))
+                        .withStyle(ChatFormatting.GRAY)), false));
+        moduleContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+        moduleContainer.setItem(GuiSlots.contentSlot27(4), moduleItem(module, enabled, block));
+        moduleContainer.setItem(PREVIOUS_PAGE_SLOT, GuiTheme.navigation(Items.ARROW,
+                ServerText.translatable("gui.omnitools.modules.cancel"),
+                ServerText.translatable("gui.omnitools.modules.cancel_hint")));
+        moduleContainer.setItem(RELOAD_SLOT, GuiStatusItem.create(new ItemStack(Items.LIME_DYE),
+                ServerText.translatable("gui.omnitools.modules.confirm"), GuiStatusItem.State.ACTIONABLE,
+                List.of(ServerText.translatable("gui.omnitools.modules.confirm_hint").withStyle(ChatFormatting.GREEN))));
+    }
+
+    private static boolean requiresConfirmation(ModuleId module) {
+        return switch (module) {
+            case DAILY_CHECKIN, CDK, ONLINE_REWARD, TITLES, ACHIEVEMENTS -> true;
+            default -> false;
+        };
     }
 }

@@ -33,11 +33,13 @@ import java.util.UUID;
 public final class CheckinRewardInfoScreenHandler extends ChestMenu {
     public static final int ROWS = 6;
     public static final int CONTAINER_SIZE = 54;
-    public static final int CONTENT_SLOTS = 45;
-    public static final int BACK_SLOT = 45;
-    public static final int PREVIOUS_PAGE_SLOT = 47;
-    public static final int PAGE_INFO_SLOT = 49;
-    public static final int NEXT_PAGE_SLOT = 53;
+    public static final int CONTENT_SLOTS = GuiSlots.CONTENT_SLOT_COUNT_54;
+    public static final int BACK_SLOT = GuiSlots.FIRST_ACTION_SLOT_54;
+    public static final int PREVIOUS_PAGE_SLOT = 46;
+    public static final int PAGE_INFO_SLOT = GuiSlots.CENTER_54;
+    public static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_54;
+    public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
+    public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
 
     private final SimpleContainer rewardContainer;
     private final ServerPlayer owner;
@@ -87,12 +89,18 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
         }
         if (slotId == BACK_SLOT) {
             ModMindEntry.openCheckinMenu(serverPlayer);
+            GuiFeedbackService.click(serverPlayer);
         } else if (slotId == PREVIOUS_PAGE_SLOT && page > 0) {
             page--;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
         } else if (slotId == NEXT_PAGE_SLOT && page + 1 < pageCount) {
             page++;
             refreshContents();
+            GuiFeedbackService.click(serverPlayer);
+        } else if (slotId == CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
         }
     }
 
@@ -122,26 +130,30 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
         List<DisplayEntry> entries = buildEntries(owner, openedDate);
         pageCount = Math.max(1, (entries.size() + CONTENT_SLOTS - 1) / CONTENT_SLOTS);
         page = Math.min(page, pageCount - 1);
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            rewardContainer.setItem(slot, emptySlot());
-        }
+        GuiTheme.clear(rewardContainer);
         int first = page * CONTENT_SLOTS;
         int visible = Math.min(CONTENT_SLOTS, Math.max(0, entries.size() - first));
         for (int index = 0; index < visible; index++) {
-            rewardContainer.setItem(index, displayStack(owner, entries.get(first + index)));
+            rewardContainer.setItem(GuiSlots.contentSlot54(index), displayStack(owner, entries.get(first + index)));
         }
+        rewardContainer.setItem(GuiSlots.HEADER_LEFT_54, GuiTheme.status(Items.CHEST,
+                ServerText.translatable("gui.omnitools.checkin.reward_info"), ChatFormatting.GOLD,
+                List.of(ServerText.translatable("gui.omnitools.checkin.daily_count",
+                        ModMindEntry.rewardService().dailyRewards().size()).withStyle(ChatFormatting.GRAY)), false));
+        rewardContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.WRITABLE_BOOK,
+                ServerText.translatable("gui.omnitools.checkin.reward_info"), ChatFormatting.AQUA,
+                List.of(ServerText.translatable("gui.omnitools.checkin.page", page + 1, pageCount)
+                        .withStyle(ChatFormatting.GRAY)), false));
+        rewardContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
         rewardContainer.setItem(BACK_SLOT, namedItem(Items.ARROW,
                 ServerText.translatable("gui.omnitools.checkin.back"),
                 List.of(ServerText.translatable("gui.omnitools.checkin.back_hint"))));
         if (page > 0) {
-            rewardContainer.setItem(PREVIOUS_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.checkin.previous"), List.of()));
+            rewardContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        rewardContainer.setItem(PAGE_INFO_SLOT, namedItem(Items.PAPER,
-                ServerText.translatable("gui.omnitools.checkin.page", page + 1, pageCount), List.of()));
+        rewardContainer.setItem(PAGE_INFO_SLOT, GuiNavigationService.page(page + 1, pageCount, entries.size()));
         if (page + 1 < pageCount) {
-            rewardContainer.setItem(NEXT_PAGE_SLOT, namedItem(Items.ARROW,
-                    ServerText.translatable("gui.omnitools.checkin.next"), List.of()));
+            rewardContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
         lastRevision = ModMindEntry.configSnapshot().revision();
     }
@@ -176,6 +188,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
             RewardDefinition reward = entry.reward();
             stack = switch (reward.type()) {
                 case CURRENCY -> new ItemStack(reward.amount() >= 1_000 ? Items.GOLD_INGOT : Items.GOLD_NUGGET);
+                case MAKEUP_CARD -> new ItemStack(Items.CLOCK);
                 case ITEM -> TextTemplateRenderer.renderItemText(player, reward.createItemStack());
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
@@ -193,15 +206,13 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 : rewardName(player, entry.reward());
         ItemLore existingLore = stack.get(DataComponents.LORE);
         List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
-        if (lore.size() > ItemLore.MAX_LINES - 3) {
-            lore = new ArrayList<>(lore.subList(0, ItemLore.MAX_LINES - 3));
-        }
         if (!entry.summary()) {
-            lore.add(ServerText.translatable("gui.omnitools.checkin.reward_status", ServerText.translatable(status))
-                    .withStyle(color));
             if (entry.reward().type() == RewardType.CURRENCY) {
                 lore.add(ServerText.translatable("gui.omnitools.reward.currency", entry.reward().amount())
                         .withStyle(ChatFormatting.GOLD));
+            } else if (entry.reward().type() == RewardType.MAKEUP_CARD) {
+                lore.add(ServerText.translatable("gui.omnitools.reward.makeup_card", entry.reward().amount())
+                        .withStyle(ChatFormatting.AQUA));
             } else if (entry.reward().type() == RewardType.ITEM) {
                 ItemStack displayItem = TextTemplateRenderer.renderItemText(player, entry.reward().createItemStack());
                 lore.add(ServerText.translatable("gui.omnitools.reward.item", displayItem.getHoverName(),
@@ -214,18 +225,16 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 lore.add(ServerText.translatable("gui.omnitools.reward.pending", ledger.reason())
                         .withStyle(ChatFormatting.YELLOW));
             }
-        } else {
-            lore.add(ServerText.translatable("gui.omnitools.checkin.reward_status", ServerText.translatable(status))
-                    .withStyle(color));
         }
-        stack.set(DataComponents.CUSTOM_NAME, name.copy().withStyle(color, ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(GuiTextService.compactLore(lore)));
-        return stack;
+        return GuiStatusItem.create(stack, name, visualState(status), GuiTextService.cardLore(lore,
+                ServerText.translatable("gui.omnitools.checkin.reward_status", ServerText.translatable(status))
+                        .withStyle(color)));
     }
 
     private static Component rewardName(ServerPlayer player, RewardDefinition reward) {
         return switch (reward.type()) {
             case CURRENCY -> ServerText.translatable("gui.omnitools.checkin.currency_reward");
+            case MAKEUP_CARD -> ServerText.translatable("gui.omnitools.checkin.makeup_card_reward");
             case ITEM -> TextTemplateRenderer.renderItemText(player, reward.createItemStack()).getHoverName();
             case TITLE -> ModMindEntry.titleConfig().definition(reward.titleId())
                     .<Component>map(title -> TextTemplateRenderer.render(player, title.display()))
@@ -278,10 +287,15 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 ? "gui.omnitools.checkin.failed" : "gui.omnitools.checkin.pending";
     }
 
-    private static ItemStack emptySlot() {
-        return GuiTheme.emptySlot();
+    private static GuiStatusItem.State visualState(String status) {
+        return switch (status) {
+            case "gui.omnitools.checkin.available" -> GuiStatusItem.State.ACTIONABLE;
+            case "gui.omnitools.checkin.granted" -> GuiStatusItem.State.COMPLETED;
+            case "gui.omnitools.checkin.pending" -> GuiStatusItem.State.PENDING;
+            case "gui.omnitools.checkin.failed" -> GuiStatusItem.State.BLOCKED;
+            default -> GuiStatusItem.State.INACTIVE;
+        };
     }
-
     private static ItemStack namedItem(Item item, Component name, List<Component> lore) {
         ItemStack stack = new ItemStack(item);
         stack.set(DataComponents.CUSTOM_NAME, name);

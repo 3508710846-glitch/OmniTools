@@ -247,7 +247,7 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
     private static void writeEmptyPage(Path path) throws IOException {
         JsonObject root = new JsonObject();
         root.addProperty("format_version", CURRENT_FORMAT_VERSION);
-        root.addProperty("title", "空菜单");
+        root.addProperty("title", "Empty Menu");
         root.addProperty("size", 27);
         root.add("items", new JsonArray());
         Files.createDirectories(path.getParent());

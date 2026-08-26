@@ -36,4 +36,14 @@ public record RewardEvent(String id, UUID playerId) {
         return new RewardEvent("online:" + playerId + ":" + epochDay + ":"
                 + milestoneId.trim().toLowerCase(java.util.Locale.ROOT), playerId);
     }
+
+    /** Stable campaign-first key required by the CDK configuration contract. */
+    public static RewardEvent cdk(String campaignId, UUID playerId) {
+        String normalizedId = campaignId == null ? "" : campaignId.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!RewardDefinition.ID_PATTERN.matcher(normalizedId).matches()) {
+            throw new IllegalArgumentException("CDK campaign id must be a stable reward id");
+        }
+        return new RewardEvent("cdk:" + normalizedId + ":" + playerId,
+                playerId);
+    }
 }
