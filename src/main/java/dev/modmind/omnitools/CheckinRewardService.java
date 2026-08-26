@@ -47,6 +47,10 @@ public final class CheckinRewardService {
         return config.monthlyRewards();
     }
 
+    public CheckinUiConfig ui() {
+        return config.ui();
+    }
+
     /** The sign-in is already permanent before this method runs; failures remain retryable in the ledger. */
     public void grant(ServerPlayer player, CheckinData.SignInResult result) {
         if (!result.newlySigned()) {

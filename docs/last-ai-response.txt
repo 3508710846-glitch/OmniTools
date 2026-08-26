@@ -1,17 +1,14 @@
-已实现按佩戴消耗的临时称号，且不新增客户端代码或网络包。
+已完成签到菜单“日历手账 + 信息栏”重做：固定 54 格、左侧月历、右侧信息栏、状态图标/颜色/光效、配置化图标与音效、热重载刷新及装饰槽服务端保护。奖励箱成功领取也会播放奖励音效。
 
-- 通用限时授权与 SavedData 迁移在 [TimedEntitlement.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/entitlement/TimedEntitlement.java:9) 和 [TitleData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java:175)：旧 `unlocked` 自动视为永久称号；临时称号仅在线且佩戴时扣 tick，过期时撤销、卸下并刷新效果/显示。
-- `title` 奖励支持 `duration.permanent`、`duration.active_days` 与 `extend` / `replace` / `max`，并经配置校验；同一奖励事件不会重复续期。
-- 新增 `/titles time|select|clear` 及管理员 `grant <days|permanent>`、`revoke`，复用现有权限节点。
-- GUI 显示永久或剩余时间；新增 5 个称号占位符，内置总数更新为 22。
-- 更新称号、统一奖励与占位符文档，并保留完整 ItemStack SNBT 说明。
+核心实现位于 [CheckinScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java:21)、[CheckinRenderService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinRenderService.java:27)、[CheckinTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinTheme.java:1)、[CheckinUiConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinUiConfig.java:11)。文档已修正 UTF-8 编码并提供 JSONC 教学版与严格 JSON 版：[daily-checkin.md](D:/mod/qiandao/docs/modules/daily-checkin.md:99)。
 
 验证通过：
 
 - `gradlew test`
-- ModMind 内容校验
-- ModMind 受管构建
-- 隔离服务端烟雾测试，服务端就绪后稳定运行 15 秒  
-  日志：[runServer-1787710779955.log](D:/mod/qiandao/.modmind/builds/runServer-1787710779955.log)
+- ModMind 内容校验：4 文件，无错误/警告
+- 受管构建：成功，产物 `.modmind/minecraft/mods/modmind-current-project.jar`
+- 服务端烟雾测试：启动完成后稳定运行 15 秒，日志见 [runServer-1787716172382.log](D:/mod/qiandao/.modmind/builds/runServer-1787716172382.log)
+- 文档 3 个 `json` 块均可解析，链接有效，无乱码标记
+- 签到界面代码无玻璃板填充残留
 
-待人工验证：原版客户端实际打开称号 GUI、佩戴后观察倒计时及过期瞬间的显示刷新。
+待人工验收：使用未安装客户端模组的原版客户端逐项点击签到、奖励详情、奖励箱、记录与成就入口，确认实际 Lore 排版和音效体验。

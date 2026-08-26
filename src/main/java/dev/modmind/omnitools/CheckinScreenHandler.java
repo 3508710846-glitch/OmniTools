@@ -2,8 +2,6 @@ package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.permissions.CommandAction;
-import net.minecraft.ChatFormatting;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -15,28 +13,23 @@ import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.ItemLore;
-import net.minecraft.world.item.component.ResolvableProfile;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
-/** Server-authoritative six-row vanilla chest menu containing a real Monday-first calendar. */
+/** Server-authoritative six-row vanilla chest menu for the daily check-in journal. */
 public final class CheckinScreenHandler extends ChestMenu {
-    public static final int ROWS = 6;
-    public static final int CONTAINER_SIZE = ROWS * 9;
-    public static final int PROFILE_SLOT = 7;
-    public static final int TODAY_SLOT = 8;
-    public static final int REWARD_INFO_SLOT = 16;
-    public static final int PROGRESS_SLOT = 17;
-    public static final int RECORDS_SLOT = 25;
-    public static final int ACHIEVEMENTS_SLOT = 26;
-    public static final int STREAK_SLOT = 34;
-    public static final int BALANCE_SLOT = 35;
+    public static final int ROWS = CheckinTheme.ROWS;
+    public static final int CONTAINER_SIZE = CheckinTheme.CONTAINER_SIZE;
+    public static final int PROFILE_SLOT = CheckinTheme.PROFILE_SLOT;
+    /** Retained as a source-compatible alias; slot 8 is now the month panel. */
+    public static final int TODAY_SLOT = CheckinTheme.MONTH_SLOT;
+    public static final int REWARD_INFO_SLOT = CheckinTheme.REWARD_INFO_SLOT;
+    public static final int PROGRESS_SLOT = CheckinTheme.PROGRESS_SLOT;
+    public static final int RECORDS_SLOT = CheckinTheme.RECORDS_SLOT;
+    public static final int ACHIEVEMENTS_SLOT = CheckinTheme.ACHIEVEMENTS_SLOT;
+    public static final int STREAK_SLOT = CheckinTheme.STREAK_SLOT;
+    public static final int BALANCE_SLOT = CheckinTheme.BALANCE_SLOT;
 
     private final SimpleContainer checkinContainer;
     private final UUID ownerId;
@@ -62,15 +55,18 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     public static CheckinScreenHandler createServer(int syncId, Inventory inventory, ServerPlayer owner) {
         ModMindEntry.rewardService().retryPending(owner);
-        return new CheckinScreenHandler(syncId, inventory, new SimpleContainer(CONTAINER_SIZE), owner,
-                CheckinData.today(owner.level().getServer()));
+        CheckinScreenHandler handler = new CheckinScreenHandler(syncId, inventory,
+                new SimpleContainer(CONTAINER_SIZE), owner, CheckinData.today(owner.level().getServer()));
+        if (ModMindEntry.rewardService().ui().sounds().open()) {
+            owner.playSound(SoundEvents.CHEST_OPEN, 0.65f, 1.0f);
+        }
+        return handler;
     }
 
     public LocalDate getOpenedDate() {
         return openedDate == null ? today() : openedDate;
     }
 
-    /** Reads the persistent record instead of inferring state from a displayed item. */
     public boolean hasSignedToday() {
         return owner != null && CheckinData.get(owner).hasSigned(owner.getUUID(), today().toEpochDay());
     }
@@ -90,22 +86,62 @@ public final class CheckinScreenHandler extends ChestMenu {
             return;
         }
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
-                || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP) {
+                || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP || button != 0) {
+            return;
+        }
+        CheckinUiConfig ui = ModMindEntry.rewardService().ui();
+        if (slotId == CheckinTheme.CLOSE_SLOT) {
+            serverPlayer.closeContainer();
+            playClick(serverPlayer, ui);
+            return;
+        }
+        if (slotId == CheckinTheme.REFRESH_SLOT) {
+            refreshContents(serverPlayer, today());
+            broadcastChanges();
+            playClick(serverPlayer, ui);
             return;
         }
         if (slotId == REWARD_INFO_SLOT) {
             openRewardInfo(serverPlayer);
+            playClick(serverPlayer, ui);
+            return;
+        }
+        if (slotId == CheckinTheme.REWARD_INBOX_SLOT) {
+            if (ModMindEntry.hasCommandPermission(serverPlayer, CommandAction.REWARDS_RETRY)) {
+                ModMindEntry.openRewardInbox(serverPlayer);
+                playClick(serverPlayer, ui);
+            } else {
+                serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.permission_denied"), true);
+                playFailure(serverPlayer, ui);
+            }
             return;
         }
         if (slotId == RECORDS_SLOT) {
             openRecordsMenu(serverPlayer);
+            playClick(serverPlayer, ui);
             return;
         }
         if (slotId == ACHIEVEMENTS_SLOT) {
             openAchievementsMenu(serverPlayer);
+            playClick(serverPlayer, ui);
             return;
         }
-        if (slotId != TODAY_SLOT && slotToDay(getOpenedDate(), slotId) == null) {
+        if (slotId == CheckinTheme.HELP_SLOT) {
+            serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.checkin.help"), true);
+            playClick(serverPlayer, ui);
+            return;
+        }
+
+        Integer day = CheckinTheme.slotToDay(getOpenedDate(), slotId);
+        if (day == null) {
+            return;
+        }
+        LocalDate selectedDate = getOpenedDate().withDayOfMonth(day);
+        if (!selectedDate.equals(today())
+                && ModMindEntry.rewardService().monthlyRewards().containsKey(day)
+                && ui.showRewardPreview()) {
+            openRewardInfo(serverPlayer);
+            playClick(serverPlayer, ui);
             return;
         }
         LocalDate currentDate = today();
@@ -113,11 +149,13 @@ public final class CheckinScreenHandler extends ChestMenu {
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.invalid_date"), true);
             refreshContents(serverPlayer, currentDate);
             broadcastChanges();
+            playFailure(serverPlayer, ui);
             return;
         }
-        int todaySlot = slotForDay(currentDate, currentDate.getDayOfMonth());
-        if (slotId != TODAY_SLOT && slotId != todaySlot) {
+        int todaySlot = CheckinTheme.slotForDay(currentDate, currentDate.getDayOfMonth());
+        if (slotId != todaySlot) {
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.only_today"), true);
+            playFailure(serverPlayer, ui);
             return;
         }
 
@@ -127,7 +165,9 @@ public final class CheckinScreenHandler extends ChestMenu {
         refreshContents(serverPlayer, currentDate);
         broadcastChanges();
         if (result.newlySigned()) {
-            serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+            if (ui.sounds().success()) {
+                serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+            }
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.success",
                     result.stats().todayOrdinal()), true);
             ModMindEntry.rewardService().grant(serverPlayer, result);
@@ -140,6 +180,7 @@ public final class CheckinScreenHandler extends ChestMenu {
             broadcastChanges();
         } else {
             serverPlayer.displayClientMessage(ServerText.translatable("message.omnitools.already_signed"), true);
+            playFailure(serverPlayer, ui);
         }
     }
 
@@ -157,160 +198,11 @@ public final class CheckinScreenHandler extends ChestMenu {
                 owner.closeContainer();
                 return;
             }
-            if (!currentDate.equals(openedDate)
-                    || lastRevision != ModMindEntry.configSnapshot().revision()) {
+            if (!currentDate.equals(openedDate) || lastRevision != ModMindEntry.configSnapshot().revision()) {
                 refreshContents(owner, currentDate);
             }
         }
         super.broadcastChanges();
-    }
-
-    private void refreshContents(ServerPlayer player, LocalDate date) {
-        openedDate = date;
-        CheckinData data = CheckinData.get(player);
-        CheckinData.PlayerStats stats = data.getStats(player.getUUID(), date.toEpochDay());
-        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
-            checkinContainer.setItem(slot, emptySlot());
-        }
-
-        int offset = monthStartOffset(date);
-        for (int day = 1; day <= date.lengthOfMonth(); day++) {
-            int slot = ((offset + day - 1) / 7) * 9 + ((offset + day - 1) % 7);
-            LocalDate slotDate = date.withDayOfMonth(day);
-            checkinContainer.setItem(slot, createDateStack(data, player, slotDate, date));
-        }
-
-        checkinContainer.setItem(PROFILE_SLOT, profileStack(player, stats));
-        checkinContainer.setItem(TODAY_SLOT, todayStack(data, player, date, stats));
-        checkinContainer.setItem(REWARD_INFO_SLOT, rewardInfoStack(player, stats));
-        checkinContainer.setItem(PROGRESS_SLOT, progressStack(date, stats.monthlyDays()));
-        checkinContainer.setItem(RECORDS_SLOT, namedItem(Items.CLOCK,
-                ServerText.translatable("gui.omnitools.checkin.records"),
-                List.of(ServerText.translatable("gui.omnitools.checkin.records_hint"))));
-        checkinContainer.setItem(ACHIEVEMENTS_SLOT, namedItem(Items.NETHER_STAR,
-                ServerText.translatable("gui.omnitools.checkin.achievements"),
-                List.of(ServerText.translatable("gui.omnitools.checkin.achievements_hint"))));
-        checkinContainer.setItem(STREAK_SLOT, namedItem(Items.CAMPFIRE,
-                ServerText.translatable("gui.omnitools.checkin.streak", stats.streakDays()), List.of()));
-        checkinContainer.setItem(BALANCE_SLOT, namedItem(Items.GOLD_INGOT,
-                ServerText.translatable("gui.omnitools.checkin.balance", data.getBalance(player.getUUID())), List.of()));
-        lastRevision = ModMindEntry.configSnapshot().revision();
-    }
-
-    private static ItemStack createDateStack(CheckinData data, ServerPlayer player, LocalDate slotDate,
-                                             LocalDate month) {
-        boolean signed = data.hasSigned(player.getUUID(), slotDate.toEpochDay());
-        boolean today = slotDate.equals(month);
-        ItemStack stack;
-        ChatFormatting color;
-        String nameKey;
-        if (today && !signed) {
-            stack = new ItemStack(Items.CLOCK);
-            color = ChatFormatting.GOLD;
-            nameKey = "gui.omnitools.checkin.today_available";
-        } else if (today) {
-            stack = new ItemStack(Items.LIME_STAINED_GLASS_PANE);
-            stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-            color = ChatFormatting.GREEN;
-            nameKey = "gui.omnitools.checkin.today_signed";
-        } else if (slotDate.isBefore(month)) {
-            stack = new ItemStack(signed ? Items.LIME_STAINED_GLASS_PANE : Items.RED_STAINED_GLASS_PANE);
-            color = signed ? ChatFormatting.GREEN : ChatFormatting.RED;
-            nameKey = signed ? "gui.omnitools.checkin.day_signed" : "gui.omnitools.checkin.day_missed";
-        } else {
-            stack = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            color = ChatFormatting.DARK_GRAY;
-            nameKey = "gui.omnitools.checkin.day_future";
-        }
-        stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable(nameKey, slotDate.getDayOfMonth())
-                .withStyle(color, ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(List.of(
-                ServerText.translatable("gui.omnitools.checkin.date", slotDate.getMonthValue(),
-                        slotDate.getDayOfMonth(), ServerText.translatable(weekdayName(slotDate.getDayOfWeek())))
-                        .withStyle(ChatFormatting.GRAY),
-                ServerText.translatable(today && !signed ? "gui.omnitools.checkin.today_hint"
-                        : "gui.omnitools.checkin.no_action").withStyle(color))));
-        return stack;
-    }
-
-    private ItemStack profileStack(ServerPlayer player, CheckinData.PlayerStats stats) {
-        ItemStack stack = new ItemStack(Items.PLAYER_HEAD);
-        stack.set(DataComponents.PROFILE, ResolvableProfile.createResolved(player.getGameProfile()));
-        stack.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.checkin.profile", player.getName())
-                .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.BOLD));
-        stack.set(DataComponents.LORE, new ItemLore(List.of(
-                ServerText.translatable(stats.signedToday() ? "gui.omnitools.checkin.today_signed"
-                        : "gui.omnitools.checkin.today_available").withStyle(stats.signedToday()
-                        ? ChatFormatting.GREEN : ChatFormatting.GOLD),
-                ServerText.translatable("gui.omnitools.checkin.total", stats.totalDays())
-                        .withStyle(ChatFormatting.AQUA))));
-        return stack;
-    }
-
-    private ItemStack todayStack(CheckinData data, ServerPlayer player, LocalDate date,
-                                 CheckinData.PlayerStats stats) {
-        boolean signed = data.hasSigned(player.getUUID(), date.toEpochDay());
-        List<Component> lore = new ArrayList<>();
-        lore.add(ServerText.translatable(signed ? "gui.omnitools.checkin.no_action"
-                : "gui.omnitools.checkin.today_hint"));
-        if (signed && hasPendingRewards(player, date, stats.monthlyDays())) {
-            lore.add(ServerText.translatable("gui.omnitools.checkin.rewards_pending")
-                    .withStyle(ChatFormatting.YELLOW));
-        }
-        return namedItem(signed ? Items.LIME_STAINED_GLASS_PANE : Items.CLOCK,
-                ServerText.translatable(signed ? "gui.omnitools.checkin.today_signed"
-                        : "gui.omnitools.checkin.today_available").withStyle(signed
-                        ? ChatFormatting.GREEN : ChatFormatting.GOLD, ChatFormatting.BOLD),
-                lore);
-    }
-
-    private ItemStack rewardInfoStack(ServerPlayer player, CheckinData.PlayerStats stats) {
-        int dailyCount = ModMindEntry.rewardService().dailyRewards().size();
-        int next = nextMilestone(stats.monthlyDays());
-        List<Component> lore = new ArrayList<>();
-        lore.add(ServerText.translatable("gui.omnitools.checkin.daily_count", dailyCount));
-        lore.add(ServerText.translatable("gui.omnitools.checkin.month_progress", stats.monthlyDays()));
-        lore.add(next > 0 ? ServerText.translatable("gui.omnitools.checkin.next_milestone", next)
-                : ServerText.translatable("gui.omnitools.checkin.milestone_complete"));
-        lore.add(ServerText.translatable("gui.omnitools.checkin.reward_hint"));
-        return namedItem(Items.CHEST, ServerText.translatable("gui.omnitools.checkin.reward_info"), lore);
-    }
-
-    private static ItemStack progressStack(LocalDate date, int monthlyDays) {
-        int next = nextMilestone(monthlyDays);
-        List<Component> lore = new ArrayList<>();
-        lore.add(ServerText.translatable("gui.omnitools.checkin.month_progress", monthlyDays));
-        if (next > 0) {
-            lore.add(ServerText.translatable("gui.omnitools.checkin.next_milestone", next));
-            lore.add(ServerText.translatable("gui.omnitools.checkin.days_left", Math.max(0, next - monthlyDays)));
-        }
-        return namedItem(Items.FILLED_MAP, ServerText.translatable("gui.omnitools.checkin.progress"), lore);
-    }
-
-    private static int nextMilestone(int monthlyDays) {
-        return ModMindEntry.rewardService().monthlyRewards().keySet().stream().sorted()
-                .filter(milestone -> milestone > monthlyDays).findFirst().orElse(-1);
-    }
-
-    private static boolean hasPendingRewards(ServerPlayer player, LocalDate date, int monthlyDays) {
-        var rewards = ModMindEntry.rewardService();
-        var ledger = dev.modmind.omnitools.reward.RewardClaimLedger.get(player);
-        var dailyEvent = dev.modmind.omnitools.reward.RewardEvent.checkinDaily(player.getUUID(), date.toEpochDay());
-        if (ledger.hasEvent(dailyEvent) && !ledger.allGranted(dailyEvent, rewards.dailyRewards())) {
-            return true;
-        }
-        java.time.YearMonth month = java.time.YearMonth.from(date);
-        for (var milestone : rewards.monthlyRewards().entrySet()) {
-            if (monthlyDays < milestone.getKey()) {
-                continue;
-            }
-            var event = dev.modmind.omnitools.reward.RewardEvent.checkinMonthly(player.getUUID(), month,
-                    milestone.getKey());
-            if (ledger.hasEvent(event) && !ledger.allGranted(event, milestone.getValue())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public void refreshAfterRewardRetry() {
@@ -318,6 +210,52 @@ public final class CheckinScreenHandler extends ChestMenu {
             refreshContents(owner, today());
             broadcastChanges();
         }
+    }
+
+    public static int monthStartOffset(LocalDate date) {
+        return CheckinTheme.monthStartOffset(date);
+    }
+
+    public static int slotForDay(LocalDate month, int day) {
+        return CheckinTheme.slotForDay(month, day);
+    }
+
+    public static Integer slotToDay(LocalDate month, int slot) {
+        return CheckinTheme.slotToDay(month, slot);
+    }
+
+    private void refreshContents(ServerPlayer player, LocalDate date) {
+        openedDate = date;
+        CheckinData data = CheckinData.get(player);
+        CheckinData.PlayerStats stats = data.getStats(player.getUUID(), date.toEpochDay());
+        CheckinRewardService rewards = ModMindEntry.rewardService();
+        CheckinUiConfig ui = rewards.ui();
+        for (int slot = 0; slot < CONTAINER_SIZE; slot++) {
+            checkinContainer.setItem(slot, ItemStack.EMPTY);
+        }
+        for (int row = 0; row < ROWS; row++) {
+            for (int column = 0; column < CheckinTheme.CALENDAR_COLUMNS; column++) {
+                checkinContainer.setItem(row * 9 + column, CheckinRenderService.emptyCalendarStack(ui));
+            }
+        }
+        for (int day = 1; day <= date.lengthOfMonth(); day++) {
+            int slot = CheckinTheme.slotForDay(date, day);
+            checkinContainer.setItem(slot, CheckinRenderService.calendarStack(data, player,
+                    date.withDayOfMonth(day), date, rewards, ui));
+        }
+        checkinContainer.setItem(PROFILE_SLOT, CheckinRenderService.profileStack(player, stats));
+        checkinContainer.setItem(CheckinTheme.MONTH_SLOT, CheckinRenderService.monthStack(date));
+        checkinContainer.setItem(REWARD_INFO_SLOT, CheckinRenderService.rewardInfoStack(player, rewards, stats, ui));
+        checkinContainer.setItem(PROGRESS_SLOT, CheckinRenderService.progressStack(rewards, stats.monthlyDays(), ui));
+        checkinContainer.setItem(RECORDS_SLOT, CheckinRenderService.recordsStack());
+        checkinContainer.setItem(ACHIEVEMENTS_SLOT, CheckinRenderService.achievementsStack());
+        checkinContainer.setItem(STREAK_SLOT, CheckinRenderService.streakStack(stats.streakDays()));
+        checkinContainer.setItem(BALANCE_SLOT, CheckinRenderService.balanceStack(data.getBalance(player.getUUID())));
+        checkinContainer.setItem(CheckinTheme.REWARD_INBOX_SLOT, CheckinRenderService.inboxStack(player));
+        checkinContainer.setItem(CheckinTheme.HELP_SLOT, CheckinRenderService.helpStack());
+        checkinContainer.setItem(CheckinTheme.REFRESH_SLOT, CheckinRenderService.refreshStack());
+        checkinContainer.setItem(CheckinTheme.CLOSE_SLOT, CheckinRenderService.closeStack());
+        lastRevision = ModMindEntry.configSnapshot().revision();
     }
 
     private static void openRewardInfo(ServerPlayer player) {
@@ -344,50 +282,16 @@ public final class CheckinScreenHandler extends ChestMenu {
                 ServerText.translatable("gui.omnitools.achievement.title")));
     }
 
-    public static int monthStartOffset(LocalDate date) {
-        return date.withDayOfMonth(1).getDayOfWeek().getValue() - 1;
-    }
-
-    public static int slotForDay(LocalDate month, int day) {
-        if (day < 1 || day > month.lengthOfMonth()) {
-            return -1;
+    private static void playClick(ServerPlayer player, CheckinUiConfig ui) {
+        if (ui.sounds().click()) {
+            player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.7f, 1.0f);
         }
-        int index = monthStartOffset(month) + day - 1;
-        return (index / 7) * 9 + (index % 7);
     }
 
-    public static Integer slotToDay(LocalDate month, int slot) {
-        if (slot < 0 || slot >= CONTAINER_SIZE || slot % 9 > 6) {
-            return null;
+    private static void playFailure(ServerPlayer player, CheckinUiConfig ui) {
+        if (ui.sounds().failure()) {
+            player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.5f, 0.6f);
         }
-        int index = (slot / 9) * 7 + slot % 9 - monthStartOffset(month);
-        int day = index + 1;
-        return day >= 1 && day <= month.lengthOfMonth() ? day : null;
-    }
-
-    private static String weekdayName(DayOfWeek day) {
-        return switch (day) {
-            case MONDAY -> "gui.omnitools.checkin.monday";
-            case TUESDAY -> "gui.omnitools.checkin.tuesday";
-            case WEDNESDAY -> "gui.omnitools.checkin.wednesday";
-            case THURSDAY -> "gui.omnitools.checkin.thursday";
-            case FRIDAY -> "gui.omnitools.checkin.friday";
-            case SATURDAY -> "gui.omnitools.checkin.saturday";
-            case SUNDAY -> "gui.omnitools.checkin.sunday";
-        };
-    }
-
-    private static ItemStack emptySlot() {
-        return new ItemStack(Items.BLACK_STAINED_GLASS_PANE);
-    }
-
-    private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(DataComponents.CUSTOM_NAME, name);
-        if (!lore.isEmpty()) {
-            stack.set(DataComponents.LORE, new ItemLore(lore));
-        }
-        return stack;
     }
 
     private static LocalDate today() {

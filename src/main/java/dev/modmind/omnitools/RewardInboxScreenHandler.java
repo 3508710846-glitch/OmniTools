@@ -8,6 +8,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -121,10 +122,13 @@ public final class RewardInboxScreenHandler extends ChestMenu {
                 new RewardEvent(entry.eventId(), entry.playerId()), entry.rewardId());
         if (result.complete()) {
             ModMindEntry.finalizeRewardInboxDelivery(player, entry.eventId());
+            player.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             player.displayClientMessage(ServerText.translatable("message.omnitools.reward.inbox_delivered"), true);
         } else if (result.status() == RewardGrantResult.Status.PENDING) {
+            player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.5f, 0.6f);
             player.displayClientMessage(ServerText.translatable("message.omnitools.reward.inbox_inventory_full"), true);
         } else {
+            player.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.5f, 0.5f);
             player.displayClientMessage(ServerText.translatable("message.omnitools.reward.inbox_not_retryable"), true);
         }
         refreshContents();

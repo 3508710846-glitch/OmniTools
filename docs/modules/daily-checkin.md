@@ -2,7 +2,7 @@
 
 ## 1. 用途与场景
 
-玩家用 `/checkin` 或 `/omnitools` 打开 6 行原版箱子：左侧为周一开始的真实月历，右侧显示今日状态、奖励详情、记录、成就入口、连签与余额。奖励详情页分页显示每日和月度奖励。
+玩家用 `/checkin` 或 `/omnitools` 打开 6 行原版箱子。左侧是周一开始的真实月历，右侧固定显示玩家信息、月份、奖励、进度、记录、成就入口、连续签到、余额和奖励箱。奖励详情页会分页显示每日和月度奖励。
 
 ## 2. 前置条件、关联模块与开关
 
@@ -10,7 +10,7 @@
 
 ## 3. 配置路径与重载
 
-推荐配置路径：`config/omnitools/daily_checkin/config.json`。修改后执行 `/omnitools reload`。
+推荐配置路径：`config/omnitools/daily_checkin/config.json`。首次启动生成默认文件。修改后执行 `/omnitools reload`。
 
 ## 4. 最小可用配置
 
@@ -18,19 +18,19 @@
 
 ## 5. 注释教学版 `jsonc`
 
-推荐新格式的教学版，不能直接复制：
+推荐新格式的教学版，`jsonc` 中的注释不能直接复制到真实 `config.json`：
 
 ```jsonc
 {
-  "format_version": 2, // 每日签到新格式版本。
-  "daily": { // 每日签到奖励定义。
-    "rewards": [ // 每日触发时的奖励数组。
-      { "id": "daily_coins", "type": "currency", "amount": 100 } // 稳定奖励 ID、货币类型和数量。
+  "format_version": 2, // 每日签到的新格式版本，必须为 2。
+  "daily": { // 每天签到时发放的奖励。
+    "rewards": [
+      { "id": "daily_coins", "type": "currency", "amount": 100 } // 稳定奖励 ID、类型和数量。
     ]
   },
-  "monthly": { // 按本月累计签到天数发放的奖励。
-    "7": [ // 本月第 7 天的里程碑。
-      { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 } // 稳定 ID、物品 ID 和数量。
+  "monthly": { // 按本月累计签到天数发放的里程碑奖励。
+    "7": [
+      { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }
     ]
   }
 }
@@ -58,10 +58,13 @@
 
 | 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
 | --- | --- | --- | --- | --- |
-| `format_version` | 整数 | 是 | 必须 `2` | 使用 `1` 新格式会失败。 |
+| `format_version` | 整数 | 是 | 必须 `2` | 在新格式中使用 `1`。 |
 | `daily.rewards` | 奖励数组 | 是 | 可为空 | 同一数组的奖励 ID 重复。 |
-| `monthly` | 对象 | 是 | 键为正整数天数 | 写成数组或用 `0`。 |
+| `monthly` | 对象 | 是 | 键为正整数天数 | 写成数组或使用 `0`。 |
 | `monthly.<天数>` | 奖励数组 | 是 | 每个里程碑独立 | 用旧货币数字代替数组。 |
+| `ui.style` | 字符串 | 否 | `journal` | 使用未支持的主题名。 |
+| `ui.icons.*` | 原版物品 ID | 否 | 见第 13 节 | 使用 `minecraft:air` 或不存在的物品。 |
+| `ui.sounds.*` | 布尔值 | 否 | 全部为 `true` | 写成字符串 `"true"`。 |
 
 ## 8. 全部配置场景
 
@@ -96,3 +99,83 @@
 ## 12. 验收与排错
 
 执行 `/checkin`，确认真实月份空位、今天可点击、过去/未来日期不可点击；再打开奖励详情与签到记录。若奖励未到背包，用 `/omnitools rewards open` 检查奖励箱。
+
+## 13. 日历手账 UI 配置
+
+新配置使用推荐的 `journal` 主题：月历占左侧 7 列，右侧固定显示玩家、月份、奖励、连签、余额、奖励箱和操作按钮。缺少 `ui` 时自动使用内置默认值，旧服务器不必修改配置。
+
+教学版 `jsonc` 中的 `//` 注释仅用于学习，不能直接复制到真实 `config.json`：
+
+```jsonc
+{
+  "format_version": 2,
+  "daily": { "rewards": [{ "id": "daily_coins", "type": "currency", "amount": 100 }] },
+  "monthly": { "7": [{ "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }] },
+  "ui": {
+    "style": "journal", // 日历手账主题。
+    "show_weekday": true, // 日期名显示星期一至星期日。
+    "show_progress_bar": true, // 显示 10 格文本进度条。
+    "show_action_hints": true, // 今日可签到日期显示点击提示。
+    "show_reward_preview": true, // 奖励面板优先使用真实物品图标。
+    "icons": {
+      "available": "minecraft:clock", // 今日可签到。
+      "signed": "minecraft:book", // 今日已签到。
+      "past_signed": "minecraft:lime_dye", // 过去已签到。
+      "missed": "minecraft:red_dye", // 已漏签的过去日期。
+      "future": "minecraft:paper", // 未来日期。
+      "milestone": "minecraft:chest", // 月度奖励日。
+      "empty": "minecraft:map" // 月历中的无效日期格。
+    },
+    "sounds": {
+      "open": true, // 打开菜单。
+      "click": true, // 普通按钮操作。
+      "success": true, // 签到成功。
+      "failure": true // 重复签到或不可用操作。
+    }
+  }
+}
+```
+
+可直接复制的严格 JSON：
+
+```json
+{
+  "format_version": 2,
+  "daily": {
+    "rewards": [
+      { "id": "daily_coins", "type": "currency", "amount": 100 }
+    ]
+  },
+  "monthly": {
+    "7": [
+      { "id": "week_item", "type": "item", "item": "minecraft:bread", "count": 4 }
+    ]
+  },
+  "ui": {
+    "style": "journal",
+    "show_weekday": true,
+    "show_progress_bar": true,
+    "show_action_hints": true,
+    "show_reward_preview": true,
+    "icons": {
+      "available": "minecraft:clock",
+      "signed": "minecraft:book",
+      "past_signed": "minecraft:lime_dye",
+      "missed": "minecraft:red_dye",
+      "future": "minecraft:paper",
+      "milestone": "minecraft:chest",
+      "empty": "minecraft:map"
+    },
+    "sounds": {
+      "open": true,
+      "click": true,
+      "success": true,
+      "failure": true
+    }
+  }
+}
+```
+
+槽位固定为：日期 `0-6、9-15、18-24、27-33、36-42、45-51`；头像 `7`、月份 `8`、奖励 `16`、进度 `17`、记录 `25`、成就 `26`、连续签到 `34`、余额 `35`、奖励箱 `43`、说明 `44`、刷新 `52`、关闭 `53`。日期以图标和文字双重表达：今日可签到、今日已签到、过去已签到、漏签、未来和无效日期分别为金色、绿色、绿色、红色、灰色和深灰色。
+
+修改后执行 `/omnitools reload`。已打开的菜单会按新快照刷新；若校验失败，旧快照继续运行。所有装饰槽都由服务端拦截，奖励物品只能从奖励详情页或奖励箱领取。

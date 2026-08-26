@@ -36,15 +36,17 @@ public final class CheckinRewardConfig {
     private final List<RewardDefinition> dailyRewards;
     private final Map<Integer, List<RewardDefinition>> monthlyRewards;
     private final List<OnlineTimeReward> onlineTimeRewards;
+    private final CheckinUiConfig ui;
 
     private CheckinRewardConfig(List<RewardDefinition> dailyRewards,
                                 Map<Integer, List<RewardDefinition>> monthlyRewards,
-                                List<OnlineTimeReward> onlineTimeRewards) {
+                                List<OnlineTimeReward> onlineTimeRewards, CheckinUiConfig ui) {
         this.dailyRewards = List.copyOf(dailyRewards);
         Map<Integer, List<RewardDefinition>> copy = new LinkedHashMap<>();
         monthlyRewards.forEach((milestone, rewards) -> copy.put(milestone, List.copyOf(rewards)));
         this.monthlyRewards = Map.copyOf(copy);
         this.onlineTimeRewards = List.copyOf(onlineTimeRewards);
+        this.ui = ui == null ? CheckinUiConfig.defaults() : ui;
     }
 
     public static CheckinRewardConfig load(HolderLookup.Provider registries) {
@@ -78,15 +80,19 @@ public final class CheckinRewardConfig {
         return onlineTimeRewards;
     }
 
+    public CheckinUiConfig ui() {
+        return ui;
+    }
+
     public static CheckinRewardConfig empty() {
-        return new CheckinRewardConfig(List.of(), Map.of(), List.of());
+        return new CheckinRewardConfig(List.of(), Map.of(), List.of(), CheckinUiConfig.defaults());
     }
 
     public static CheckinRewardConfig withOnlineRewards(CheckinRewardConfig daily, OnlineRewardConfig online) {
         List<OnlineTimeReward> rewards = online.rewards().stream()
                 .map(reward -> new OnlineTimeReward(reward.id(), reward.minutes(), reward.rewards()))
                 .toList();
-        return new CheckinRewardConfig(daily.dailyRewards, daily.monthlyRewards, rewards);
+        return new CheckinRewardConfig(daily.dailyRewards, daily.monthlyRewards, rewards, daily.ui);
     }
 
     public static Path path() {
@@ -121,7 +127,9 @@ public final class CheckinRewardConfig {
                 throw new JsonParseException("monthly contains duplicate milestone " + milestone);
             }
         }
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries));
+        CheckinUiConfig ui = CheckinUiConfig.parse(root);
+        ui.validateItems();
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui);
     }
 
     private static CheckinRewardConfig parseLegacy(JsonObject root, HolderLookup.Provider registries) {
@@ -139,7 +147,9 @@ public final class CheckinRewardConfig {
             monthlyRewards.put(milestone, coins == 0L ? List.of()
                     : List.of(RewardDefinition.currency("legacy_monthly_" + milestone + "_currency", coins)));
         }
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries));
+        CheckinUiConfig ui = CheckinUiConfig.parse(root);
+        ui.validateItems();
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui);
     }
 
     private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root, HolderLookup.Provider registries) {
@@ -193,7 +203,7 @@ public final class CheckinRewardConfig {
                         new OnlineTimeReward("online_60m", 60,
                                 List.of(RewardDefinition.currency("currency", 100L))),
                         new OnlineTimeReward("online_120m", 120,
-                                List.of(RewardDefinition.currency("currency", 250L)))));
+                                List.of(RewardDefinition.currency("currency", 250L)))), CheckinUiConfig.defaults());
     }
 
     private static void write(CheckinRewardConfig config) {
@@ -207,6 +217,7 @@ public final class CheckinRewardConfig {
             JsonObject monthly = new JsonObject();
             config.monthlyRewards.forEach((days, rewards) -> monthly.add(Integer.toString(days), writeRewards(rewards)));
             root.add("monthly", monthly);
+            CheckinUiConfig.writeDefault(root);
             try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
