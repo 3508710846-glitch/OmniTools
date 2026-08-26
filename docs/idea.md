@@ -2852,3 +2852,64 @@ ServerText
 - NBT/组件物品展示不改变原始奖励数据。
 - 普通玩家看不到内部事件和技术字段。
 - 不安装客户端模组即可完成基础视觉优化。
+
+---
+
+## Development request 2026/8/26 12:56:24
+
+我会按“已实现能力、结构缺口、风险优先级”三个层面归纳，并把事实与建议明确区分，方便直接转交工作台。结论：项目已经从“签到功能模组”演进为一个以 `OmniTools` 为核心的服务端模块化框架，模块管理、统一奖励、配置热重载、成就条件树、限时称号和 GUI 基础层都已有较完整的实现。当前最需要的不是继续堆新功能，而是先完成生产安全收口、端到端验证，以及默认配置和文档与代码能力的同步。
+
+**当前已实现的主干**
+
+- 模组已声明为纯服务端环境，配置以 `config/omnitools/config.json` 为根，通过模块开关管理签到、在线奖励、商店、称号、称号效果、成就、云存储、权限、命令菜单、侧边栏等模块。[fabric.mod.json](/D:/mod/qiandao/src/main/resources/fabric.mod.json)
+- 配置加载采用“候选快照校验成功后再发布”的模式。重载失败会保留旧配置，不会将服务运行到半初始化状态；模块开关变化还会联动刷新命令、关闭禁用 GUI、更新称号效果等运行状态。[OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java) [ModuleControlService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModuleControlService.java)
+- 奖励系统已统一为四种类型：货币、物品、称号、控制台指令。签到、在线奖励、成就可共用该结构；奖励账本具备事件幂等、物品快照、指令审计和异常人工结算状态，避免重复发奖。[RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) [RewardClaimLedger.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java)
+- 物品奖励已支持 `item + count + components` 与完整 SNBT 物品堆两种格式，并限制输入和快照体积。该能力已被奖励和商店共用。[ItemStackConfigParser.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java)
+- 成就不再局限于少数硬编码事件，已有 `stat`、`sum`、`all`、`any`、`not` 条件树，可组合统计、标签、通配符和多目标逻辑。[AchievementConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementConfig.java)
+- 称号数据已支持永久与限时授权。限时称号仅在玩家实际佩戴时消耗在线 tick，到期会撤销选择、展示与效果，并支持叠加、替换、取最大值三种续期策略。[TitleData.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleData.java) [TimedEntitlementService.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/entitlement/TimedEntitlementService.java)
+- Placeholder API 采用可选依赖方式，项目自身已有占位符解析链；GUI 已出现统一主题、文本裁切、分页、音效反馈等基础设施。签到界面已经完成较明显的日历式重构，不再完全依赖玻璃板铺底。[GuiTheme.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java) [CheckinScreenHandler.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java)
+
+**主要缺口**
+
+1. 默认配置和示例配置仍明显落后于代码能力。当前运行目录中的签到、在线奖励和成就示例主要还是旧式 `dailyCoins`、`coins`、`titles` 等写法，未充分展示统一奖励、NBT 物品、限时称号、签到 UI 配置等新能力。  
+   结果是“代码已支持，但服主无法从默认文件发现并正确配置”。
+
+2. GUI 公共层尚未完全落地。`GuiTheme` 和反馈服务已被多处采用，但分页、槽位布局、空状态、返回/关闭逻辑仍散落在不同 `ScreenHandler` 中；统一导航目前接入范围较小。  
+   这会逐渐造成界面风格回退和维护成本增加，而不是立即导致数据错误。
+
+3. 配置迁移逻辑基础较好，但近期新增能力缺少完整的旧服升级演练。尤其要确认旧 `qiandao-*` 配置、旧称号玩家数据、旧奖励记录升级后不会丢失或重复发奖。[ConfigMigration.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java)
+
+4. 现有测试以单元测试为主，覆盖了奖励、配置、称号、命令安全等关键类，但没有看到覆盖近期功能的完整服务端启动与交互验收证据。当前不能据此宣称“整体运行已验证”。
+
+**最值得优先处理的风险**
+
+`P0：命令菜单的生产安全配置过宽。` 当前运行配置中的：
+
+```json
+"command_security": {
+  "allowed_roots": ["*"],
+  "cooldown_ticks": 0
+}
+```
+
+允许根命令通配。虽然当前 `reward_security.allow_command_rewards` 为 `false`，指令奖励被挡住，但命令菜单若允许控制台命令，仍可能被菜单配置放大为任意命令执行入口。代码默认值是较保守的“空白名单 + 10 tick 冷却”，运行配置却没有沿用该默认安全边界。[CommandSecurityConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/CommandSecurityConfig.java) [当前运行配置](/D:/mod/qiandao/run/config/omnitools/config.json)
+
+工作台应优先将正式服改为明确白名单，例如仅允许 `spawn`、`home`、`warp` 等实际需要的根命令，并配置合理冷却；`"*"` 只应存在于本地开发环境。
+
+`P1：热重载与数据一致性缺少端到端验证。` 应重点验证：模块禁用时已打开 GUI 的处理、重载失败后旧快照是否继续工作、NBT 奖励进入奖励箱后重启再领取、限时称号到期、Placeholder API 存在与缺失两种启动场景。配置框架设计是正确的，但这些路径涉及运行期状态切换，不能只依赖单元测试。
+
+`P1：高频限时称号逻辑需做性能验证。` 目前每个服务端 tick 会检查在线玩家的当前佩戴称号，且涉及配置查询和存档对象访问。逻辑上满足“佩戴才扣时间”，但应在 20、100、500 在线玩家规模下测量开销。必要时维护“当前佩戴临时称号的玩家集合”，避免逐 tick 扫描所有在线玩家。
+
+`P1：文档、默认配置与实现不同步。` 这是当前最容易造成实际用户问题的风险。新服主会按旧示例配置，从而误以为 NBT、称号有效期、统一奖励、条件树或 UI 定制没有实现。
+
+`P2：GUI 体验和文档可读性需要系统收尾。` 签到菜单方向已经正确，其他 GUI 仍需按相同标准补齐信息层级、状态色、空状态、分页和返回入口。文档方面应统一入口，避免旧 `guides`、根目录文档和新模块文档出现相互矛盾的配置写法，并核验 UTF-8 编码和实际渲染。
+
+**建议工作台按此顺序推进**
+
+1. 安全收口：审计命令菜单配置，移除生产服 `allowed_roots: ["*"]`，建立命令白名单和冷却策略。
+2. 建立服务端验收矩阵：每次发布至少覆盖首次启动、旧配置迁移、`/omnitools reload`、模块开关、奖励账本、NBT 物品、限时称号、外部占位符缺失/存在。
+3. 重写默认生成配置与示例：所有模块使用当前正式结构，分别给出最小可运行版与完整功能版。
+4. 文档以模块为中心同步：每个模块的命令、权限、配置字段、完整示例、常见错误、占位符和迁移说明放在同一页。
+5. 再处理体验和扩展：完成 GUI 公共导航层接入，补性能压测，最后再增加新的大模块或复杂玩法。
+
+本次为只读结构分析，未修改文件、未构建，也未运行测试。

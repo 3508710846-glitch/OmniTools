@@ -60,7 +60,7 @@
 | `lines` | 数组 | 是 | 最多 15 行 | 行 ID 重复。 |
 | `lines[].id` | 字符串 | 是 | 1--32，字母数字下划线连字符 | 含空格。 |
 | `lines[].text` | 文本 | 是 | 最长 256、非空 | 空文本。 |
-| `conflict_policy` | 枚举 | 否 | `skip`/`replace`/`restore` | 新配置使用 `warn`/`disabled`。 |
+| `conflict_policy` | 枚举 | 否 | `skip`/`replace`/`restore` | 仅旧配置可能出现 `warn`/`disabled`，新配置不要使用。 |
 
 ## 8. 全部配置场景
 

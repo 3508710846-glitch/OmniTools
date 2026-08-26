@@ -1,17 +1,8 @@
-统一 GUI 优化已完成，保持纯服务端与原版客户端兼容。
+验证、构建与运行测试均完成并通过：
 
-- 新增共享 [GuiTheme.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTheme.java:1)、[GuiSlots.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiSlots.java:1)、[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:1)、[GuiNavigationService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiNavigationService.java:1)、[GuiFeedbackService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiFeedbackService.java:1)。
-- 成就、称号、在线奖励、商店、云存储、奖励箱、奖励账本、模块管理、签到记录/奖励详情已移除整页玻璃板背景，并统一空槽、状态色、图标、Lore 限制、分页与操作反馈。
-- 成就/在线奖励使用书本、箱子、漏斗、绿宝石等状态图标；称号区分永久、临时和佩戴；商店显示货币是否充足；奖励箱保留 NBT 物品原 Lore，并展示来源、异常和投递操作。
-- 模块管理显示配置版本和模块配置路径；命令菜单在无项目时显示明确提示，但不覆盖服主自定义内容。
-- 中英文语言文件已补齐新文案，验证无重复键、可解析。
+- `modmind_validate_content`：4 个受管内容文件通过，无警告。
+- `modmind_build_project`：构建成功，产物为 `.modmind/minecraft/mods/modmind-current-project.jar`。
+- `modmind_test_matrix(server)`：Fabric 1.21.11 服务端启动成功并稳定运行 15 秒。
+- 运行时已停止，状态为 `idle`，无遗留测试服务。
 
-验证通过：
-
-- `gradlew test`
-- ModMind 内容校验：无错误、无警告
-- 受管构建成功：`.modmind/minecraft/mods/modmind-current-project.jar`
-- 服务端烟雾测试：启动后稳定运行 15 秒，日志见 [runServer-1787719181052.log](D:/mod/qiandao/.modmind/builds/runServer-1787719181052.log)
-- 静态检索确认 GUI 源码无 `STAINED_GLASS` / `GLASS_PANE` 残留
-
-待人工验收：使用无 OmniTools 客户端模组的原版客户端逐项检查分页、购买、领取、扩容、称号切换和 NBT 奖励物品的实际 Lore 排版。`docs/idea.md` 的既有用户修改未动。
+服务端日志：[runServer-1787723976578.log](D:/mod/qiandao/.modmind/builds/runServer-1787723976578.log)

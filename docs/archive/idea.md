@@ -6796,7 +6796,7 @@ README 只保留：
 
 ```md
 成就支持原版统计、目标分组、标签、逻辑条件树和一次性奖励。
-详细配置说明见 [成就配置指南](docs/achievements.md)。
+详细配置说明见 [成就配置指南](../achievements.md)。
 ```
 
 ### 7. Placeholder API
