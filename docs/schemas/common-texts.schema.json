@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools common text overrides",
+  "type": "object",
+  "required": ["format_version", "texts"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "texts": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 512 } }
+  },
+  "additionalProperties": false
+}

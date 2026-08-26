@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools CDK configuration",
+  "type": "object",
+  "required": ["format_version", "campaigns"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "security": { "type": "object" },
+    "campaigns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "code", "rewards"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+          "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "starts_at": { "type": "string" },
+          "expires_at": { "type": "string" },
+          "max_uses": { "type": "integer", "minimum": 0 },
+          "rewards": { "$ref": "common-rewards.schema.json#/$defs/rewards" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

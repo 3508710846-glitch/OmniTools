@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
 
 import java.io.IOException;
@@ -15,12 +16,14 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 /** Server-side settings for the player cloud storage feature. */
 public final class CloudStorageConfig {
     public static final String FILE_NAME = "omnitools-cloud-storage.json";
     public static final int MIN_PAGES = 1;
     public static final int MAX_PAGES = 2;
+    public static final int CURRENT_FORMAT_VERSION = 1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.CLOUD_STORAGE);
 
@@ -69,6 +72,11 @@ public final class CloudStorageConfig {
     }
 
     private static CloudStorageConfig parse(JsonObject root) {
+        ConfigFieldReporter.warnUnknown(root, "cloud_storage", Set.of("format_version", "expansionCost", "maxPages"));
+        long version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
+        if (version < 1 || version > CURRENT_FORMAT_VERSION) {
+            throw new JsonParseException("Unsupported cloud storage format_version: " + version);
+        }
         long expansionCost = nonNegativeLong(root, "expansionCost");
         long configuredMaxPages = nonNegativeLong(root, "maxPages");
         if (configuredMaxPages < MIN_PAGES || configuredMaxPages > MAX_PAGES) {
@@ -90,6 +98,21 @@ public final class CloudStorageConfig {
             return value;
         } catch (NumberFormatException exception) {
             throw new JsonParseException(key + " must be a non-negative integer");
+        }
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
         }
     }
 

@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.network.chat.Component;
@@ -195,6 +196,12 @@ public final class TitleConfig {
     }
 
     private static TitleConfig parse(JsonObject root) {
+        ConfigFieldReporter.warnUnknown(root, "titles",
+                Set.of("format_version", "nameplate_mode", "team_conflict_policy", "titles"));
+        int version = integer(root, "format_version", 1);
+        if (version < 1 || version > 1) {
+            throw new JsonParseException("Unsupported title format_version: " + version);
+        }
         NameplateMode nameplateMode = NameplateMode.parse(optionalString(root, "nameplate_mode"));
         TeamConflictPolicy teamConflictPolicy = TeamConflictPolicy.parse(
                 optionalString(root, "team_conflict_policy"));
@@ -206,6 +213,8 @@ public final class TitleConfig {
                 throw new JsonParseException("Title entry " + index + " must be an object");
             }
             JsonObject titleObject = element.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(titleObject, "titles[" + index + "]",
+                    Set.of("id", "display", "rarity", "effects", "tooltip"));
             String id = normalizeId(requiredString(titleObject, "id"));
             if (!TITLE_ID.matcher(id).matches()) {
                 throw new JsonParseException("Title id " + id + " must match " + TITLE_ID.pattern());
@@ -350,6 +359,21 @@ public final class TitleConfig {
             throw new JsonParseException(key + " must be a string");
         }
         return element.getAsString();
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
+        }
     }
 
     private static String normalizeId(String id) {

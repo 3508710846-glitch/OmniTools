@@ -7,3 +7,6 @@
 玩家可见文本可使用 `&` 颜色代码和 `%omnitools:balance%` 这类文本占位符。配置命令不是文本模板：命令只允许 `{player_name}`、`{player_uuid}`、`{player_x}`、`{player_y}`、`{player_z}`、`{player_world}`，不能使用 `%...%`。
 
 保存 UTF-8 编码。编辑后执行 `/omnitools reload`，然后查看控制台第一条 `[omnitools]` 配置错误；错误重载不会替换当前快照。
+
+跨模块复用奖励或成就条件时，可在 `config/omnitools/common/` 中定义数据模板，并在模块条目中使用
+`"template": "模板 ID"`。模板引用最多嵌套 4 层，未知或循环引用会阻止重载，详见[统一配置平台](../config-platform.md)。

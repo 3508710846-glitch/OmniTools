@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.LegacyTitleText;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
 
 import java.io.IOException;
@@ -109,7 +110,12 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
     }
 
     private static SidebarConfig parse(JsonObject root) {
+        ConfigFieldReporter.warnUnknown(root, "sidebar", Set.of("format_version", "default_visible",
+                "refresh_interval_ticks", "title", "conflict_policy", "lines"));
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
+        if (version < 1 || version > CURRENT_FORMAT_VERSION) {
+            throw new JsonParseException("Unsupported sidebar format_version: " + version);
+        }
         boolean visible = bool(root, "default_visible", true);
         int interval = integer(root, "refresh_interval_ticks", 20);
         String title = string(root, "title", "");
@@ -125,6 +131,7 @@ public record SidebarConfig(int formatVersion, boolean defaultVisible, int refre
                 throw new JsonParseException("sidebar.lines[" + index + "] must be an object");
             }
             JsonObject line = element.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(line, "sidebar.lines[" + index + "]", Set.of("id", "text"));
             lines.add(new SidebarLine(string(line, "id", ""), string(line, "text", "")));
         }
         String policy = string(root, "conflict_policy", "skip");

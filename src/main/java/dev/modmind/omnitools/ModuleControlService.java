@@ -10,15 +10,25 @@ import java.util.Optional;
 /** Coordinates transactional module changes with the shared runtime compensation path. */
 public final class ModuleControlService {
     private final OmniToolsConfigManager configManager;
+    private final dev.modmind.omnitools.config.RuntimeConfigApplier runtimeApplier;
 
     public ModuleControlService(OmniToolsConfigManager configManager) {
         this.configManager = configManager;
+        this.runtimeApplier = new dev.modmind.omnitools.config.RuntimeConfigApplier();
     }
 
     public OmniToolsConfigManager.ReloadResult reload(MinecraftServer server) {
         OmniToolsConfigManager.ReloadResult result = configManager.reload(server);
         if (result.success()) {
-            ModMindEntry.applyRuntimeConfigChange(server, result.previous(), result.current());
+            runtimeApplier.apply(server, result.previous(), result.current());
+        }
+        return result;
+    }
+
+    public OmniToolsConfigManager.ModuleReloadResult reloadModule(MinecraftServer server, ModuleId module) {
+        OmniToolsConfigManager.ModuleReloadResult result = configManager.reloadModule(server, module);
+        if (result.success()) {
+            runtimeApplier.apply(server, result.previous(), result.current());
         }
         return result;
     }
@@ -33,7 +43,7 @@ public final class ModuleControlService {
         }
         OmniToolsConfigManager.ModuleUpdateResult result = configManager.updateModuleEnabled(server, module, enabled);
         if (result.success() && result.previous() != result.current()) {
-            ModMindEntry.applyRuntimeConfigChange(server, result.previous(), result.current());
+                runtimeApplier.apply(server, result.previous(), result.current());
         }
         return result;
     }

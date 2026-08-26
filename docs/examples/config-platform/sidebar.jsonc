@@ -1,0 +1,11 @@
+{
+  "format_version": 2,
+  "default_visible": true,
+  "refresh_interval_ticks": 20,
+  "title": "&bOmniTools",
+  "conflict_policy": "skip",
+  "lines": [
+    { "id": "balance", "text": "&eBalance: &f%omnitools:balance_formatted%" },
+    { "id": "title", "text": "&bTitle: &f%omnitools:title_plain%" }
+  ]
+}

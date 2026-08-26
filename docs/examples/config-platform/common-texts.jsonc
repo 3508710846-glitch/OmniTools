@@ -1,0 +1,7 @@
+{
+  "format_version": 1,
+  "texts": {
+    "server_label": "OmniTools",
+    "welcome_hint": "Welcome, %player_name%!"
+  }
+}

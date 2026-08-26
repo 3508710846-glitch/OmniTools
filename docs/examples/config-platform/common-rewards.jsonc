@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "templates": {
+    "welcome_currency": {
+      "type": "currency",
+      "amount": 100
+    },
+    "weekend_title": {
+      "type": "title",
+      "title": "architect",
+      "duration": { "mode": "active_days", "days": 7 },
+      "renewal": "extend"
+    }
+  }
+}

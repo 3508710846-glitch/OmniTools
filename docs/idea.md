@@ -3361,3 +3361,198 @@ cdk.admin               ADMIN
 8. `/omnitools reload` 失败时，旧 CDK 与补签规则继续生效。
 
 这套设计能直接复用现有签到数据、货币、统一奖励和奖励账本，不会为 CDK 或补签另造一套不一致的经济逻辑。本次仅完成方案设计，未修改文件。
+
+---
+
+## Development request 2026/8/26 22:22:27
+
+可以。建议将 OmniTools 从“每个模块各自解析配置”升级为“统一配置平台 + 模块声明式配置”。重点不是允许配置任意代码，而是让服主能够配置玩法参数、条件、奖励、界面和权限，同时把数据一致性与安全边界固定在代码中。
+
+当前项目已经具备良好基础：
+
+- `OmniToolsConfigManager` 已支持完整快照加载、校验和原子重载。
+- `RewardDefinition` 已统一货币、物品、称号、指令奖励。
+- `AchievementConfig` 已支持 `stat`、`sum`、`all`、`any`、`not`。
+- 命令菜单、侧边栏、签到 UI、补签卡、CDK 都已有独立配置入口。
+- `ConfigValidator` 已负责模块之间的依赖校验。
+
+## 一、目标配置结构
+
+```text
+config/omnitools/
+├── config.json                 # 全局设置、模块开关、集成
+├── common/
+│   ├── rewards.json            # 可复用奖励模板
+│   ├── conditions.json         # 可复用条件模板
+│   └── texts.json              # 可复用文本
+├── daily_checkin/config.json
+├── online_reward/config.json
+├── shop/config.json
+├── titles/config.json
+├── title_effects/config.json
+├── achievements/config.json
+├── permissions/config.json
+├── command_menu/config.json
+├── sidebar/config.json
+├── cdk/config.json
+└── cloud_storage/config.json
+```
+
+根配置继续保持：
+
+```json
+{
+  "format_version": 4,
+  "global": {
+    "language": "zh_cn",
+    "timezone": "Asia/Shanghai",
+    "debug": false
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "achievements": { "enabled": true },
+    "shop": { "enabled": true }
+  },
+  "integrations": {
+    "placeholder_api": { "enabled": true }
+  }
+}
+```
+
+## 二、统一配置模型
+
+所有模块尽量复用以下公共结构。
+
+### 条件
+
+```json
+{
+  "type": "all",
+  "conditions": [
+    {
+      "type": "stat",
+      "stat": "block_mined",
+      "targets": ["minecraft:stone"],
+      "match": "sum",
+      "at_least": 1000
+    },
+    {
+      "type": "not",
+      "condition": {
+        "type": "stat",
+        "stat": "deaths",
+        "at_least": 1
+      }
+    }
+  ]
+}
+```
+
+### 奖励
+
+```json
+[
+  { "id": "coins", "type": "currency", "amount": 500 },
+  {
+    "id": "vip",
+    "type": "title",
+    "title": "vip",
+    "duration": { "mode": "active_days", "days": 7 },
+    "renewal": "extend"
+  },
+  {
+    "id": "item",
+    "type": "item",
+    "nbt": "{id:'minecraft:diamond_sword',count:1,components:{}}"
+  }
+]
+```
+
+### 文本
+
+所有 GUI、聊天、侧边栏文本统一支持：
+
+- OmniTools 内置占位符。
+- Fabric Placeholder API 占位符。
+- 颜色格式。
+- 默认值和缺失占位符处理。
+
+命令奖励仍禁止任意外部文本占位符，只允许受控的玩家变量。
+
+## 三、各模块的可配置范围
+
+| 模块 | 建议开放配置 |
+|---|---|
+| 签到 | 签到周期、每日奖励、月度奖励、补签规则、补签价格、UI、音效 |
+| 在线奖励 | 时间档位、是否重复领取、AFK 判定、奖励、冷却 |
+| 商店 | 商品、价格、库存、购买上限、刷新周期、NBT 物品 |
+| 称号 | 显示文本、稀有度、效果、Lore、显示位置、持续时间 |
+| 成就 | 统计条件、逻辑组合、目标组、进度显示、奖励、公告 |
+| 权限 | 每条命令的角色要求，默认角色，模块管理员权限 |
+| 命令菜单 | 菜单大小、图标、槽位、Lore、左右键动作、子菜单 |
+| 侧边栏 | 标题、行顺序、刷新间隔、占位符、显示条件 |
+| CDK | 兑换码、有效期、总次数、每人次数、奖励、失败冷却 |
+| 云存储 | 容量、页数、访问权限、物品限制、备份策略 |
+
+## 四、建议新增统一接口
+
+每个模块都遵循相同生命周期：
+
+```java
+interface ConfigurableModule<T> {
+    ModuleId id();
+    T load(LoadContext context);
+    void validate(T config, ConfigSnapshot snapshot);
+    void apply(T previous, T current, RuntimeContext runtime);
+}
+```
+
+这样可以把当前集中在 `ModMindEntry` 中的逻辑逐步拆出：
+
+- `ConfigModuleRegistry`
+- `ConfigSnapshot`
+- `CrossModuleValidator`
+- `RuntimeConfigApplier`
+- `ModuleCommandRegistrar`
+
+以后新增模块只需注册配置加载器、校验器和运行时适配器。
+
+## 五、必须保留为代码控制的内容
+
+以下内容不应完全交给配置：
+
+- 奖励账本和幂等逻辑。
+- 数据存档格式和迁移流程。
+- 权限绕过规则。
+- 控制台命令白名单。
+- NBT 危险字段过滤。
+- 最大数量、最大文本长度、最大条件深度。
+- tick 调度和线程安全。
+- 配置重载失败时保留旧快照的机制。
+
+“高度可配置”应该是数据驱动，而不是允许配置执行任意 Java 或任意服务器命令。
+
+## 六、配置质量与兼容性
+
+每个模块同时提供：
+
+```text
+config.json       严格可运行版本
+config.jsonc      带注释教学版本
+schema.json       字段类型与取值范围
+examples/         最小配置、完整配置、复杂配置
+```
+
+所有配置包含 `format_version`，升级通过迁移器处理。未知字段建议警告而不是直接静默忽略；危险字段和错误引用必须阻止重载。
+
+## 七、开发顺序
+
+1. 抽取统一字段解析、ID 校验、文本、条件、奖励和引用校验。
+2. 将所有模块接入统一 `ConfigSnapshot` 和跨模块验证。
+3. 优先迁移签到、在线奖励、成就、商店、称号。
+4. 再迁移权限、命令菜单、侧边栏、CDK、云存储。
+5. 拆分 `ModMindEntry` 的命令注册和运行时应用职责。
+6. 补齐 JSONC、Schema、示例和迁移测试。
+7. 最后增加配置预设、模板继承和多人服性能优化。
+
+验收标准：修改任意模块配置后可以单独重载；错误配置不会污染运行状态；模块之间的奖励、称号、权限引用会被提前校验；服主只编辑 JSON 就能完成绝大多数玩法调整，而不需要修改代码。

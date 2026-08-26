@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools command permission configuration",
+  "type": "object",
+  "required": ["format_version", "commands"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "allow_title_command_grants": { "type": "boolean" },
+    "commands": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "enum": ["PLAYER", "ADMIN"] },
+          {
+            "type": "object",
+            "required": ["role"],
+            "properties": { "role": { "enum": ["PLAYER", "ADMIN"] }, "allow_native_node": { "type": "boolean" } },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

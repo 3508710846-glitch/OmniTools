@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools root configuration",
+  "type": "object",
+  "required": ["format_version", "global", "modules"],
+  "properties": {
+    "format_version": { "const": 4 },
+    "global": {
+      "type": "object",
+      "properties": {
+        "debug": { "type": "boolean" },
+        "language": { "enum": ["zh_cn", "en_us"] },
+        "timezone": { "type": "string" },
+        "data_retention": { "enum": ["full", "monthly_summary", "archive"] },
+        "reward_security": { "$ref": "#/$defs/rewardSecurity" },
+        "command_security": { "$ref": "#/$defs/commandSecurity" }
+      },
+      "additionalProperties": false
+    },
+    "integrations": {
+      "type": "object",
+      "properties": { "placeholder_api": { "type": "object", "properties": { "enabled": { "type": "boolean" } } } },
+      "additionalProperties": false
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "additionalProperties": false }
+    }
+  },
+  "$defs": {
+    "rewardSecurity": { "type": "object", "properties": { "allow_command_rewards": { "type": "boolean" }, "max_command_length": { "type": "integer", "minimum": 1, "maximum": 16384 } }, "additionalProperties": false },
+    "commandSecurity": { "type": "object", "properties": { "allowed_roots": { "type": "array", "items": { "type": "string" } }, "max_command_length": { "type": "integer", "minimum": 1, "maximum": 16384 }, "cooldown_ticks": { "type": "integer", "minimum": 0, "maximum": 72000 } }, "additionalProperties": false }
+  },
+  "additionalProperties": false
+}

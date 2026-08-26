@@ -25,7 +25,18 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     CommandMenuConfig commandMenus,
                                     SidebarConfig sidebar,
                                     CommandPermissionConfig commandPermissions,
-                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
+                                    Map<ModuleId, ModuleStatus> statuses, long revision,
+                                    CommonConfig common) implements ConfigSnapshot {
+    public OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
+                                   OnlineRewardConfig onlineRewards, ShopConfig shop, TitleConfig titles,
+                                   TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
+                                   AchievementConfig achievements, CdkConfig cdk, CommandMenuConfig commandMenus,
+                                   SidebarConfig sidebar, CommandPermissionConfig commandPermissions,
+                                   Map<ModuleId, ModuleStatus> statuses, long revision) {
+        this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
+                commandMenus, sidebar, commandPermissions, statuses, revision, CommonConfig.empty());
+    }
+
     public OmniToolsConfigSnapshot {
         EnumMap<ModuleId, ModuleStatus> copy = new EnumMap<>(ModuleId.class);
         if (statuses != null) {
@@ -38,6 +49,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         statuses = Map.copyOf(copy);
         commandPermissions = commandPermissions == null ? CommandPermissionConfig.defaults() : commandPermissions;
         cdk = cdk == null ? CdkConfig.empty() : cdk;
+        common = common == null ? CommonConfig.empty() : common;
     }
 
     public boolean enabled(ModuleId module) {

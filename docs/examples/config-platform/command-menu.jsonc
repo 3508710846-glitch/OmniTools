@@ -1,0 +1,7 @@
+{
+  "format_version": 1,
+  "allow_console_commands": false,
+  "menus": [
+    { "id": "quick", "file": "quick.json", "permission": "PLAYER" }
+  ]
+}

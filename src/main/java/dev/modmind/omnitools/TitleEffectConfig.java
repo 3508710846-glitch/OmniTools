@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
 import net.minecraft.resources.Identifier;
 
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Administrator-editable effect definitions referenced by title ids. */
@@ -73,9 +75,14 @@ public final class TitleEffectConfig {
     }
 
     private static TitleEffectConfig parse(JsonObject root) {
+        int version = integer(root, "format_version", 1);
+        if (version < 1 || version > 1) {
+            throw new JsonParseException("Unsupported title effect format_version: " + version);
+        }
         JsonObject definitions = root;
         JsonElement wrapped = root.get("effects");
         if (wrapped != null && wrapped.isJsonObject()) {
+            ConfigFieldReporter.warnUnknown(root, "title_effects", Set.of("format_version", "effects"));
             definitions = wrapped.getAsJsonObject();
         }
 
@@ -94,7 +101,11 @@ public final class TitleEffectConfig {
             if (result.containsKey(id)) {
                 throw new JsonParseException("Effect id " + id + " is configured more than once");
             }
-            result.put(id, parseDefinition(id, entry.getValue().getAsJsonObject()));
+            JsonObject definition = entry.getValue().getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(definition, "title_effects." + id,
+                    Set.of("name", "type", "effect", "amplifier", "duration", "attribute", "operation",
+                            "amount", "particle", "frequency", "permission", "display"));
+            result.put(id, parseDefinition(id, definition));
         }
         return new TitleEffectConfig(result);
     }
@@ -233,6 +244,21 @@ public final class TitleEffectConfig {
             throw new JsonParseException(key + " must be a string");
         }
         return element.getAsString();
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
+        }
     }
 
     private static int optionalInt(JsonObject object, String key, int fallback) {

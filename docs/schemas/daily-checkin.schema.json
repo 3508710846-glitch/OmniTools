@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools daily check-in configuration",
+  "type": "object",
+  "required": ["format_version", "daily", "monthly"],
+  "properties": {
+    "format_version": { "enum": [2, 3] },
+    "daily": { "type": "object", "required": ["rewards"], "properties": { "rewards": { "$ref": "common-rewards.schema.json#/$defs/rewards" } }, "additionalProperties": false },
+    "monthly": { "type": "object", "additionalProperties": { "$ref": "common-rewards.schema.json#/$defs/rewards" } },
+    "makeup": { "type": "object" },
+    "ui": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -1,29 +1,33 @@
 {
-  "prompt": "可以，建议做成两个相互独立、但复用统一奖励体系的能力：\n\n```text\nCDK 模块\n  兑换码校验、全服次数、每人一次、有效期、奖励发放、审计\n\n签到模块中的补签卡\n  虚拟卡数量、购买/奖励来源、历史日期补签、连续签到与月度奖励规则\n```\n\n补签卡不要做成可交易实体物品，建议做成玩家数据中的虚拟权益。这样不会因丢弃、复制、背包满或 NBT 篡改造成问题，且与当前 [CheckinData.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CheckinData.java) 的货币和签到记录存储方式一致。\n\n**1. CDK 模块**\n\n新增模块开关：\n\n```json\n\"cdk\": { \"enabled\": true }\n```\n\n配置路径：\n\n```text\nconfig/omnitools/cdk/config.json\n```\n\n示例：\n\n```json\n{\n  \"format_version\": 1,\n  \"security\": {\n    \"max_code_length\": 64,\n    \"cooldown_ticks\": 20,\n    \"max_failed_attempts\": 5,\n    \"lockout_seconds\": 60\n  },\n  \"campaigns\": [\n    {\n      \"id\": \"welcome_2026\",\n      \"code\": \"OMNI-2026-WELCOME\",\n      \"starts_at\": \"2026-08-01T00:00:00Z\",\n      \"expires_at\": \"2026-09-01T00:00:00Z\",\n      \"max_uses\": 0,\n      \"rewards\": [\n        { \"id\": \"coins\", \"type\": \"currency\", \"amount\": 500 },\n        { \"id\": \"makeup_cards\", \"type\": \"makeup_card\", \"amount\": 2 },\n        {\n          \"id\": \"vip_7d\",\n          \"type\": \"title\",\n          \"title\": \"vip\",\n          \"duration\": { \"mode\": \"active_days\", \"days\": 7 },\n          \"renewal\": \"extend\"\n        }\n      ]\n    }\n  ]\n}\n```\n\n规则：\n\n- `id` 为永久稳定 ID，已发放后不能改名或复用。\n- `max_uses: 0` 表示不限全服总次数；其他正整数表示全服总次数。\n- 每个玩家对同一 `campaign.id` 永远只能兑换一次，以 UUID 判断，不受改名影响。\n- 配置加载后仅在内存保留规范化后的码值或哈希，不在日志、报错、管理员审计中回显原始 CDK。\n- 配置中的同一活动一旦已有兑换记录，禁止修改其奖励、总次数或有效期；需要新活动时创建新的 `id`，防止旧玩家因重载获得新增奖励。\n- CDK 奖励复用 [RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java) 与奖励账本，事件 ID 固定为：\n\n```text\ncdk:<campaign-id>:<player-uuid>\n```\n\n这样重连、重复输入、奖励箱领取、服务器中断恢复都不会重复发奖。\n\n建议命令：\n\n```text\n/omnitools cdk redeem <code>      玩家\n/omnitools cdk status             玩家查看自己的待处理兑换\n/omnitools cdk admin list         管理员\n/omnitools cdk admin audit <id>   管理员查看兑换数量和异常记录\n```\n\n玩家端只返回“CDK 无效或当前不可用”，不要区分“码不存在、已过期、已用完”，避免被暴力枚举。详细原因只写管理员日志或审计 GUI。\n\n**2. 统一奖励增加补签卡类型**\n\n现有奖励类型为货币、物品、称号、指令。应新增第五种：\n\n```json\n{\n  \"id\": \"makeup_cards\",\n  \"type\": \"makeup_card\",\n  \"amount\": 2\n}\n```\n\n它可用于 CDK、签到、在线奖励、成就，以及未来远征世界的怪物掉落。实现上应和货币奖励一样，在同一玩家数据事务中以 `eventId + rewardId` 做幂等标记，不能通过“先加卡、后记账”的两步流程。\n\n**3. 补签卡配置**\n\n补签属于签到模块，因此放在：\n\n```text\nconfig/omnitools/daily_checkin/config.json\n```\n\n示例：\n\n```json\n{\n  \"format_version\": 3,\n  \"daily\": {\n    \"rewards\": [\n      { \"id\": \"daily_currency\", \"type\": \"currency\", \"amount\": 100 }\n    ]\n  },\n  \"makeup\": {\n    \"enabled\": true,\n    \"max_cards\": 99,\n    \"max_backfill_days\": 7,\n    \"max_uses_per_calendar_month\": 3,\n    \"earliest_eligible_day\": \"first_seen\",\n    \"affects_streak\": true,\n    \"daily_reward_policy\": \"none\",\n    \"counts_for_monthly_milestones\": true,\n    \"purchase\": {\n      \"enabled\": true,\n      \"price\": 200\n    }\n  }\n}\n```\n\n建议默认规则：\n\n- 只能补今天之前的漏签日期，不能补今天或未来日期。\n- 最多补过去 7 天，且每自然月最多使用 3 张。\n- 不能补早于玩家首次进入服务器的日期，避免新玩家补出历史签到。\n- 已签到日期不可再次补签，不消耗卡。\n- 补签成功后会重新计算总签到天数和连续签到天数。\n- 默认不发放当日每日奖励，避免玩家大量补历史日期造成经济通胀。\n- 默认计入月度签到进度；是否能触发月度里程碑奖励由 `counts_for_monthly_milestones` 明确控制。\n- 若服主希望补签也获得每日奖励，设置 `daily_reward_policy: \"grant\"`，但应在文档中标为高经济影响选项。\n\n补签的核心事务必须是一个 `CheckinData` 同步操作：\n\n```text\n验证日期与月度额度\n  -> 验证持有补签卡\n  -> 扣除 1 张卡\n  -> 写入补签日期与来源 make_up\n  -> 重算连续签到\n  -> 持久化\n```\n\n任何验证失败都不能扣卡。若后续奖励进入奖励箱或暂时失败，签到与卡消耗不回滚，奖励由现有账本重试机制继续完成。\n\n**4. 玩家交互**\n\n在签到日历中：\n\n- 已签到日期：绿色或灰色，显示签到时间。\n- 可补签的漏签日期：时钟图标，显示“补签需 1 张，剩余 X 张”。\n- 不可补签日期：灰色，显示具体原因，例如“超过补签期限”或“本月额度已用完”。\n- 点击可补签日期先打开确认页，再点击确认才扣卡。\n- 签到主页增加一张“补签卡”信息卡，显示持有数量、本月已用次数与购买入口。\n\n建议命令：\n\n```text\n/omnitools checkin cards\n/omnitools checkin makeup <yyyy-MM-dd>\n/omnitools checkin cards buy <amount>\n/omnitools checkin admin cards give <player> <amount>\n/omnitools checkin admin cards take <player> <amount>\n```\n\n对应新增权限节点：\n\n```text\ncheckin.makeup          PLAYER\ncheckin.cards.buy       PLAYER\ncheckin.cards.admin     ADMIN\ncdk.redeem              PLAYER\ncdk.admin               ADMIN\n```\n\n**5. 需要新增的结构**\n\n- `CdkConfig`：加载并校验活动、时间、码格式、奖励。\n- `CdkData`：保存全服兑换次数、玩家兑换记录、活动定义指纹和审计时间。\n- `CdkService`：兑换、限制、奖励账本衔接、重试恢复。\n- `RewardType.MAKEUP_CARD`：统一奖励第五种类型。\n- `CheckinData`：补签卡余额、每月使用次数、首次见到日期、补签来源。\n- `CheckinMakeupService`：日期规则、原子补签和连续签到重算。\n- `CdkScreenHandler` 不建议作为 MVP。纯服务端容器 GUI 无法安全输入文本，首版用命令兑换即可；GUI 只用于查看卡片和补签确认。\n\n**6. 验收重点**\n\n1. 同一 CDK 连续输入两次，只发一次奖励。\n2. 两个玩家同时兑换最后一个限量 CDK，只有一人成功。\n3. CDK 奖励含 NBT 物品、限时称号和补签卡时，重启后不重复发放。\n4. 修改已兑换活动的奖励后，系统拒绝继续兑换并提示管理员新建活动 ID。\n5. 无卡、已签到、超期、未来日期、月度额度耗尽时，均不扣卡。\n6. 补昨天后连续签到正确衔接；补签不增加“今日第几位签到者”统计。\n7. 时区跨日和跨月时，补签资格、月度额度和月度奖励正确计算。\n8. `/omnitools reload` 失败时，旧 CDK 与补签规则继续生效。\n\n这套设计能直接复用现有签到数据、货币、统一奖励和奖励账本，不会为 CDK 或补签另造一套不一致的经济逻辑。本次仅完成方案设计，未修改文件。",
+  "prompt": "可以。建议将 OmniTools 从“每个模块各自解析配置”升级为“统一配置平台 + 模块声明式配置”。重点不是允许配置任意代码，而是让服主能够配置玩法参数、条件、奖励、界面和权限，同时把数据一致性与安全边界固定在代码中。\n\n当前项目已经具备良好基础：\n\n- `OmniToolsConfigManager` 已支持完整快照加载、校验和原子重载。\n- `RewardDefinition` 已统一货币、物品、称号、指令奖励。\n- `AchievementConfig` 已支持 `stat`、`sum`、`all`、`any`、`not`。\n- 命令菜单、侧边栏、签到 UI、补签卡、CDK 都已有独立配置入口。\n- `ConfigValidator` 已负责模块之间的依赖校验。\n\n## 一、目标配置结构\n\n```text\nconfig/omnitools/\n├── config.json                 # 全局设置、模块开关、集成\n├── common/\n│   ├── rewards.json            # 可复用奖励模板\n│   ├── conditions.json         # 可复用条件模板\n│   └── texts.json              # 可复用文本\n├── daily_checkin/config.json\n├── online_reward/config.json\n├── shop/config.json\n├── titles/config.json\n├── title_effects/config.json\n├── achievements/config.json\n├── permissions/config.json\n├── command_menu/config.json\n├── sidebar/config.json\n├── cdk/config.json\n└── cloud_storage/config.json\n```\n\n根配置继续保持：\n\n```json\n{\n  \"format_version\": 4,\n  \"global\": {\n    \"language\": \"zh_cn\",\n    \"timezone\": \"Asia/Shanghai\",\n    \"debug\": false\n  },\n  \"modules\": {\n    \"daily_checkin\": { \"enabled\": true },\n    \"achievements\": { \"enabled\": true },\n    \"shop\": { \"enabled\": true }\n  },\n  \"integrations\": {\n    \"placeholder_api\": { \"enabled\": true }\n  }\n}\n```\n\n## 二、统一配置模型\n\n所有模块尽量复用以下公共结构。\n\n### 条件\n\n```json\n{\n  \"type\": \"all\",\n  \"conditions\": [\n    {\n      \"type\": \"stat\",\n      \"stat\": \"block_mined\",\n      \"targets\": [\"minecraft:stone\"],\n      \"match\": \"sum\",\n      \"at_least\": 1000\n    },\n    {\n      \"type\": \"not\",\n      \"condition\": {\n        \"type\": \"stat\",\n        \"stat\": \"deaths\",\n        \"at_least\": 1\n      }\n    }\n  ]\n}\n```\n\n### 奖励\n\n```json\n[\n  { \"id\": \"coins\", \"type\": \"currency\", \"amount\": 500 },\n  {\n    \"id\": \"vip\",\n    \"type\": \"title\",\n    \"title\": \"vip\",\n    \"duration\": { \"mode\": \"active_days\", \"days\": 7 },\n    \"renewal\": \"extend\"\n  },\n  {\n    \"id\": \"item\",\n    \"type\": \"item\",\n    \"nbt\": \"{id:'minecraft:diamond_sword',count:1,components:{}}\"\n  }\n]\n```\n\n### 文本\n\n所有 GUI、聊天、侧边栏文本统一支持：\n\n- OmniTools 内置占位符。\n- Fabric Placeholder API 占位符。\n- 颜色格式。\n- 默认值和缺失占位符处理。\n\n命令奖励仍禁止任意外部文本占位符，只允许受控的玩家变量。\n\n## 三、各模块的可配置范围\n\n| 模块 | 建议开放配置 |\n|---|---|\n| 签到 | 签到周期、每日奖励、月度奖励、补签规则、补签价格、UI、音效 |\n| 在线奖励 | 时间档位、是否重复领取、AFK 判定、奖励、冷却 |\n| 商店 | 商品、价格、库存、购买上限、刷新周期、NBT 物品 |\n| 称号 | 显示文本、稀有度、效果、Lore、显示位置、持续时间 |\n| 成就 | 统计条件、逻辑组合、目标组、进度显示、奖励、公告 |\n| 权限 | 每条命令的角色要求，默认角色，模块管理员权限 |\n| 命令菜单 | 菜单大小、图标、槽位、Lore、左右键动作、子菜单 |\n| 侧边栏 | 标题、行顺序、刷新间隔、占位符、显示条件 |\n| CDK | 兑换码、有效期、总次数、每人次数、奖励、失败冷却 |\n| 云存储 | 容量、页数、访问权限、物品限制、备份策略 |\n\n## 四、建议新增统一接口\n\n每个模块都遵循相同生命周期：\n\n```java\ninterface ConfigurableModule<T> {\n    ModuleId id();\n    T load(LoadContext context);\n    void validate(T config, ConfigSnapshot snapshot);\n    void apply(T previous, T current, RuntimeContext runtime);\n}\n```\n\n这样可以把当前集中在 `ModMindEntry` 中的逻辑逐步拆出：\n\n- `ConfigModuleRegistry`\n- `ConfigSnapshot`\n- `CrossModuleValidator`\n- `RuntimeConfigApplier`\n- `ModuleCommandRegistrar`\n\n以后新增模块只需注册配置加载器、校验器和运行时适配器。\n\n## 五、必须保留为代码控制的内容\n\n以下内容不应完全交给配置：\n\n- 奖励账本和幂等逻辑。\n- 数据存档格式和迁移流程。\n- 权限绕过规则。\n- 控制台命令白名单。\n- NBT 危险字段过滤。\n- 最大数量、最大文本长度、最大条件深度。\n- tick 调度和线程安全。\n- 配置重载失败时保留旧快照的机制。\n\n“高度可配置”应该是数据驱动，而不是允许配置执行任意 Java 或任意服务器命令。\n\n## 六、配置质量与兼容性\n\n每个模块同时提供：\n\n```text\nconfig.json       严格可运行版本\nconfig.jsonc      带注释教学版本\nschema.json       字段类型与取值范围\nexamples/         最小配置、完整配置、复杂配置\n```\n\n所有配置包含 `format_version`，升级通过迁移器处理。未知字段建议警告而不是直接静默忽略；危险字段和错误引用必须阻止重载。\n\n## 七、开发顺序\n\n1. 抽取统一字段解析、ID 校验、文本、条件、奖励和引用校验。\n2. 将所有模块接入统一 `ConfigSnapshot` 和跨模块验证。\n3. 优先迁移签到、在线奖励、成就、商店、称号。\n4. 再迁移权限、命令菜单、侧边栏、CDK、云存储。\n5. 拆分 `ModMindEntry` 的命令注册和运行时应用职责。\n6. 补齐 JSONC、Schema、示例和迁移测试。\n7. 最后增加配置预设、模板继承和多人服性能优化。\n\n验收标准：修改任意模块配置后可以单独重载；错误配置不会污染运行状态；模块之间的奖励、称号、权限引用会被提前校验；服主只编辑 JSON 就能完成绝大多数玩法调整，而不需要修改代码。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-26T13:18:34.115Z",
-  "summary": "已完成 CDK 模块与虚拟补签卡：统一奖励新增 `makeup_card`，CDK 支持限量、有效期、UUID 单次兑换、哈希化码值、失败锁定和奖励账本重试；签到已支持补签卡购买、历史补签确认、月度额度与连续签到重算。默认配置、权限、语言文件及文档已同步，签到文档升级为 v3。\n\n另修复了 CDK 事件 ID 对大小写活动 ID 的规范化问题，避免合法配置被错误拒绝。\n\n验证通过：\n\n- `.\\gradlew.bat test --no-daemon`，42 项测试通过\n- 内容校验通过\n- ModMind 构建成功，已生成 JAR\n- 隔离 Fabric 服务端启动并稳定运行 15 秒\n- 所有运行配置与中英文语言 JSON 可解析\n- `git diff --check` 通过\n\n仍建议在多人测试服手动覆盖“两个玩家同时兑换最后一个 CDK”和补签确认 GUI 的实际交互。",
-  "finalResponse": "已完成 CDK 模块与虚拟补签卡：统一奖励新增 `makeup_card`，CDK 支持限量、有效期、UUID 单次兑换、哈希化码值、失败锁定和奖励账本重试；签到已支持补签卡购买、历史补签确认、月度额度与连续签到重算。默认配置、权限、语言文件及文档已同步，签到文档升级为 v3。\n\n另修复了 CDK 事件 ID 对大小写活动 ID 的规范化问题，避免合法配置被错误拒绝。\n\n验证通过：\n\n- `.\\gradlew.bat test --no-daemon`，42 项测试通过\n- 内容校验通过\n- ModMind 构建成功，已生成 JAR\n- 隔离 Fabric 服务端启动并稳定运行 15 秒\n- 所有运行配置与中英文语言 JSON 可解析\n- `git diff --check` 通过\n\n仍建议在多人测试服手动覆盖“两个玩家同时兑换最后一个 CDK”和补签确认 GUI 的实际交互。",
+  "createdAt": "2026-08-26T16:11:03.030Z",
+  "summary": "`managed_download` 已完成并记录成功证据。\n\nModMind 已受管准备 Fabric API `0.141.6+1.21.11`，验证 JAR 位于 `libs/modmind/fabric-api-0.141.6+1.21.11.jar`，并带有精确版本源码引用。Text Placeholder API 的既有受管 JAR、哈希与源码关系仍完整保留。",
+  "finalResponse": "`managed_download` 已完成并记录成功证据。\n\nModMind 已受管准备 Fabric API `0.141.6+1.21.11`，验证 JAR 位于 `libs/modmind/fabric-api-0.141.6+1.21.11.jar`，并带有精确版本源码引用。Text Placeholder API 的既有受管 JAR、哈希与源码关系仍完整保留。",
   "intent": "engineering",
   "tasks": [
-    "梳理奖励、签到、配置和命令接入点",
-    "实现虚拟补签卡、配置与原子补签",
-    "实现 CDK 配置、审计、服务与命令",
-    "补充界面、语言、默认配置与文档",
-    "执行测试、构建、内容校验与服务端验证"
+    "通过 ModMind 准备附加组件依赖链"
   ],
   "files": [
     {
+      "path": "build.gradle",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/configuration.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/minimal-server/root-config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/getting-started/configuration-basics.md",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "docs/index.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/daily-checkin.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/permissions.md",
       "purpose": "外部代理修改"
     },
     {
@@ -35,15 +39,15 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "modmind.dependencies.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "modmind.relationships.json",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "run/config/omnitools/config.json",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/config/omnitools/daily_checkin/config.json",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/config/omnitools/permissions/config.json",
       "purpose": "外部代理修改"
     },
     {
@@ -115,15 +119,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinData.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRenderService.java",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementConfig.java",
       "purpose": "外部代理修改"
     },
     {
@@ -131,19 +127,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardInfoScreenHandler.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardService.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinScreenHandler.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinTheme.java",
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageConfig.java",
       "purpose": "外部代理修改"
     },
     {
@@ -155,15 +139,39 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/ModuleManagerScreenHandler.java",
+      "path": "src/main/java/dev/modmind/omnitools/OnlineRewardConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreenHandler.java",
+      "path": "src/main/java/dev/modmind/omnitools/ServerText.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
+      "path": "src/main/java/dev/modmind/omnitools/ShopConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/TitleEffectConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/commandmenu/CommandMenuConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigMigration.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigPaths.java",
       "purpose": "外部代理修改"
     },
     {
@@ -179,11 +187,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java",
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java",
       "purpose": "外部代理修改"
     },
     {
@@ -191,15 +195,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardEvent.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardType.java",
+      "path": "src/main/java/dev/modmind/omnitools/sidebar/SidebarConfig.java",
       "purpose": "外部代理修改"
     },
     {
@@ -211,51 +207,207 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/reward/RewardDefinitionTest.java",
+      "path": "src/main/resources/fabric.mod.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/reward/RewardEventTest.java",
+      "path": "src/test/java/dev/modmind/omnitools/config/ConfigMigrationTest.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/cdk.md",
+      "path": "docs/config-platform.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-08-26-2.log.gz",
+      "path": "docs/examples/config-platform/achievement.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/config/omnitools/cdk/config.json",
+      "path": "docs/examples/config-platform/cdk.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinMakeupConfirmScreenHandler.java",
+      "path": "docs/examples/config-platform/cloud-storage.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinMakeupService.java",
+      "path": "docs/examples/config-platform/command-menu.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java",
+      "path": "docs/examples/config-platform/common-conditions.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkData.java",
+      "path": "docs/examples/config-platform/common-rewards.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkService.java",
+      "path": "docs/examples/config-platform/common-texts.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/CheckinMakeupDataTest.java",
+      "path": "docs/examples/config-platform/daily-checkin.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/cdk/CdkDataTest.java",
+      "path": "docs/examples/config-platform/online-reward.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/permissions.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/root-config.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/shop.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/sidebar.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/title-effects.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/titles.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/achievements.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/cdk.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/cloud-storage.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/command-menu.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/common-conditions.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/common-rewards.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/common-texts.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/daily-checkin.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/module-config.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/online-reward.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/permissions.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/root-config.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/shop.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/sidebar.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/title-effects.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/titles.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "libs/modmind/fabric-api-0.141.6+1.21.11.jar",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/common/conditions.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/common/rewards.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/common/texts.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/CommonConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigFieldReporter.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigModuleRegistry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigSnapshot.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigurableModule.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/CrossModuleValidator.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/LoadContext.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ModuleCommandRegistrar.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/RuntimeConfigApplier.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/RuntimeContext.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/CommonConfigTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/ConfigModuleRegistryTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/ModuleIdTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -264,7 +416,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-26T12-28-01-292Z",
+  "snapshotId": "2026-08-26T14-22-32-247Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -272,26 +424,27 @@
       "implementation",
       "validate",
       "build",
-      "runtime_test"
+      "runtime_test",
+      "managed_download"
     ],
     "completed": [
-      "project_info",
-      "intent",
-      "plan",
       "validate",
       "build",
       "runtime_test",
-      "implementation"
+      "plan",
+      "managed_download",
+      "implementation",
+      "todo_complete"
     ],
     "missing": [],
     "evidence": {
-      "project_info": "modmind_project_info returned active project metadata",
-      "intent": "modmind_set_intent recorded task intent",
-      "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 61 changed managed files"
+      "plan": "modmind_update_todo published the ordered plan",
+      "managed_download": "Managed download path used: addon_prepare",
+      "implementation": "Detected 100 changed managed files",
+      "todo_complete": "All Todo items are completed after the other required stages"
     }
   }
 }

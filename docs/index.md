@@ -1,5 +1,7 @@
 # OmniTools 文档
 
+[统一配置平台](config-platform.md) 说明根快照、公共模板、JSONC 教学文件和 Schema。
+
 本目录面向第一次管理 Fabric 服务端的服主。所有可复制的 `json` 代码块都符合严格 JSON；带注释的 `jsonc` 仅用于讲解，不能直接放进 `.json` 文件。
 
 ## 快速入口

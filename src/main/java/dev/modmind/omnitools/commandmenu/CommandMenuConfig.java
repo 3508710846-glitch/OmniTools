@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.permissions.CommandRole;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Loads the command-menu registry and each registered menu page into an immutable snapshot. */
@@ -56,7 +58,12 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
                 return empty();
             }
             JsonObject registry = readObject(registryPath, "command menu registry");
+            ConfigFieldReporter.warnUnknown(registry, "command_menu", Set.of("format_version",
+                    "allow_console_commands", "menus"));
             int version = positiveInt(registry, "format_version", CURRENT_FORMAT_VERSION);
+            if (version > CURRENT_FORMAT_VERSION) {
+                throw new JsonParseException("Unsupported command menu format_version: " + version);
+            }
             boolean allowConsole = booleanValue(registry, "allow_console_commands", false);
             JsonArray entries = array(registry, "menus", true);
             Map<String, CommandMenuDefinition> definitions = new LinkedHashMap<>();
@@ -66,6 +73,8 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
                     throw new JsonParseException("menus[" + index + "] must be an object");
                 }
                 JsonObject entry = element.getAsJsonObject();
+                ConfigFieldReporter.warnUnknown(entry, "command_menu.menus[" + index + "]",
+                        Set.of("id", "file", "permission"));
                 String id = requiredString(entry, "id", "menus[" + index + "]");
                 if (!MENU_ID.matcher(id).matches() || definitions.containsKey(id)) {
                     throw new JsonParseException("Invalid or duplicate menu id: " + id);
@@ -109,7 +118,12 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
 
     private static CommandMenuPageConfig parsePage(String id, Path path, boolean allowConsole) throws IOException {
         JsonObject root = readObject(path, "menu " + id);
+        ConfigFieldReporter.warnUnknown(root, "command_menu.menu." + id,
+                Set.of("format_version", "title", "size", "filler", "items"));
         int version = positiveInt(root, "format_version", CURRENT_FORMAT_VERSION);
+        if (version > CURRENT_FORMAT_VERSION) {
+            throw new JsonParseException("menu " + id + " uses unsupported format_version: " + version);
+        }
         String title = requiredString(root, "title", "menu " + id);
         int size = integer(root, "size", 27);
         if (size != 27 && size != 54) {
@@ -124,6 +138,8 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
                 throw new JsonParseException("menu " + id + ".filler must be an object");
             }
             JsonObject fillerObject = fillerElement.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(fillerObject, "menu " + id + ".filler",
+                    Set.of("item", "amount", "name", "lore"));
             String itemId = requiredString(fillerObject, "item", "menu " + id + ".filler");
             filler = createStack(itemId, amount(fillerObject, "amount", 1), "menu " + id + ".filler");
             fillerName = optionalString(fillerObject, "name", null, "menu " + id + ".filler");
@@ -139,6 +155,8 @@ public record CommandMenuConfig(int formatVersion, Map<String, CommandMenuDefini
             }
             JsonObject itemObject = element.getAsJsonObject();
             String context = "menu " + id + ".items[" + index + "]";
+            ConfigFieldReporter.warnUnknown(itemObject, context,
+                    Set.of("slot", "item", "amount", "name", "lore", "glow", "left_click", "right_click"));
             int slot = integer(itemObject, "slot", -1);
             if (slot < 0 || slot >= size || items.containsKey(slot)) {
                 throw new JsonParseException(context + " slot must be unique and within 0-" + (size - 1));

@@ -1,0 +1,14 @@
+{
+  "format_version": 1,
+  "nameplate_mode": "scoreboard_team",
+  "team_conflict_policy": "omnitools_priority",
+  "titles": [
+    {
+      "id": "architect",
+      "display": "&b[&rArchitect&b] &r",
+      "rarity": "rare",
+      "effects": ["speed_1"],
+      "tooltip": ["A timed reward title can use this definition."]
+    }
+  ]
+}

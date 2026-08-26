@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools achievement configuration",
+  "type": "object",
+  "required": ["format_version", "achievements"],
+  "properties": {
+    "format_version": { "enum": [1, 2] },
+    "target_groups": { "type": "object" },
+    "check_scheduler": { "type": "object" },
+    "achievements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "display", "description", "icon", "requirements"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+          "display": { "type": "string", "maxLength": 128 },
+          "description": { "type": "string", "maxLength": 512 },
+          "icon": { "type": "string" },
+          "requirements": { "type": ["object", "array"] },
+          "rewards": { "$ref": "common-rewards.schema.json#/$defs/rewards" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

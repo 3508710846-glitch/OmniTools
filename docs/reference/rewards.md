@@ -1,6 +1,6 @@
 # 统一奖励
 
-每日签到、在线奖励和成就共用同一套 `rewards` 数组。每个奖励的 `id` 必须在同一事件内唯一，且为 1-64 位小写字母、数字、`_`、`.` 或 `-`。
+每日签到、在线奖励、成就和 CDK 共用同一套 `rewards` 数组。每个奖励的 `id` 必须在同一事件内唯一，且为 1-64 位小写字母、数字、`_`、`.` 或 `-`。跨模块复用时可在 `common/rewards.json` 定义模板，并在条目中使用 `template` 或 `$ref`。
 
 下面的 `jsonc` 仅用于教学，包含注释，不能直接复制到真实 JSON 文件。
 
@@ -70,6 +70,7 @@
 | `item` | `id`，以及简单写法或完整 SNBT 写法之一 | 物品数量必须为 1-64。 |
 | `title` | `id`、`title` | `title` 必须在称号模块中存在。可选 `duration` 与 `renewal`。 |
 | `command` | `id`、`run_as`、`command` | `run_as` 只能为 `console`，并受根配置的命令奖励开关与白名单限制。 |
+| `makeup_card` | `id`、`amount` | 发放服务端虚拟补签卡；数量受 `daily_checkin.makeup.max_cards` 限制。 |
 
 ## 称号的有效佩戴时长
 

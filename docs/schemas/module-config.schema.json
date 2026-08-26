@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools typed module configuration",
+  "description": "Use the module-specific schema and keep format_version stable across compatible edits.",
+  "type": "object",
+  "required": ["format_version"],
+  "properties": { "format_version": { "type": "integer", "minimum": 1 } },
+  "additionalProperties": true
+}

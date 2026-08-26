@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools shop configuration",
+  "type": "object",
+  "required": ["format_version", "products"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "products": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "price"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "price": { "type": "integer", "minimum": 0 },
+          "item": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "components": { "type": ["string", "object"] },
+          "nbt": { "type": "string" }
+        },
+        "anyOf": [{ "required": ["item"] }, { "required": ["nbt"] }],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

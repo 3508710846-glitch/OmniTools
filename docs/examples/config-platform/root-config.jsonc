@@ -1,0 +1,17 @@
+{
+  "format_version": 4, // Root platform version.
+  "global": {
+    "language": "zh_cn",
+    "timezone": "Asia/Shanghai",
+    "debug": false
+  },
+  "integrations": {
+    "placeholder_api": { "enabled": true }
+  },
+  "modules": {
+    "daily_checkin": { "enabled": true },
+    "achievements": { "enabled": true },
+    "shop": { "enabled": true },
+    "cdk": { "enabled": true }
+  }
+}

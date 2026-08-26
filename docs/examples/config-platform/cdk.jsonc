@@ -1,0 +1,20 @@
+{
+  "format_version": 1,
+  "security": {
+    "max_code_length": 64,
+    "cooldown_ticks": 20,
+    "max_failed_attempts": 5,
+    "lockout_seconds": 60
+  },
+  "campaigns": [
+    {
+      "id": "welcome_2026",
+      "code": "OMNI-2026-WELCOME",
+      "max_uses": 0,
+      "rewards": [
+        { "id": "cdk_coins", "template": "welcome_currency", "amount": 500 },
+        { "id": "cdk_cards", "type": "makeup_card", "amount": 2 }
+      ]
+    }
+  ]
+}

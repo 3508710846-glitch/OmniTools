@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "achievements": [
+    {
+      "id": "stone_collection",
+      "display": "Stone collector",
+      "description": "Mine 1000 stone blocks.",
+      "icon": "minecraft:stone",
+      "requirements": { "template": "stone_collection" },
+      "rewards": [{ "id": "stone_coins", "template": "welcome_currency", "amount": 500 }]
+    }
+  ]
+}

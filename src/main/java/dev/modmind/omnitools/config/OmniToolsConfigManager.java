@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Loads and publishes a complete configuration snapshot atomically. */
 public final class OmniToolsConfigManager {
     private final AtomicLong revisions = new AtomicLong();
+    private final ConfigModuleRegistry moduleRegistry = createModuleRegistry();
     private volatile OmniToolsConfigSnapshot snapshot;
 
     public OmniToolsConfigManager() {
@@ -32,6 +33,10 @@ public final class OmniToolsConfigManager {
 
     public OmniToolsConfigSnapshot snapshot() {
         return snapshot;
+    }
+
+    public ConfigModuleRegistry moduleRegistry() {
+        return moduleRegistry;
     }
 
     /** Reloads all administrator-managed files, publishing them only after complete validation. */
@@ -46,6 +51,36 @@ public final class OmniToolsConfigManager {
             String message = message(exception);
             System.err.println("[omnitools] Configuration reload rejected; keeping the previous snapshot: " + message);
             return new ReloadResult(false, message, previous, previous);
+        }
+    }
+
+    /**
+     * Replaces one module's typed configuration while retaining the active root and common files.
+     * Common templates intentionally require a full reload because one template can affect multiple
+     * module definitions.
+     */
+    public synchronized ModuleReloadResult reloadModule(MinecraftServer server, ModuleId module) {
+        OmniToolsConfigSnapshot previous = snapshot;
+        if (module == null) {
+            return new ModuleReloadResult(false, null, "Module is required", previous, previous);
+        }
+        try {
+            LoadContext context = new LoadContext(server, server.registryAccess(), previous.root(), previous.common());
+            java.util.Map<ModuleId, Object> loaded = snapshotModules(previous);
+            loaded.put(module, moduleRegistry.load(module, context));
+            OmniToolsConfigSnapshot candidate = buildSnapshot(server, previous.root(), previous.common(), loaded);
+            OmniToolsConfigSnapshot published = publish(candidate);
+            return new ModuleReloadResult(true, module, "", previous, published);
+        } catch (RuntimeException | IOException exception) {
+            String message = message(exception);
+            System.err.println("[omnitools] Module reload rejected for " + module.id()
+                    + "; keeping the previous snapshot: " + message);
+            return new ModuleReloadResult(false, module, message, previous, previous);
+        } catch (Exception exception) {
+            String message = message(exception);
+            System.err.println("[omnitools] Module reload rejected for " + module.id()
+                    + "; keeping the previous snapshot: " + message);
+            return new ModuleReloadResult(false, module, message, previous, previous);
         }
     }
 
@@ -83,39 +118,144 @@ public final class OmniToolsConfigManager {
 
     private OmniToolsConfigSnapshot buildCandidate(MinecraftServer server, OmniToolsRootConfig root)
             throws IOException {
-        CheckinRewardConfig dailyRewards = root.enabled(ModuleId.DAILY_CHECKIN)
-                ? CheckinRewardConfig.load(server.registryAccess()) : CheckinRewardConfig.empty();
-        OnlineRewardConfig onlineRewards = root.enabled(ModuleId.ONLINE_REWARD)
-                ? OnlineRewardConfig.load(server.registryAccess()) : OnlineRewardConfig.empty();
+        CommonConfig common = CommonConfig.load(server.registryAccess());
+        LoadContext loadContext = new LoadContext(server, server.registryAccess(), root, common);
+        java.util.Map<ModuleId, Object> loaded;
+        try {
+            loaded = moduleRegistry.loadAll(loadContext);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not load a configuration module", exception);
+        }
+        return buildSnapshot(server, root, common, loaded);
+    }
+
+    private OmniToolsConfigSnapshot buildSnapshot(MinecraftServer server, OmniToolsRootConfig root,
+                                                  CommonConfig common, java.util.Map<ModuleId, Object> loaded) {
+        CheckinRewardConfig dailyRewards = moduleConfig(loaded, ModuleId.DAILY_CHECKIN, CheckinRewardConfig.empty());
+        OnlineRewardConfig onlineRewards = moduleConfig(loaded, ModuleId.ONLINE_REWARD, OnlineRewardConfig.empty());
         CheckinRewardConfig rewards = CheckinRewardConfig.withOnlineRewards(dailyRewards, onlineRewards);
-        ShopConfig shop = root.enabled(ModuleId.SHOP)
-                ? ShopConfig.load(server.registryAccess()) : ShopConfig.empty();
-        TitleConfig titles = root.enabled(ModuleId.TITLES) ? TitleConfig.load() : TitleConfig.empty();
-        TitleEffectConfig effects = root.enabled(ModuleId.TITLE_EFFECTS)
-                ? TitleEffectConfig.load() : TitleEffectConfig.empty();
-        CloudStorageConfig storage = root.enabled(ModuleId.CLOUD_STORAGE)
-                ? CloudStorageConfig.load() : CloudStorageConfig.defaultConfig();
-        AchievementConfig achievements = root.enabled(ModuleId.ACHIEVEMENTS)
-                ? AchievementConfig.load(server.registryAccess()) : AchievementConfig.empty();
-        CdkConfig cdk = root.enabled(ModuleId.CDK) ? CdkConfig.load(server.registryAccess()) : CdkConfig.empty();
+        ShopConfig shop = moduleConfig(loaded, ModuleId.SHOP, ShopConfig.empty());
+        TitleConfig titles = moduleConfig(loaded, ModuleId.TITLES, TitleConfig.empty());
+        TitleEffectConfig effects = moduleConfig(loaded, ModuleId.TITLE_EFFECTS, TitleEffectConfig.empty());
+        CloudStorageConfig storage = moduleConfig(loaded, ModuleId.CLOUD_STORAGE, CloudStorageConfig.defaultConfig());
+        AchievementConfig achievements = moduleConfig(loaded, ModuleId.ACHIEVEMENTS, AchievementConfig.empty());
+        CdkConfig cdk = moduleConfig(loaded, ModuleId.CDK, CdkConfig.empty());
         if (root.enabled(ModuleId.CDK)) {
             CdkData.get(server).validateConfiguration(cdk);
         }
-        CommandMenuConfig commandMenus = root.enabled(ModuleId.COMMAND_MENU)
-                ? CommandMenuConfig.load() : CommandMenuConfig.empty();
-        SidebarConfig sidebar = root.enabled(ModuleId.SIDEBAR)
-                ? SidebarConfig.load() : SidebarConfig.empty();
-        CommandPermissionConfig commandPermissions = root.enabled(ModuleId.PERMISSIONS)
-                ? CommandPermissionConfig.load() : CommandPermissionConfig.defaults();
+        CommandMenuConfig commandMenus = moduleConfig(loaded, ModuleId.COMMAND_MENU, CommandMenuConfig.empty());
+        SidebarConfig sidebar = moduleConfig(loaded, ModuleId.SIDEBAR, SidebarConfig.empty());
+        CommandPermissionConfig commandPermissions = moduleConfig(loaded, ModuleId.PERMISSIONS,
+                CommandPermissionConfig.defaults());
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
         for (ModuleId configuredModule : ModuleId.values()) {
             statuses.put(configuredModule, root.enabled(configuredModule)
                     ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                storage, achievements, cdk, commandMenus, sidebar, commandPermissions, statuses, revisions.get() + 1L);
-        ConfigValidator.validate(candidate);
+                storage, achievements, cdk, commandMenus, sidebar, commandPermissions, statuses, revisions.get() + 1L,
+                common);
+        CrossModuleValidator.validate(candidate);
+        moduleRegistry.validateAll(loaded, candidate);
         return candidate;
+    }
+
+    private static java.util.Map<ModuleId, Object> snapshotModules(OmniToolsConfigSnapshot snapshot) {
+        java.util.Map<ModuleId, Object> modules = new EnumMap<>(ModuleId.class);
+        modules.put(ModuleId.DAILY_CHECKIN, snapshot.rewards());
+        modules.put(ModuleId.ONLINE_REWARD, snapshot.onlineRewards());
+        modules.put(ModuleId.ACHIEVEMENTS, snapshot.achievements());
+        modules.put(ModuleId.CDK, snapshot.cdk());
+        modules.put(ModuleId.SHOP, snapshot.shop());
+        modules.put(ModuleId.TITLES, snapshot.titles());
+        modules.put(ModuleId.TITLE_EFFECTS, snapshot.titleEffects());
+        modules.put(ModuleId.CLOUD_STORAGE, snapshot.cloudStorage());
+        modules.put(ModuleId.PERMISSIONS, snapshot.commandPermissions());
+        modules.put(ModuleId.COMMAND_MENU, snapshot.commandMenus());
+        modules.put(ModuleId.SIDEBAR, snapshot.sidebar());
+        return modules;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T moduleConfig(java.util.Map<ModuleId, Object> loaded, ModuleId id, T fallback) {
+        Object value = loaded.get(id);
+        return value == null ? fallback : (T) value;
+    }
+
+    private static ConfigModuleRegistry createModuleRegistry() {
+        ConfigModuleRegistry registry = new ConfigModuleRegistry();
+        registry.register(new ConfigurableModule<CheckinRewardConfig>() {
+            public ModuleId id() { return ModuleId.DAILY_CHECKIN; }
+            public CheckinRewardConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? CheckinRewardConfig.load(context.registries(), context.common())
+                        : CheckinRewardConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<OnlineRewardConfig>() {
+            public ModuleId id() { return ModuleId.ONLINE_REWARD; }
+            public OnlineRewardConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? OnlineRewardConfig.load(context.registries(), context.common())
+                        : OnlineRewardConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<AchievementConfig>() {
+            public ModuleId id() { return ModuleId.ACHIEVEMENTS; }
+            public AchievementConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? AchievementConfig.load(context.registries(), context.common())
+                        : AchievementConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<CdkConfig>() {
+            public ModuleId id() { return ModuleId.CDK; }
+            public CdkConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? CdkConfig.load(context.registries(), context.common())
+                        : CdkConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<ShopConfig>() {
+            public ModuleId id() { return ModuleId.SHOP; }
+            public ShopConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? ShopConfig.load(context.registries()) : ShopConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<TitleConfig>() {
+            public ModuleId id() { return ModuleId.TITLES; }
+            public TitleConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? TitleConfig.load() : TitleConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<TitleEffectConfig>() {
+            public ModuleId id() { return ModuleId.TITLE_EFFECTS; }
+            public TitleEffectConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? TitleEffectConfig.load() : TitleEffectConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<CloudStorageConfig>() {
+            public ModuleId id() { return ModuleId.CLOUD_STORAGE; }
+            public CloudStorageConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? CloudStorageConfig.load() : CloudStorageConfig.defaultConfig();
+            }
+        });
+        registry.register(new ConfigurableModule<CommandPermissionConfig>() {
+            public ModuleId id() { return ModuleId.PERMISSIONS; }
+            public CommandPermissionConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? CommandPermissionConfig.load()
+                        : CommandPermissionConfig.defaults();
+            }
+        });
+        registry.register(new ConfigurableModule<CommandMenuConfig>() {
+            public ModuleId id() { return ModuleId.COMMAND_MENU; }
+            public CommandMenuConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? CommandMenuConfig.load() : CommandMenuConfig.empty();
+            }
+        });
+        registry.register(new ConfigurableModule<SidebarConfig>() {
+            public ModuleId id() { return ModuleId.SIDEBAR; }
+            public SidebarConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? SidebarConfig.load() : SidebarConfig.empty();
+            }
+        });
+        return registry;
     }
 
     private OmniToolsConfigSnapshot publish(OmniToolsConfigSnapshot candidate) {
@@ -123,7 +263,7 @@ public final class OmniToolsConfigManager {
         OmniToolsConfigSnapshot published = new OmniToolsConfigSnapshot(candidate.root(), candidate.rewards(),
                 candidate.onlineRewards(), candidate.shop(), candidate.titles(), candidate.titleEffects(),
                 candidate.cloudStorage(), candidate.achievements(), candidate.cdk(), candidate.commandMenus(),
-                candidate.sidebar(), candidate.commandPermissions(), candidate.statuses(), revision);
+                candidate.sidebar(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
         snapshot = published;
         return published;
     }
@@ -148,6 +288,10 @@ public final class OmniToolsConfigManager {
 
     public record ReloadResult(boolean success, String message, OmniToolsConfigSnapshot previous,
                                OmniToolsConfigSnapshot current) {
+    }
+
+    public record ModuleReloadResult(boolean success, ModuleId module, String message,
+                                     OmniToolsConfigSnapshot previous, OmniToolsConfigSnapshot current) {
     }
 
     public record ModuleUpdateResult(boolean success, ModuleId module, boolean enabled, String message,

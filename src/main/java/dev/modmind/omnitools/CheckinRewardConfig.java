@@ -7,6 +7,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.CommonConfig;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
@@ -23,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /** Daily, monthly, and virtual makeup-card rules. Version 2 introduced stable reward ids. */
 public final class CheckinRewardConfig {
@@ -54,6 +57,10 @@ public final class CheckinRewardConfig {
     }
 
     public static CheckinRewardConfig load(HolderLookup.Provider registries) {
+        return load(registries, CommonConfig.empty());
+    }
+
+    public static CheckinRewardConfig load(HolderLookup.Provider registries, CommonConfig common) {
         if (!Files.exists(FILE)) {
             CheckinRewardConfig defaults = defaults();
             write(defaults);
@@ -64,7 +71,7 @@ public final class CheckinRewardConfig {
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("Root value must be an object");
             }
-            return parse(root.getAsJsonObject(), registries);
+            return parse(root.getAsJsonObject(), registries, common);
         } catch (IOException | RuntimeException exception) {
             System.err.println("[omnitools] Could not load " + FILE + ": " + exception.getMessage()
                     + ". The configuration snapshot will not be replaced.");
@@ -107,41 +114,44 @@ public final class CheckinRewardConfig {
         return FILE;
     }
 
-    private static CheckinRewardConfig parse(JsonObject root, HolderLookup.Provider registries) {
+    private static CheckinRewardConfig parse(JsonObject root, HolderLookup.Provider registries, CommonConfig common) {
+        ConfigFieldReporter.warnUnknown(root, "daily_checkin",
+                Set.of("format_version", "daily", "monthly", "onlineTimeRewards", "makeup", "ui",
+                        "dailyCoins", "dailyReward", "monthlyRewards", "monthlyCoins"));
         boolean hasLegacyFields = root.has("dailyCoins") || root.has("dailyReward") || root.has("monthlyRewards")
                 || root.has("monthlyCoins") || (root.has("daily") && root.get("daily").isJsonPrimitive());
         boolean modern = !hasLegacyFields && ((root.has("daily") && root.get("daily").isJsonObject())
                 || (root.has("monthly") && root.get("monthly").isJsonObject())
                 || integer(root, "format_version", 1) >= 2);
         if (modern) {
-            return parseV2(root, registries);
+            return parseV2(root, registries, common);
         }
-        return parseLegacy(root, registries);
+        return parseLegacy(root, registries, common);
     }
 
-    private static CheckinRewardConfig parseV2(JsonObject root, HolderLookup.Provider registries) {
+    private static CheckinRewardConfig parseV2(JsonObject root, HolderLookup.Provider registries, CommonConfig common) {
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
         if (version != 2 && version != CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported daily check-in format_version: " + version);
         }
         JsonObject daily = requiredObject(root, "daily");
-        List<RewardDefinition> dailyRewards = RewardDefinition.parseArray(daily.get("rewards"), "daily.rewards", registries);
+        List<RewardDefinition> dailyRewards = RewardDefinition.parseArray(daily.get("rewards"), "daily.rewards", registries, common);
         JsonObject monthly = requiredObject(root, "monthly");
         Map<Integer, List<RewardDefinition>> monthlyRewards = new LinkedHashMap<>();
         for (Map.Entry<String, JsonElement> entry : monthly.entrySet()) {
             int milestone = positiveMilestone(entry.getKey());
             if (monthlyRewards.put(milestone, RewardDefinition.parseArray(entry.getValue(),
-                    "monthly." + entry.getKey(), registries)) != null) {
+                    "monthly." + entry.getKey(), registries, common)) != null) {
                 throw new JsonParseException("monthly contains duplicate milestone " + milestone);
             }
         }
         CheckinUiConfig ui = CheckinUiConfig.parse(root);
         ui.validateItems();
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui,
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries, common), ui,
                 MakeupConfig.parse(root));
     }
 
-    private static CheckinRewardConfig parseLegacy(JsonObject root, HolderLookup.Provider registries) {
+    private static CheckinRewardConfig parseLegacy(JsonObject root, HolderLookup.Provider registries, CommonConfig common) {
         long daily = nonNegativeLong(root, "dailyCoins", "dailyReward", "daily", defaultsDailyCoins());
         List<RewardDefinition> dailyRewards = daily == 0L ? List.of()
                 : List.of(RewardDefinition.currency("legacy_daily_currency", daily));
@@ -158,11 +168,12 @@ public final class CheckinRewardConfig {
         }
         CheckinUiConfig ui = CheckinUiConfig.parse(root);
         ui.validateItems();
-        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries), ui,
+        return new CheckinRewardConfig(dailyRewards, monthlyRewards, parseOnlineTimeRewards(root, registries, common), ui,
                 MakeupConfig.defaults());
     }
 
-    private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root, HolderLookup.Provider registries) {
+    private static List<OnlineTimeReward> parseOnlineTimeRewards(JsonObject root, HolderLookup.Provider registries,
+                                                                  CommonConfig common) {
         JsonElement element = root.get("onlineTimeRewards");
         if (element == null) {
             return List.of();
@@ -190,7 +201,7 @@ public final class CheckinRewardConfig {
             }
             List<RewardDefinition> definitions = reward.has("rewards")
                     ? RewardDefinition.parseArray(reward.get("rewards"), "onlineTimeRewards[" + index + "].rewards",
-                    registries)
+                    registries, common)
                     : List.of(RewardDefinition.currency("legacy_currency", nonNegativeLong(reward, "coins", 0L)));
             if (definitions.isEmpty()) {
                 throw new JsonParseException("onlineTimeRewards[" + index + "].rewards must not be empty");

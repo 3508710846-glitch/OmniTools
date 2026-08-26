@@ -28,6 +28,7 @@ import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Optional;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.config.ModuleCommandRegistrar;
 import dev.modmind.omnitools.config.OmniToolsConfigManager;
 import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
 import dev.modmind.omnitools.permissions.CommandAction;
@@ -212,50 +213,67 @@ public final class ModMindEntry implements ModInitializer {
                             .then(currencyChangeArgument(false)))
                     .then(Commands.literal("reload")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CONFIG_RELOAD))
-                            .executes(context -> reloadRewards(context.getSource())))
+                            .executes(context -> reloadRewards(context.getSource()))
+                            .then(Commands.argument("module", StringArgumentType.word())
+                                    .executes(context -> reloadModule(context.getSource(),
+                                            StringArgumentType.getString(context, "module")))))
                     .then(diagnoseCommand())
                     .then(rewardsCommand())
                     .then(commandMenuCommand())
                     .then(moduleManagerCommand());
             dispatcher.register(command);
-            dispatcher.register(Commands.literal("checkin")
-                    .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
-                            CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
-                            CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
-                            CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
-                            CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
-                            CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR,
-                            CommandAction.CHECKIN_MAKEUP, CommandAction.CHECKIN_CARDS_BUY,
-                            CommandAction.CHECKIN_CARDS_ADMIN))
-                    .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
-                    .then(onlineTimeCommand())
-                    .then(shopCommand())
-                    .then(titleCommand())
-                    .then(cloudStorageCommand("storage"))
-                    .then(achievementCommand())
-                    .then(checkinCardsCommand())
-                    .then(checkinMakeupCommand())
-                    .then(clearCommand())
-                    .then(walletCommand("currency"))
-                    .then(Commands.literal("balance")
-                            .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
-                                    CommandAction.CURRENCY_BALANCE_OTHER))
-                            .executes(context -> queryOwnBalance(context.getSource()))
-                            .then(targetBalanceArgument())));
-            dispatcher.register(walletCommand("money"));
-            dispatcher.register(titleCommand());
-            dispatcher.register(titleCommand("titles"));
-            dispatcher.register(cloudStorageCommand("cloudstorage"));
-            dispatcher.register(cloudStorageCommand("cstorage"));
-            dispatcher.register(Commands.literal("balance")
-                    .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
-                            CommandAction.CURRENCY_BALANCE_OTHER))
-                    .executes(context -> queryOwnBalance(context.getSource()))
-                    .then(Commands.argument("player", GameProfileArgument.gameProfile())
-                            .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_BALANCE_OTHER))
-                            .executes(context -> queryTargetBalance(context))));
+            registerCompatibilityAliases(dispatcher);
         });
         System.out.println("[ModMind] omnitools initialized");
+    }
+
+    /**
+     * Keeps established top-level aliases while placing their ownership behind the module command
+     * boundary. The main /omnitools tree remains compatible and can be migrated independently.
+     */
+    private static void registerCompatibilityAliases(com.mojang.brigadier.CommandDispatcher<CommandSourceStack> dispatcher) {
+        ModuleCommandRegistrar commands = new ModuleCommandRegistrar();
+        commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("checkin")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
+                        CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
+                        CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
+                        CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
+                        CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
+                        CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR,
+                        CommandAction.CHECKIN_MAKEUP, CommandAction.CHECKIN_CARDS_BUY,
+                        CommandAction.CHECKIN_CARDS_ADMIN))
+                .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
+                .then(onlineTimeCommand())
+                .then(shopCommand())
+                .then(titleCommand())
+                .then(cloudStorageCommand("storage"))
+                .then(achievementCommand())
+                .then(checkinCardsCommand())
+                .then(checkinMakeupCommand())
+                .then(clearCommand())
+                .then(walletCommand("currency"))
+                .then(Commands.literal("balance")
+                        .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                                CommandAction.CURRENCY_BALANCE_OTHER))
+                        .executes(context -> queryOwnBalance(context.getSource()))
+                        .then(targetBalanceArgument()))));
+        commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(walletCommand("money")));
+        commands.register(ModuleId.TITLES, target -> {
+            target.register(titleCommand());
+            target.register(titleCommand("titles"));
+        });
+        commands.register(ModuleId.CLOUD_STORAGE, target -> {
+            target.register(cloudStorageCommand("cloudstorage"));
+            target.register(cloudStorageCommand("cstorage"));
+        });
+        commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("balance")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
+                        CommandAction.CURRENCY_BALANCE_OTHER))
+                .executes(context -> queryOwnBalance(context.getSource()))
+                .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CURRENCY_BALANCE_OTHER))
+                        .executes(context -> queryTargetBalance(context)))));
+        commands.registerAll(dispatcher);
     }
 
     static CheckinRewardService rewardService() {
@@ -339,6 +357,7 @@ public final class ModMindEntry implements ModInitializer {
     private static void applySnapshot(OmniToolsConfigSnapshot snapshot) {
         configSnapshot = snapshot;
         ServerText.setLanguage(snapshot.root().language());
+        ServerText.setCommonTexts(snapshot.common().texts());
         COMMAND_PERMISSIONS.update(snapshot.commandPermissions());
         rewardService = CheckinRewardService.from(snapshot.rewards());
         shopConfig = snapshot.shop();
@@ -352,8 +371,8 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     /** Applies one already-validated snapshot for both command reloads and module GUI changes. */
-    static void applyRuntimeConfigChange(net.minecraft.server.MinecraftServer server,
-                                         OmniToolsConfigSnapshot previous, OmniToolsConfigSnapshot current) {
+    public static void applyRuntimeConfigChange(net.minecraft.server.MinecraftServer server,
+                                                OmniToolsConfigSnapshot previous, OmniToolsConfigSnapshot current) {
         if (previous.enabled(ModuleId.ONLINE_REWARD) && !current.enabled(ModuleId.ONLINE_REWARD)) {
             onlineTimeRewardService().flushAll(server);
         }
@@ -1039,6 +1058,25 @@ public final class ModMindEntry implements ModInitializer {
         }
         source.sendSuccess(() -> ServerText.translatable("command.omnitools.reload.success",
                 configSnapshot.revision()), true);
+        return 1;
+    }
+
+    private static int reloadModule(CommandSourceStack source, String moduleId) {
+        if (!COMMAND_PERMISSIONS.canUse(source, CommandAction.CONFIG_RELOAD)) {
+            return 0;
+        }
+        Optional<ModuleId> module = ModuleId.find(moduleId);
+        if (module.isEmpty()) {
+            source.sendFailure(ServerText.translatable("command.omnitools.reload.unknown_module", moduleId));
+            return 0;
+        }
+        OmniToolsConfigManager.ModuleReloadResult result = MODULE_CONTROL.reloadModule(source.getServer(), module.get());
+        if (!result.success()) {
+            source.sendFailure(ServerText.translatable("command.omnitools.reload.module_failed", module.get().id()));
+            return 0;
+        }
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.reload.module_success",
+                module.get().id(), configSnapshot.revision()), true);
         return 1;
     }
 

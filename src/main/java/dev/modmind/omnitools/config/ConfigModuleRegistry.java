@@ -1,0 +1,85 @@
+package dev.modmind.omnitools.config;
+
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/** Registry for typed module loaders and lifecycle adapters. */
+public final class ConfigModuleRegistry {
+    private final EnumMap<ModuleId, ConfigurableModule<?>> modules = new EnumMap<>(ModuleId.class);
+
+    public synchronized ConfigModuleRegistry register(ConfigurableModule<?> module) {
+        Objects.requireNonNull(module, "module");
+        Objects.requireNonNull(module.id(), "module.id");
+        if (modules.putIfAbsent(module.id(), module) != null) {
+            throw new IllegalArgumentException("Configuration module is already registered: " + module.id().id());
+        }
+        return this;
+    }
+
+    public synchronized boolean contains(ModuleId id) {
+        return modules.containsKey(id);
+    }
+
+    public synchronized Map<ModuleId, ConfigurableModule<?>> modules() {
+        EnumMap<ModuleId, ConfigurableModule<?>> copy = new EnumMap<>(ModuleId.class);
+        copy.putAll(modules);
+        return Collections.unmodifiableMap(copy);
+    }
+
+    @SuppressWarnings("unchecked")
+    public synchronized <T> ConfigurableModule<T> require(ModuleId id) {
+        ConfigurableModule<?> module = modules.get(id);
+        if (module == null) {
+            throw new IllegalArgumentException("Configuration module is not registered: " + id);
+        }
+        return (ConfigurableModule<T>) module;
+    }
+
+    public synchronized Map<ModuleId, Object> loadAll(LoadContext context) throws Exception {
+        Map<ModuleId, Object> loaded = new LinkedHashMap<>();
+        for (Map.Entry<ModuleId, ConfigurableModule<?>> entry : modules.entrySet()) {
+            loaded.put(entry.getKey(), load(entry.getValue(), context));
+        }
+        return Map.copyOf(loaded);
+    }
+
+    /** Loads one module through the same typed lifecycle used by full snapshot reloads. */
+    public synchronized Object load(ModuleId id, LoadContext context) throws Exception {
+        return load(require(id), context);
+    }
+
+    public synchronized void validateAll(Map<ModuleId, Object> loaded, OmniToolsConfigSnapshot snapshot) {
+        for (Map.Entry<ModuleId, ConfigurableModule<?>> entry : modules.entrySet()) {
+            validate(entry.getValue(), loaded.get(entry.getKey()), snapshot);
+        }
+    }
+
+    public synchronized void applyAll(Map<ModuleId, Object> previous, Map<ModuleId, Object> current,
+                                      RuntimeContext runtime) {
+        for (Map.Entry<ModuleId, ConfigurableModule<?>> entry : modules.entrySet()) {
+            apply(entry.getValue(), previous.get(entry.getKey()), current.get(entry.getKey()), runtime);
+        }
+    }
+
+    private static <T> T load(ConfigurableModule<T> module, LoadContext context) throws Exception {
+        return module.load(context);
+    }
+
+    private static <T> void validate(ConfigurableModule<T> module, Object config,
+                                     OmniToolsConfigSnapshot snapshot) {
+        module.validate(moduleConfig(config), snapshot);
+    }
+
+    private static <T> void apply(ConfigurableModule<T> module, Object previous, Object current,
+                                  RuntimeContext runtime) {
+        module.apply(moduleConfig(previous), moduleConfig(current), runtime);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T moduleConfig(Object value) {
+        return (T) value;
+    }
+}

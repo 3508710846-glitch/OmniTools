@@ -25,6 +25,23 @@ public final class ConfigPaths {
         return moduleDir(module).resolve("config.json");
     }
 
+    /** Shared, cross-module configuration files. */
+    public static Path commonDir() {
+        return root().resolve("common");
+    }
+
+    public static Path commonRewards() {
+        return commonDir().resolve("rewards.json");
+    }
+
+    public static Path commonConditions() {
+        return commonDir().resolve("conditions.json");
+    }
+
+    public static Path commonTexts() {
+        return commonDir().resolve("texts.json");
+    }
+
     public static Path commandMenuDir() {
         return moduleDir(ModuleId.COMMAND_MENU);
     }

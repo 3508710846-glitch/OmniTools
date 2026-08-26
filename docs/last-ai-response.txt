@@ -1,14 +1,3 @@
-已完成 CDK 模块与虚拟补签卡：统一奖励新增 `makeup_card`，CDK 支持限量、有效期、UUID 单次兑换、哈希化码值、失败锁定和奖励账本重试；签到已支持补签卡购买、历史补签确认、月度额度与连续签到重算。默认配置、权限、语言文件及文档已同步，签到文档升级为 v3。
+`managed_download` 已完成并记录成功证据。
 
-另修复了 CDK 事件 ID 对大小写活动 ID 的规范化问题，避免合法配置被错误拒绝。
-
-验证通过：
-
-- `.\gradlew.bat test --no-daemon`，42 项测试通过
-- 内容校验通过
-- ModMind 构建成功，已生成 JAR
-- 隔离 Fabric 服务端启动并稳定运行 15 秒
-- 所有运行配置与中英文语言 JSON 可解析
-- `git diff --check` 通过
-
-仍建议在多人测试服手动覆盖“两个玩家同时兑换最后一个 CDK”和补签确认 GUI 的实际交互。
+ModMind 已受管准备 Fabric API `0.141.6+1.21.11`，验证 JAR 位于 `libs/modmind/fabric-api-0.141.6+1.21.11.jar`，并带有精确版本源码引用。Text Placeholder API 的既有受管 JAR、哈希与源码关系仍完整保留。

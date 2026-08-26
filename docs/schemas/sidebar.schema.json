@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools sidebar configuration",
+  "type": "object",
+  "required": ["format_version", "lines"],
+  "properties": {
+    "format_version": { "const": 2 },
+    "default_visible": { "type": "boolean" },
+    "refresh_interval_ticks": { "type": "integer", "minimum": 5, "maximum": 600 },
+    "title": { "type": "string", "maxLength": 64 },
+    "conflict_policy": { "enum": ["skip", "replace", "restore"] },
+    "lines": {
+      "type": "array",
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": { "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,32}$" }, "text": { "type": "string", "maxLength": 256 } },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

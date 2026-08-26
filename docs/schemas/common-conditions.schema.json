@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools common achievement conditions",
+  "type": "object",
+  "required": ["format_version", "templates"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "templates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": { "enum": ["stat", "sum", "all", "any", "not"] },
+          "template": { "type": "string" },
+          "$ref": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

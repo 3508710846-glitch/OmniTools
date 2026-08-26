@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ConfigMigrationTest {
     @TempDir
@@ -37,6 +38,7 @@ class ConfigMigrationTest {
         assertEquals(CommandSecurityConfig.LEGACY_COOLDOWN_TICKS, migrated.commandSecurity().cooldownTicks());
         assertFalse(migrated.enabled(ModuleId.COMMAND_MENU));
         assertFalse(migrated.enabled(ModuleId.SIDEBAR));
+        assertFalse(migrated.enabled(ModuleId.CDK));
         assertTrue(hasBackup(root));
     }
 
@@ -68,11 +70,11 @@ class ConfigMigrationTest {
     }
 
     @Test
-    void leavesCurrentV3RootUntouched() throws IOException {
+    void leavesCurrentV4RootUntouched() throws IOException {
         Path root = temporaryDirectory.resolve("omnitools");
         String source = """
                 {
-                  "format_version": 3,
+                  "format_version": 4,
                   "global": {
                     "debug": true,
                     "timezone": "Asia/Shanghai",
@@ -95,6 +97,20 @@ class ConfigMigrationTest {
 
         assertEquals(source.trim(), Files.readString(root.resolve("config.json"), StandardCharsets.UTF_8).trim());
         assertFalse(hasBackup(root));
+    }
+
+    @Test
+    void rejectsMalformedModuleEntriesInsteadOfSilentlyEnablingThem() throws IOException {
+        Path root = temporaryDirectory.resolve("omnitools");
+        writeRoot(root, """
+                {
+                  "format_version": 4,
+                  "global": {},
+                  "integrations": {},
+                  "modules": { "shop": true }
+                }
+                """);
+        assertThrows(RuntimeException.class, () -> OmniToolsRootConfig.load(root.resolve("config.json")));
     }
 
     private static void writeRoot(Path root, String json) throws IOException {

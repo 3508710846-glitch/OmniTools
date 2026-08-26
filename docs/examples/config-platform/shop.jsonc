@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "products": [
+    {
+      "index": 0,
+      "item": "minecraft:diamond",
+      "count": 1,
+      "price": 20
+    },
+    {
+      "index": 1,
+      "nbt": "{id:'minecraft:diamond_sword',count:1,components:{}}",
+      "price": 500
+    }
+  ]
+}

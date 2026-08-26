@@ -1,0 +1,13 @@
+{
+  "format_version": 1,
+  "effects": {
+    "speed_1": {
+      "name": "Speed I",
+      "type": "POTION",
+      "effect": "minecraft:speed",
+      "amplifier": 0,
+      "duration": -1,
+      "display": "&aSpeed +20%"
+    }
+  }
+}

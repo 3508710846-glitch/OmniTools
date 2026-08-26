@@ -1,0 +1,13 @@
+{
+  "format_version": 1,
+  "rewards": [
+    {
+      "id": "online_30m",
+      "minutes": 30,
+      "rewards": [
+        { "id": "online_coins", "template": "welcome_currency", "amount": 50 },
+        { "id": "online_title", "template": "weekend_title" }
+      ]
+    }
+  ]
+}

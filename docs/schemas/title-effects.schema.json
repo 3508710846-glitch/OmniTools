@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools title effect configuration",
+  "type": "object",
+  "required": ["format_version"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "effects": { "$ref": "#/$defs/effects" }
+  },
+  "$defs": {
+    "effects": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/effect" }
+    },
+    "effect": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "enum": ["POTION", "ATTRIBUTE", "PARTICLE", "PERMISSION"] },
+        "effect": { "type": "string" },
+        "amplifier": { "type": "integer", "minimum": 0 },
+        "duration": { "type": "integer", "minimum": -1 },
+        "attribute": { "type": "string" },
+        "operation": { "type": "string" },
+        "amount": { "type": "number" },
+        "particle": { "type": "string" },
+        "frequency": { "type": "integer", "minimum": 1 },
+        "permission": { "type": "string" },
+        "display": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": { "$ref": "#/$defs/effect" }
+}

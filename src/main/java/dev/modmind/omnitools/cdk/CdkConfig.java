@@ -8,6 +8,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.config.CommonConfig;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import net.minecraft.core.HolderLookup;
 
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Immutable CDK snapshot. Raw redemption codes are discarded after their SHA-256 hashes are built. */
 public record CdkConfig(Security security, List<Campaign> campaigns, Map<String, Campaign> campaignsByCodeHash) {
@@ -50,6 +53,10 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
     }
 
     public static CdkConfig load(HolderLookup.Provider registries) {
+        return load(registries, CommonConfig.empty());
+    }
+
+    public static CdkConfig load(HolderLookup.Provider registries, CommonConfig common) {
         Path file = configFile();
         if (!Files.exists(file)) {
             CdkConfig defaults = empty();
@@ -61,7 +68,7 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("CDK configuration root must be an object");
             }
-            return parse(root.getAsJsonObject(), registries);
+            return parse(root.getAsJsonObject(), registries, common);
         } catch (IOException | RuntimeException exception) {
             // Do not include the configuration body or a raw code in diagnostics.
             throw new IllegalStateException("Invalid CDK configuration", exception);
@@ -79,7 +86,8 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
         return Optional.ofNullable(campaignsByCodeHash.get(hashCode(normalizeCode(rawCode))));
     }
 
-    private static CdkConfig parse(JsonObject root, HolderLookup.Provider registries) {
+    private static CdkConfig parse(JsonObject root, HolderLookup.Provider registries, CommonConfig common) {
+        ConfigFieldReporter.warnUnknown(root, "cdk", Set.of("format_version", "security", "campaigns"));
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
         if (version != CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported CDK format_version: " + version);
@@ -98,7 +106,7 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
                 throw new JsonParseException("campaigns[" + index + "] must be an object");
             }
             Campaign campaign = Campaign.parse(array.get(index).getAsJsonObject(), "campaigns[" + index + "]",
-                    security, registries);
+                    security, registries, common);
             if (ids.put(campaign.id(), Boolean.TRUE) != null || codes.put(campaign.codeHash(), Boolean.TRUE) != null) {
                 throw new JsonParseException("campaigns contains duplicate campaign id or code");
             }
@@ -254,7 +262,10 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
             fingerprint = fingerprint == null ? "" : fingerprint;
         }
 
-        static Campaign parse(JsonObject object, String context, Security security, HolderLookup.Provider registries) {
+        static Campaign parse(JsonObject object, String context, Security security, HolderLookup.Provider registries,
+                              CommonConfig common) {
+            ConfigFieldReporter.warnUnknown(object, context,
+                    Set.of("id", "code", "starts_at", "expires_at", "max_uses", "rewards"));
             String id = requiredString(object, "id", context).toLowerCase(Locale.ROOT);
             String code = requiredString(object, "code", context);
             if (code.length() > security.maxCodeLength()) {
@@ -263,14 +274,16 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
             Instant starts = parseInstant(optionalString(object, "starts_at"), context + ".starts_at");
             Instant expires = parseInstant(optionalString(object, "expires_at"), context + ".expires_at");
             long maxUses = nonNegativeLong(object, "max_uses", context);
-            List<RewardDefinition> rewards = RewardDefinition.parseArray(object.get("rewards"), context + ".rewards",
-                    registries);
+            JsonElement expandedRewards = (common == null ? CommonConfig.empty() : common)
+                    .expandRewards(object.get("rewards"), context + ".rewards");
+            List<RewardDefinition> rewards = RewardDefinition.parseArray(expandedRewards, context + ".rewards",
+                    registries, CommonConfig.empty());
             if (rewards.isEmpty()) {
                 throw new JsonParseException(context + ".rewards must not be empty");
             }
             String codeHash = CdkConfig.hashCode(normalizeCode(code));
             String fingerprint = CdkConfig.hashCode(id + "|" + codeHash + "|" + (starts == null ? "" : starts)
-                    + "|" + (expires == null ? "" : expires) + "|" + maxUses + "|" + object.get("rewards"));
+                    + "|" + (expires == null ? "" : expires) + "|" + maxUses + "|" + expandedRewards);
             try {
                 return new Campaign(id, codeHash, starts, expires, maxUses, rewards, fingerprint);
             } catch (IllegalArgumentException exception) {

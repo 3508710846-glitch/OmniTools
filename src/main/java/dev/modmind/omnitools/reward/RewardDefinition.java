@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.modmind.omnitools.config.ItemStackConfigParser;
+import dev.modmind.omnitools.config.CommonConfig;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
@@ -58,6 +59,13 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
 
     public static List<RewardDefinition> parseArray(JsonElement element, String context,
                                                      HolderLookup.Provider registries) {
+        return parseArray(element, context, registries, CommonConfig.empty());
+    }
+
+    /** Parses rewards after expanding optional common reward templates. */
+    public static List<RewardDefinition> parseArray(JsonElement element, String context,
+                                                     HolderLookup.Provider registries, CommonConfig common) {
+        element = (common == null ? CommonConfig.empty() : common).expandRewards(element, context);
         if (element == null || !element.isJsonArray()) {
             throw new JsonParseException(context + " must be an array");
         }

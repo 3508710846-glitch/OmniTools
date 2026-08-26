@@ -9,6 +9,7 @@ import com.google.gson.JsonParseException;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ItemStackConfigParser;
 import dev.modmind.omnitools.config.ModuleId;
 import net.minecraft.core.HolderLookup;
@@ -23,11 +24,13 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Loads server-authoritative shop items from an administrator-editable JSON file. */
 public final class ShopConfig {
     public static final String FILE_NAME = "omnitools-shop.json";
     public static final int PRODUCTS_PER_PAGE = 45;
+    public static final int CURRENT_FORMAT_VERSION = 1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.SHOP);
 
@@ -52,8 +55,18 @@ public final class ShopConfig {
             if (root == null || (!root.isJsonArray() && !root.isJsonObject())) {
                 throw new JsonParseException("Root value must be an array or object of shop products");
             }
-            JsonArray products = root.isJsonArray() ? root.getAsJsonArray()
-                    : root.getAsJsonObject().getAsJsonArray("products");
+            JsonArray products;
+            if (root.isJsonArray()) {
+                products = root.getAsJsonArray();
+            } else {
+                JsonObject object = root.getAsJsonObject();
+                ConfigFieldReporter.warnUnknown(object, "shop", Set.of("format_version", "products"));
+                int version = integer(object, "format_version", CURRENT_FORMAT_VERSION);
+                if (version < 1 || version > CURRENT_FORMAT_VERSION) {
+                    throw new JsonParseException("Unsupported shop format_version: " + version);
+                }
+                products = object.getAsJsonArray("products");
+            }
             if (products == null) {
                 throw new JsonParseException("products must be an array");
             }
@@ -99,6 +112,8 @@ public final class ShopConfig {
                 throw new JsonParseException("Shop entry " + entryIndex + " must be an object");
             }
             JsonObject product = element.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(product, "shop.products[" + entryIndex + "]",
+                    Set.of("index", "item", "count", "components", "nbt", "price"));
             int index = nonNegativeInt(product, "index");
             if (products.containsKey(index)) {
                 throw new JsonParseException("Shop slot " + index + " is configured more than once");
@@ -150,6 +165,21 @@ public final class ShopConfig {
             return value;
         } catch (NumberFormatException exception) {
             throw new JsonParseException(key + " must be a non-negative integer");
+        }
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
         }
     }
 

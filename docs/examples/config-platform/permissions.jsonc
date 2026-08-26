@@ -1,0 +1,10 @@
+{
+  "format_version": 1,
+  "allow_title_command_grants": false,
+  "commands": {
+    "checkin.open": "PLAYER",
+    "storage.open": { "role": "ADMIN", "allow_native_node": true },
+    "cdk.redeem": "PLAYER",
+    "cdk.admin": "ADMIN"
+  }
+}

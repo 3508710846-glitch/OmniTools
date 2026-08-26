@@ -1,0 +1,19 @@
+{
+  "format_version": 3,
+  "daily": {
+    "rewards": [
+      { "id": "daily_welcome", "template": "welcome_currency", "amount": 250 }
+    ]
+  },
+  "monthly": {
+    "7": [{ "id": "week_cards", "template": "welcome_makeup_cards", "amount": 2 }]
+  },
+  "makeup": {
+    "enabled": true,
+    "max_cards": 99,
+    "max_backfill_days": 7,
+    "max_uses_per_calendar_month": 3,
+    "daily_reward_policy": "none",
+    "counts_for_monthly_milestones": true
+  }
+}

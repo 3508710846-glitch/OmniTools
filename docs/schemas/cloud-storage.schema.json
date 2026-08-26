@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools cloud storage configuration",
+  "type": "object",
+  "required": ["format_version", "expansionCost", "maxPages"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "expansionCost": { "type": "integer", "minimum": 0 },
+    "maxPages": { "type": "integer", "minimum": 1, "maximum": 2 }
+  },
+  "additionalProperties": false
+}

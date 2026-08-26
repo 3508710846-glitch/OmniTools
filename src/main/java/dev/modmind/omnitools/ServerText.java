@@ -23,6 +23,7 @@ public final class ServerText {
     private static final Map<String, String> ZH_CN = load("zh_cn");
     private static final Map<String, String> EN_US = load("en_us");
     private static final Set<String> MISSING_KEYS = ConcurrentHashMap.newKeySet();
+    private static volatile Map<String, String> COMMON_TEXTS = Map.of();
     private static volatile String language = DEFAULT_LANGUAGE;
 
     private ServerText() {
@@ -36,9 +37,17 @@ public final class ServerText {
         return language;
     }
 
+    /** Installs validated common text overrides for the active configuration snapshot. */
+    public static void setCommonTexts(Map<String, String> texts) {
+        COMMON_TEXTS = texts == null ? Map.of() : Map.copyOf(texts);
+    }
+
     /** Creates a final literal component from an OmniTools language key and printf-style arguments. */
     public static MutableComponent translatable(String key, Object... arguments) {
-        String template = translations().get(key);
+        String template = COMMON_TEXTS.get(key);
+        if (template == null) {
+            template = translations().get(key);
+        }
         if (template == null) {
             template = EN_US.get(key);
         }

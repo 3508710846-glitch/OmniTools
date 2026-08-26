@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools command menu registry",
+  "type": "object",
+  "required": ["format_version", "menus"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "allow_console_commands": { "type": "boolean" },
+    "menus": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "file", "permission"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+          "file": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.json$" },
+          "permission": { "enum": ["PLAYER", "ADMIN"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

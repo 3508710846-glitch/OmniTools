@@ -119,10 +119,15 @@ public final class ConfigMigration {
             if (module == ModuleId.COMMAND_MENU || module == ModuleId.SIDEBAR) {
                 enabled = false;
             }
+            if (module == ModuleId.CDK && version < 4) {
+                enabled = false;
+            }
             status.addProperty("enabled", enabled);
             modules.add(module.id(), status);
         }
         root.add("modules", modules);
+        // v4 keeps the existing module files but introduces a shared common/ directory.
+        // CommonConfig creates the three bounded, data-only files on first load.
         root.addProperty("format_version", OmniToolsRootConfig.CURRENT_FORMAT_VERSION);
         write(rootConfig, root);
         System.out.println("[omnitools] Migrated root config from v" + version + " to v"

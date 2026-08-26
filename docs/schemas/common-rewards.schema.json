@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools common reward templates",
+  "type": "object",
+  "required": ["format_version", "templates"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "templates": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/reward" }
+    }
+  },
+  "$defs": {
+    "rewards": { "type": "array", "items": { "$ref": "#/$defs/reward" } },
+    "reward": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "type": { "enum": ["currency", "item", "title", "command", "makeup_card"] },
+        "amount": { "type": "integer", "minimum": 0 },
+        "template": { "type": "string" },
+        "$ref": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

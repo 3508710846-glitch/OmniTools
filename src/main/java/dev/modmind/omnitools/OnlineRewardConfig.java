@@ -7,7 +7,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.config.CommonConfig;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.core.HolderLookup;
@@ -22,9 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import java.util.Set;
 
 /** Stable-ID online reward definitions. */
 public final class OnlineRewardConfig {
+    public static final int CURRENT_FORMAT_VERSION = 1;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.ONLINE_REWARD);
@@ -35,6 +39,10 @@ public final class OnlineRewardConfig {
     }
 
     public static OnlineRewardConfig load(HolderLookup.Provider registries) {
+        return load(registries, CommonConfig.empty());
+    }
+
+    public static OnlineRewardConfig load(HolderLookup.Provider registries, CommonConfig common) {
         if (!Files.exists(FILE)) {
             OnlineRewardConfig defaults = defaults();
             write(defaults);
@@ -42,10 +50,19 @@ public final class OnlineRewardConfig {
         }
         try (Reader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
             JsonElement root = GSON.fromJson(reader, JsonElement.class);
-            JsonArray array = root != null && root.isJsonObject()
-                    ? root.getAsJsonObject().getAsJsonArray("rewards") : null;
-            if (array == null && root != null && root.isJsonObject()) {
-                array = root.getAsJsonObject().getAsJsonArray("onlineTimeRewards");
+            if (root == null || !root.isJsonObject()) {
+                throw new JsonParseException("online reward configuration must be an object");
+            }
+            JsonObject rootObject = root.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(rootObject, "online_reward",
+                    Set.of("format_version", "rewards", "onlineTimeRewards"));
+            int version = integer(rootObject, "format_version", CURRENT_FORMAT_VERSION);
+            if (version < 1 || version > CURRENT_FORMAT_VERSION) {
+                throw new JsonParseException("Unsupported online reward format_version: " + version);
+            }
+            JsonArray array = rootObject.getAsJsonArray("rewards");
+            if (array == null) {
+                array = rootObject.getAsJsonArray("onlineTimeRewards");
             }
             if (array == null) {
                 throw new JsonParseException("rewards must be an array");
@@ -58,6 +75,8 @@ public final class OnlineRewardConfig {
                     throw new JsonParseException("rewards[" + index + "] must be an object");
                 }
                 JsonObject object = element.getAsJsonObject();
+                ConfigFieldReporter.warnUnknown(object, "online_reward.rewards[" + index + "]",
+                        Set.of("id", "minutes", "rewards", "coins"));
                 int minutes = positiveInt(object, "minutes");
                 String id = object.has("id") ? object.get("id").getAsString()
                         : "online_" + minutes + "m";
@@ -72,7 +91,7 @@ public final class OnlineRewardConfig {
                 }
                 List<RewardDefinition> definitions = object.has("rewards")
                         ? RewardDefinition.parseArray(object.get("rewards"), "rewards[" + index + "].rewards",
-                        registries)
+                        registries, common)
                         : List.of(RewardDefinition.currency("legacy_currency", nonNegativeLong(object, "coins")));
                 if (definitions.isEmpty()) {
                     throw new JsonParseException("rewards[" + index + "].rewards must not be empty");
@@ -142,6 +161,21 @@ public final class OnlineRewardConfig {
             throw new JsonParseException(key + " must be positive");
         }
         return (int) value;
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        if (element == null) {
+            return fallback;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            throw new JsonParseException(key + " must be an integer");
+        }
+        try {
+            return Integer.parseInt(element.getAsString());
+        } catch (NumberFormatException exception) {
+            throw new JsonParseException(key + " must be an integer");
+        }
     }
 
     private static long nonNegativeLong(JsonObject object, String key) {

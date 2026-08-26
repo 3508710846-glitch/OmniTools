@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Set;
 
 /** Versioned root configuration and module enablement flags. */
 public record OmniToolsRootConfig(int formatVersion, boolean debug, String timezone,
@@ -23,7 +24,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                                   boolean placeholderApiEnabled, DataRetention dataRetention,
                                   CommandSecurityConfig commandSecurity,
                                   Map<ModuleId, Boolean> modules) {
-    public static final int CURRENT_FORMAT_VERSION = 3;
+    public static final int CURRENT_FORMAT_VERSION = 4;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public OmniToolsRootConfig {
@@ -90,16 +91,38 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                 throw new JsonParseException("Root configuration must be an object");
             }
             JsonObject root = element.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(root, "root", Set.of("format_version", "global", "integrations", "modules"));
             int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
+            if (version > CURRENT_FORMAT_VERSION) {
+                throw new JsonParseException("Unsupported root format_version: " + version);
+            }
             JsonObject global = object(root, "global");
             JsonObject rewardSecurity = object(global, "reward_security");
             JsonObject commandSecurity = object(global, "command_security");
             JsonObject integrations = object(root, "integrations");
             JsonObject placeholderApi = object(integrations, "placeholder_api");
             JsonObject moduleObject = object(root, "modules");
+            ConfigFieldReporter.warnUnknown(global, "global", Set.of("debug", "timezone", "language", "data_retention",
+                    "reward_security", "command_security"));
+            ConfigFieldReporter.warnUnknown(integrations, "integrations", Set.of("placeholder_api"));
+            ConfigFieldReporter.warnUnknown(rewardSecurity, "global.reward_security",
+                    Set.of("allow_command_rewards", "max_command_length"));
+            ConfigFieldReporter.warnUnknown(commandSecurity, "global.command_security",
+                    Set.of("allowed_roots", "max_command_length", "cooldown_ticks"));
+            ConfigFieldReporter.warnUnknown(placeholderApi, "integrations.placeholder_api", Set.of("enabled"));
+            java.util.Set<String> moduleIds = new java.util.HashSet<>();
+            for (ModuleId module : ModuleId.values()) {
+                moduleIds.add(module.id());
+            }
+            ConfigFieldReporter.warnUnknown(moduleObject, "modules", moduleIds);
             EnumMap<ModuleId, Boolean> modules = new EnumMap<>(ModuleId.class);
             for (ModuleId module : ModuleId.values()) {
                 JsonElement value = moduleObject.get(module.id());
+                if (value != null && value.isJsonObject()) {
+                    ConfigFieldReporter.warnUnknown(value.getAsJsonObject(), "modules." + module.id(), Set.of("enabled"));
+                } else if (value != null) {
+                    throw new JsonParseException("modules." + module.id() + " must be an object");
+                }
                 modules.put(module, value == null || !value.isJsonObject()
                         || bool(value.getAsJsonObject(), "enabled", true));
             }
@@ -154,7 +177,13 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
 
     private static JsonObject object(JsonObject root, String key) {
         JsonElement element = root.get(key);
-        return element != null && element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
+        if (element == null) {
+            return new JsonObject();
+        }
+        if (!element.isJsonObject()) {
+            throw new JsonParseException(key + " must be an object");
+        }
+        return element.getAsJsonObject();
     }
 
     private static String string(JsonObject object, String key, String fallback) {

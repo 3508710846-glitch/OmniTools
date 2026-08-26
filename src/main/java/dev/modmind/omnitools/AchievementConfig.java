@@ -17,7 +17,9 @@ import dev.modmind.omnitools.achievement.StatisticUnit;
 import dev.modmind.omnitools.achievement.SumCondition;
 import dev.modmind.omnitools.achievement.TargetMatch;
 import dev.modmind.omnitools.config.ConfigPaths;
+import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.config.CommonConfig;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
@@ -42,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Server-side achievement definitions backed by a small, versioned condition model. */
@@ -74,6 +77,10 @@ public final class AchievementConfig {
     }
 
     public static AchievementConfig load(HolderLookup.Provider registries) {
+        return load(registries, CommonConfig.empty());
+    }
+
+    public static AchievementConfig load(HolderLookup.Provider registries, CommonConfig common) {
         if (!Files.exists(FILE)) {
             AchievementConfig defaults = defaults();
             write(defaults);
@@ -84,7 +91,7 @@ public final class AchievementConfig {
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("Root value must be an object");
             }
-            return parse(root.getAsJsonObject(), registries);
+            return parse(root.getAsJsonObject(), registries, common);
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
             System.err.println("[omnitools] Could not load " + FILE + ": " + exception.getMessage()
                     + ". The configuration snapshot will not be replaced.");
@@ -112,7 +119,9 @@ public final class AchievementConfig {
         return scheduler;
     }
 
-    private static AchievementConfig parse(JsonObject root, HolderLookup.Provider registries) {
+    private static AchievementConfig parse(JsonObject root, HolderLookup.Provider registries, CommonConfig common) {
+        ConfigFieldReporter.warnUnknown(root, "achievements", Set.of("format_version", "target_groups",
+                "check_scheduler", "achievements"));
         int version = integer(root, "format_version", 1);
         if (version < 1 || version > CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported achievement format_version: " + version);
@@ -133,6 +142,8 @@ public final class AchievementConfig {
                 throw new JsonParseException("Achievement entry " + index + " must be an object");
             }
             JsonObject achievement = entry.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(achievement, "achievements[" + index + "]",
+                    Set.of("id", "display", "description", "icon", "requirements", "rewards"));
             String id = normalizeId(requiredString(achievement, "id"));
             if (!ID_PATTERN.matcher(id).matches()) {
                 throw new JsonParseException("Achievement id " + id + " must match " + ID_PATTERN.pattern());
@@ -154,7 +165,8 @@ public final class AchievementConfig {
                 throw new JsonParseException("Achievement " + id + " cannot use minecraft:air as an icon");
             }
 
-            JsonElement requirements = achievement.get("requirements");
+            JsonElement requirements = common == null ? achievement.get("requirements")
+                    : common.expandCondition(achievement.get("requirements"), "requirements for " + id);
             ParseState state = new ParseState(targetGroups);
             ParsedCondition parsed;
             if (requirements != null && requirements.isJsonArray()
@@ -171,7 +183,7 @@ public final class AchievementConfig {
                 throw new JsonParseException("Achievement " + id
                         + " must contain at least one positive statistic condition");
             }
-            List<RewardDefinition> rewards = parseRewards(achievement.get("rewards"), id, registries);
+            List<RewardDefinition> rewards = parseRewards(achievement.get("rewards"), id, registries, common);
             definitions.add(new AchievementDefinition(id, display, description, iconId, icon,
                     parsed.requirements(), parsed.condition(), rewards));
         }
@@ -186,6 +198,9 @@ public final class AchievementConfig {
             throw new JsonParseException("check_scheduler must be an object");
         }
         JsonObject scheduler = element.getAsJsonObject();
+        ConfigFieldReporter.warnUnknown(scheduler, "achievements.check_scheduler",
+                Set.of("check_interval_ticks", "max_players_per_tick", "max_conditions_per_tick",
+                        "full_recheck_seconds"));
         return new SchedulerConfig(
                 rangedInteger(scheduler, "check_interval_ticks", SchedulerConfig.defaults().checkIntervalTicks(), 1, 1_200),
                 rangedInteger(scheduler, "max_players_per_tick", SchedulerConfig.defaults().maxPlayersPerTick(), 1, 1_000),
@@ -204,6 +219,11 @@ public final class AchievementConfig {
                 return false;
             }
             JsonElement typeElement = child.getAsJsonObject().get("type");
+            if (typeElement == null && (child.getAsJsonObject().has("template")
+                    || child.getAsJsonObject().has("$ref"))) {
+                hasV2Node = true;
+                continue;
+            }
             if (typeElement == null || !typeElement.isJsonPrimitive()
                     || !typeElement.getAsJsonPrimitive().isString()) {
                 return false;
@@ -507,12 +527,12 @@ public final class AchievementConfig {
     }
 
     private static List<RewardDefinition> parseRewards(JsonElement element, String achievementId,
-                                                        HolderLookup.Provider registries) {
+                                                        HolderLookup.Provider registries, CommonConfig common) {
         if (element == null) {
             return List.of();
         }
         if (element.isJsonArray()) {
-            return RewardDefinition.parseArray(element, "rewards for achievement " + achievementId, registries);
+            return RewardDefinition.parseArray(element, "rewards for achievement " + achievementId, registries, common);
         }
         if (!element.isJsonObject()) {
             throw new JsonParseException("rewards for achievement " + achievementId + " must be an array or legacy object");
