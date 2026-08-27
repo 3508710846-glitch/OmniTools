@@ -12,6 +12,7 @@ import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
 import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
+import dev.modmind.omnitools.packages.PackageConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -26,9 +27,22 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     CommandMenuConfig commandMenus,
                                     SidebarConfig sidebar,
                                     LeaderboardConfig leaderboards,
+                                    PackageConfig packages,
                                     CommandPermissionConfig commandPermissions,
                                     Map<ModuleId, ModuleStatus> statuses, long revision,
                                     CommonConfig common) implements ConfigSnapshot {
+    public OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
+                                   OnlineRewardConfig onlineRewards, ShopConfig shop, TitleConfig titles,
+                                   TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
+                                   AchievementConfig achievements, CdkConfig cdk, CommandMenuConfig commandMenus,
+                                   SidebarConfig sidebar, LeaderboardConfig leaderboards, PackageConfig packages,
+                                   CommandPermissionConfig commandPermissions,
+                                   Map<ModuleId, ModuleStatus> statuses, long revision) {
+        this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
+                commandMenus, sidebar, leaderboards, packages, commandPermissions, statuses, revision, CommonConfig.empty());
+    }
+
+    /** Compatibility constructor retained for integrations compiled against the leaderboard-only snapshot. */
     public OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
                                    OnlineRewardConfig onlineRewards, ShopConfig shop, TitleConfig titles,
                                    TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
@@ -37,7 +51,8 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, commandPermissions, statuses, revision, CommonConfig.empty());
+                commandMenus, sidebar, leaderboards, PackageConfig.empty(), commandPermissions, statuses, revision,
+                CommonConfig.empty());
     }
 
     public OmniToolsConfigSnapshot {
@@ -53,6 +68,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         commandPermissions = commandPermissions == null ? CommandPermissionConfig.defaults() : commandPermissions;
         cdk = cdk == null ? CdkConfig.empty() : cdk;
         leaderboards = leaderboards == null ? LeaderboardConfig.empty() : leaderboards;
+        packages = packages == null ? PackageConfig.empty() : packages;
         common = common == null ? CommonConfig.empty() : common;
     }
 

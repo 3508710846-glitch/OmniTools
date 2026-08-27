@@ -32,7 +32,11 @@ public enum CommandAction {
     CDK_REDEEM("cdk.redeem", CommandRole.PLAYER),
     CDK_ADMIN("cdk.admin", CommandRole.ADMIN),
     LEADERBOARDS_OPEN("leaderboards.open", CommandRole.PLAYER),
-    LEADERBOARDS_CHAT("leaderboards.chat", CommandRole.PLAYER);
+    LEADERBOARDS_CHAT("leaderboards.chat", CommandRole.PLAYER),
+    PACKAGE_OPEN("package.open", CommandRole.PLAYER),
+    PACKAGE_GIVE("package.give", CommandRole.ADMIN),
+    PACKAGE_INSPECT("package.inspect", CommandRole.ADMIN),
+    PACKAGE_REMOVE("package.remove", CommandRole.ADMIN);
 
     private final String id;
     private final CommandRole defaultRole;

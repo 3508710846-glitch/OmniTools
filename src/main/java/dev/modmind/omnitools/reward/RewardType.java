@@ -11,7 +11,8 @@ public enum RewardType {
     TITLE,
     COMMAND,
     /** A server-owned daily check-in makeup-card entitlement, never an inventory item. */
-    MAKEUP_CARD;
+    MAKEUP_CARD,
+    PACKAGE;
 
     public static RewardType parse(String value) {
         if (value == null || value.isBlank()) {

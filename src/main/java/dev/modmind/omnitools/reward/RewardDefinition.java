@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 
 /** Immutable, validated definition of one idempotent reward effect. */
 public record RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack,
-                               String titleId, TimedEntitlement.Grant titleGrant, String command) {
+                               String titleId, TimedEntitlement.Grant titleGrant, String command, String packageId) {
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9_.-]{1,64}");
     public static final int MAX_ITEM_COUNT = 64;
     public static final int MAX_EVENT_ITEM_COUNT = 2_304;
@@ -45,12 +45,17 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         titleId = titleId == null ? "" : titleId.trim().toLowerCase(Locale.ROOT);
         titleGrant = titleGrant == null ? TimedEntitlement.permanentGrant() : titleGrant;
         command = command == null ? "" : command;
+        packageId = packageId == null ? "" : packageId.trim().toLowerCase(Locale.ROOT);
     }
 
     /** Retained for existing callers that create a permanent title or non-title reward directly. */
     public RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack, String titleId,
                             String command) {
-        this(id, type, amount, itemStack, titleId, TimedEntitlement.permanentGrant(), command);
+        this(id, type, amount, itemStack, titleId, TimedEntitlement.permanentGrant(), command, "");
+    }
+    public RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack, String titleId,
+                            TimedEntitlement.Grant titleGrant, String command) {
+        this(id, type, amount, itemStack, titleId, titleGrant, command, "");
     }
 
     public ItemStack createItemStack() {
@@ -145,6 +150,7 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
                 object.addProperty("run_as", "console");
                 object.addProperty("command", command);
             }
+            case PACKAGE -> object.addProperty("package", packageId);
             case ITEM -> throw new AssertionError("handled above");
         }
         return object;
@@ -174,6 +180,11 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
             case COMMAND -> {
                 rejectTitleTimingFields(object, context);
                 yield parseCommand(id, object, context);
+            }
+            case PACKAGE -> {
+                rejectTitleTimingFields(object, context);
+                String packageId = requiredId(object, "package", context);
+                yield new RewardDefinition(id, RewardType.PACKAGE, 0L, ItemStack.EMPTY, "", TimedEntitlement.permanentGrant(), "", packageId);
             }
         };
     }

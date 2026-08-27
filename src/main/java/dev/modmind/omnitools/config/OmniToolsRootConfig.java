@@ -47,7 +47,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         EnumMap<ModuleId, Boolean> copy = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
             copy.put(module, modules == null || !modules.containsKey(module)
-                    ? module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS
+                    ? module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS && module != ModuleId.PACKAGES
                     : modules.get(module));
         }
         modules = Map.copyOf(copy);
@@ -56,7 +56,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
     public static OmniToolsRootConfig defaults() {
         EnumMap<ModuleId, Boolean> modules = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
-            modules.put(module, module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS);
+            modules.put(module, module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS && module != ModuleId.PACKAGES);
         }
         return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", "zh_cn",
                 false, CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH, true, DataRetention.FULL,
@@ -126,7 +126,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                 // Newer modules are opt-in when omitted from a legacy/current root file.
                 // Keep this fallback aligned with defaults() and the migration policy so a
                 // missing leaderboard flag cannot unexpectedly start an offline scan.
-                boolean defaultEnabled = module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS;
+                boolean defaultEnabled = module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS && module != ModuleId.PACKAGES;
                 modules.put(module, value == null
                         ? defaultEnabled
                         : bool(value.getAsJsonObject(), "enabled", defaultEnabled));

@@ -388,3 +388,510 @@ GUI 使用现有原版 54 格箱子模式：
 - 明确“已实现、近似实现、规划中”三种状态。
 
 总体判断：核心功能覆盖面已经很高，排行榜和模块化配置也已经接入主架构；但在修复根配置默认值、完成服务器级验证、拆分 `ModMindEntry` 和控制排行榜资源消耗之前，不建议把当前状态视为稳定发行版。
+
+---
+
+## Development request 2026/8/27 22:40:45
+
+可以，建议把礼包设计成一个独立的“礼包模块”，底层复用现有奖励、物品解析、奖励账本和 GUI 框架。
+
+当前项目已经具备几个重要基础：
+
+- 奖励类型集中在 [`RewardDefinition.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java:17)。
+- 物品和完整 SNBT 解析集中在 [`ItemStackConfigParser.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java:28)。
+- 奖励幂等、失败重试和奖励箱逻辑在 [`RewardGrantService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:147) 和 [`RewardClaimLedger.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java:27)。
+- 当前奖励箱只展示“待投递物品”，因为 [`RewardInboxScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java:148) 只筛选带物品快照的账本记录，不能直接把礼包当成普通物品处理。
+
+因此，推荐采用“虚拟礼包实例 + 独立礼包 GUI”的方案，而不是生成一个容易被复制、丢失或篡改的实体礼包物品。
+
+**一、模块和文件结构**
+
+新增模块：
+
+```text
+config/omnitools/
+├── config.json
+└── packages/
+    └── config.json
+```
+
+新增模块 ID：
+
+```text
+packages
+```
+
+需要接入：
+
+- `ModuleId.PACKAGES`
+- `OmniToolsRootConfig`
+- `OmniToolsConfigSnapshot`
+- `OmniToolsConfigManager`
+- `ConfigValidator`
+- `ConfigModuleRegistry`
+- `ConfigPaths`
+- `/omnitools reload packages`
+
+建议新增类：
+
+```text
+package/PackageConfig.java
+package/PackageDefinition.java
+package/PackageItem.java
+package/PackageInstance.java
+package/PackageData.java
+package/PackageService.java
+package/PackageDeliveryBatch.java
+PackageScreenHandler.java
+PackageConfirmScreenHandler.java
+```
+
+玩家获得的不是普通物品，而是一个服务端保存的礼包实例：
+
+```text
+礼包实例：
+- instance_id
+- package_id
+- package_version
+- display_name
+- icon
+- mode
+- item_snapshot
+- source_event
+- status
+- granted_at
+```
+
+礼包发放时保存礼包内容快照。以后服主修改礼包配置，不会改变已经发放但尚未打开的礼包。
+
+**二、配置文件设计**
+
+建议使用 `quantity` 表示礼包内的数量，而不是直接使用原版 ItemStack 的 `count`。这样可以支持超过 64 个物品，并由服务端自动拆分成多个堆叠。
+
+```jsonc
+{
+  "format_version": 1,
+
+  "settings": {
+    "max_packages_per_player": 256,
+    "max_quantity_per_entry": 2304,
+    "delivery_policy": "inventory_then_inbox",
+    "random_strategy": "uniform"
+  },
+
+  "packages": [
+    {
+      "id": "starter",
+      "display": "&a新手礼包",
+      "description": [
+        "&7打开后获得全部新手物资"
+      ],
+      "icon": "minecraft:chest",
+      "mode": "all",
+
+      "items": [
+        {
+          "id": "bread",
+          "item": "minecraft:bread",
+          "quantity": 16
+        },
+        {
+          "id": "iron",
+          "item": "minecraft:iron_ingot",
+          "quantity": 32
+        },
+        {
+          "id": "starter_sword",
+          "nbt": "{id:'minecraft:iron_sword',count:1,components:{'minecraft:custom_name':'{\"text\":\"新手铁剑\"}'}}",
+          "quantity": 1
+        }
+      ]
+    },
+
+    {
+      "id": "random_material",
+      "display": "&b随机材料礼包",
+      "description": [
+        "&7随机获得其中一种材料"
+      ],
+      "icon": "minecraft:barrel",
+      "mode": "random_one",
+
+      "items": [
+        {
+          "id": "coal",
+          "item": "minecraft:coal",
+          "quantity": 128
+        },
+        {
+          "id": "iron",
+          "item": "minecraft:iron_ingot",
+          "quantity": 64
+        },
+        {
+          "id": "gold",
+          "item": "minecraft:gold_ingot",
+          "quantity": 32
+        }
+      ]
+    }
+  ]
+}
+```
+
+字段规则：
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 礼包唯一 ID，发布后不要修改 |
+| `display` | 礼包名称，支持颜色和占位符 |
+| `description` | 礼包说明 |
+| `icon` | GUI 中显示的物品 ID |
+| `mode` | `all` 或 `random_one` |
+| `items` | 礼包内容列表 |
+| `item` | 普通物品 ID |
+| `nbt` | 完整 ItemStack SNBT |
+| `quantity` | 该物品实际发放数量 |
+| `random_strategy` | 默认 `uniform`，按条目均匀随机 |
+| `max_quantity_per_entry` | 防止配置错误导致一次发放过多物品 |
+
+`quantity` 业务上不受 64 限制。比如配置 1000 个钻石，服务端自动拆分为 64、64、64……的多个堆叠。
+
+但不建议真正取消所有安全上限。应当允许服主调整上限，同时保留服务器级最大值，避免误配置造成卡服或超大存档。
+
+完整 SNBT 仍然复用现有的 32 KiB 限制和组件校验规则。由于现有物品解析器要求单个 ItemStack 数量不超过 64，礼包应解析“单个物品原型”，再由 `quantity` 进行批量发放。
+
+**三、两种打开模式**
+
+`all` 模式：
+
+```text
+一次打开获得 items 中的所有物品及其数量。
+```
+
+例如：
+
+```text
+面包 16
+铁锭 32
+新手铁剑 1
+```
+
+`random_one` 模式：
+
+```text
+一次打开只随机选择一个条目，并发放该条目的完整 quantity。
+```
+
+例如抽中煤炭后，玩家获得 128 个煤炭，不会再重复抽取其他条目。
+
+建议第一版使用均匀随机：
+
+```text
+每个 items 条目的概率相同
+```
+
+后续可以增加：
+
+```json
+{
+  "id": "diamond",
+  "item": "minecraft:diamond",
+  "quantity": 16,
+  "weight": 5
+}
+```
+
+但随机结果必须在服务器端保存，不能只在 GUI 点击时临时计算。否则玩家在断线、重启或重复点击时可能重新获得不同结果。
+
+**四、发放流程**
+
+礼包来源分为三种：
+
+1. 管理员命令发放。
+2. 奖励模块发放。
+3. 商店购买后发放。
+
+统一流程：
+
+```text
+创建礼包实例
+    ↓
+保存 package_id、版本和内容快照
+    ↓
+玩家打开礼包
+    ↓
+服务端锁定礼包实例
+    ↓
+all：生成全部物品
+random_one：只生成一个随机物品
+    ↓
+保存已选择结果
+    ↓
+检查背包空间
+    ↓
+可以完全放入：直接投递
+无法完全放入：进入奖励箱投递队列
+    ↓
+全部投递完成
+    ↓
+标记礼包实例为 OPENED
+```
+
+必须保存随机选择结果和投递状态。例如：
+
+```text
+PENDING
+OPENING
+DELIVERING
+WAITING_INBOX
+OPENED
+BLOCKED
+```
+
+服务器崩溃后：
+
+- 如果尚未选择随机结果，重新开始选择；
+- 如果已经选择，必须使用原来的结果，不能重新随机；
+- 如果部分物品已经进入投递流程，不能直接重复发放；
+- 如果投递结果不明确，进入管理员可审计的阻塞状态。
+
+建议新增通用的 `PackageDeliveryBatch`，而不是让一个礼包只对应一条物品账本记录。因为一个礼包可能包含多个物品堆叠，而当前奖励账本的一条物品记录只保存一个 ItemStack 快照。
+
+**五、命令设计**
+
+玩家命令：
+
+```text
+/omnitools packages
+```
+
+打开自己的礼包 GUI。
+
+```text
+/omnitools package open
+```
+
+打开礼包列表。
+
+```text
+/omnitools package open <instance_id>
+```
+
+打开指定礼包实例。
+
+管理员命令：
+
+```text
+/omnitools package give <player> <package_id>
+/omnitools package give <player> <package_id> <amount>
+/omnitools package inspect <player>
+/omnitools package remove <player> <instance_id>
+```
+
+建议新增权限动作：
+
+```text
+package.open      PLAYER
+package.give      ADMIN
+package.inspect    ADMIN
+package.remove     ADMIN
+```
+
+这些动作应加入 [`CommandAction.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandAction.java:8)，并允许在权限配置文件中覆盖。
+
+管理员执行：
+
+```text
+/omnitools reload packages
+```
+
+只重载礼包配置，不影响已经发放的礼包实例。
+
+**六、GUI 设计**
+
+建议新增独立礼包 GUI，而不是直接修改现有奖励箱的物品列表逻辑。
+
+礼包列表界面：
+
+- 54 格箱子界面；
+- 每个礼包实例使用配置中的 `icon`；
+- 名称显示礼包名称；
+- Lore 显示礼包模式、来源、发放时间；
+- `all` 显示“打开后获得全部物品”；
+- `random_one` 显示“打开后随机获得一件物品”；
+- 点击礼包后进入确认界面；
+- 关闭按钮固定在右上角；
+- 翻页按钮使用现有 GUI 导航组件。
+
+确认界面：
+
+```text
+[礼包图标]
+新手礼包
+
+打开后获得：
+面包 x16
+铁锭 x32
+新手铁剑 x1
+
+[确认打开] [取消]
+```
+
+随机礼包的确认界面不显示具体结果，只显示：
+
+```text
+随机获得以下物品中的一种
+```
+
+如果背包空间不足：
+
+```text
+礼包已经打开，无法直接放入背包的物品已转入奖励箱。
+```
+
+建议在现有 [`RewardInboxScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java:29) 中增加“礼包入口按钮”，但不要直接把礼包伪装成普通物品奖励。
+
+**七、与奖励模块联动**
+
+新增奖励类型：
+
+```text
+package
+```
+
+奖励配置：
+
+```json
+{
+  "id": "starter_package",
+  "type": "package",
+  "package": "starter"
+}
+```
+
+这样签到、在线奖励、成就、CDK 都可以使用：
+
+```json
+"rewards": [
+  {
+    "id": "daily_package",
+    "type": "package",
+    "package": "starter"
+  }
+]
+```
+
+需要修改：
+
+- `RewardType`
+- `RewardDefinition`
+- `RewardDefinition.parse`
+- `RewardGrantService`
+- `ConfigValidator`
+- `RewardClaimLedger`
+- 统一奖励 Schema
+- 奖励文档和示例
+
+奖励发放时不直接给予物品，而是创建一个礼包实例。这样仍然可以使用现有的奖励事件 ID 保证幂等：
+
+```text
+achievement:<player_uuid>:<achievement_id>:starter_package
+```
+
+同一个成就重复检查不会重复创建礼包。
+
+**八、与商店模块联动**
+
+商店可以增加商品类型：
+
+```json
+{
+  "index": 5,
+  "type": "package",
+  "package": "random_material",
+  "price": 100
+}
+```
+
+购买流程必须是事务式的：
+
+```text
+确认礼包存在
+    ↓
+确认玩家余额足够
+    ↓
+生成购买事务 ID
+    ↓
+扣除货币
+    ↓
+创建礼包实例
+    ↓
+标记购买完成
+```
+
+如果服务器在扣钱和创建礼包之间崩溃，必须通过购买账本恢复，不能出现“扣钱但没有礼包”的情况。
+
+第一阶段建议只支持虚拟礼包。以后如果需要玩家之间交易，再增加带签名 NBT 的实体礼包物品，但那会引入复制、丢失、跨服和伪造风险。
+
+**九、必须加入的安全限制**
+
+建议至少加入以下限制：
+
+- 礼包 ID 不允许重复；
+- 礼包内容最多 256 个条目；
+- 单个礼包最大总数量；
+- 每个玩家最大未打开礼包数；
+- SNBT 最大 32 KiB；
+- 禁止礼包嵌套礼包，避免递归展开；
+- 禁止客户端提交任意 `package_id` 或物品内容；
+- GUI 点击时重新验证礼包实例所有权；
+- 随机结果由服务端生成并保存；
+- 已打开礼包不能再次打开；
+- 配置重载不能改变已发放礼包快照；
+- 所有管理员发放、删除、人工结算都写入审计日志。
+
+**十、建议开发顺序**
+
+1. **第一阶段：礼包配置和数据模型**
+
+   新增 `packages/config.json`、配置解析、Schema、礼包实例 SavedData、数量拆分和 SNBT 校验。
+
+2. **第二阶段：礼包服务和可靠投递**
+
+   实现 `all`、`random_one`、随机结果持久化、背包不足进入奖励箱、崩溃恢复和幂等处理。
+
+3. **第三阶段：命令和 GUI**
+
+   增加玩家礼包列表、确认打开界面、管理员发放命令、权限节点和翻页。
+
+4. **第四阶段：奖励模块联动**
+
+   增加 `RewardType.PACKAGE`，使签到、成就、在线奖励和 CDK 可以发礼包。
+
+5. **第五阶段：商店联动**
+
+   增加礼包商品类型，加入货币扣除和礼包创建的事务账本。
+
+6. **第六阶段：文档和验收**
+
+   补充配置示例、NBT 教程、随机礼包说明、权限表、故障恢复说明和完整测试案例。
+
+**十一、重点验收案例**
+
+至少要验证：
+
+- `all` 模式能完整发放所有物品；
+- `random_one` 每次只选择一个条目；
+- 随机条目数量大于 64 时能自动拆堆；
+- NBT 物品的名称、Lore、附魔和组件保持不变；
+- 背包不足时礼包不会丢失；
+- 重复点击不会重复发放；
+- 玩家断线、服务器重启后不会重新随机；
+- 修改配置不会改变旧礼包内容；
+- 奖励发放重复检查不会重复创建礼包；
+- 商店扣款失败不会创建礼包；
+- 商店扣款成功但服务器中断时可以恢复；
+- 玩家不能打开其他玩家的礼包实例。
+
+这套方案与当前 OmniTools 的模块化配置、统一奖励和奖励账本设计兼容，同时保留了以后接入商店、成就、CDK 和其他奖励来源的扩展空间。本轮仅进行了只读结构审查，没有修改、构建或测试项目。

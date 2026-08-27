@@ -262,6 +262,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
             case ITEM -> TextTemplateRenderer.renderItemText(player, first.createItemStack());
             case TITLE -> new ItemStack(Items.NAME_TAG);
             case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
+            case PACKAGE -> new ItemStack(Items.CHEST);
         };
     }
 
@@ -286,6 +287,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                                 TextTemplateRenderer.render(player, title.display())))
                         .orElseGet(() -> ServerText.translatable("gui.omnitools.reward.title", reward.titleId()));
                 case COMMAND -> ServerText.translatable("gui.omnitools.reward.command");
+                case PACKAGE -> ServerText.translatable("gui.omnitools.reward.package");
             };
             lore.add(preview.copy().withStyle(
                     reward.type() == RewardType.CURRENCY ? ChatFormatting.GOLD : ChatFormatting.AQUA));

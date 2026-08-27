@@ -192,6 +192,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 case ITEM -> TextTemplateRenderer.renderItemText(player, reward.createItemStack());
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
+                case PACKAGE -> new ItemStack(Items.CHEST);
             };
         }
         String status = status(player, entry);
@@ -240,6 +241,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                     .<Component>map(title -> TextTemplateRenderer.render(player, title.display()))
                     .orElseGet(() -> ServerText.translatable("gui.omnitools.checkin.title_reward", reward.titleId()));
             case COMMAND -> ServerText.translatable("gui.omnitools.checkin.command_reward");
+            case PACKAGE -> ServerText.translatable("gui.omnitools.checkin.package_reward");
         };
     }
 

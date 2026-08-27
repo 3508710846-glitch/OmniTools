@@ -27,6 +27,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.UUID;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.config.ModuleCommandRegistrar;
 import dev.modmind.omnitools.config.OmniToolsConfigManager;
@@ -53,6 +54,8 @@ import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.cdk.CdkData;
 import dev.modmind.omnitools.cdk.CdkService;
+import dev.modmind.omnitools.packages.PackageService;
+import dev.modmind.omnitools.packages.PackageData;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -69,6 +72,7 @@ public final class ModMindEntry implements ModInitializer {
     private static AchievementService achievementService = AchievementService.empty();
     private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
     private static final LeaderboardService LEADERBOARD_SERVICE = new LeaderboardService();
+    private static final PackageService PACKAGE_SERVICE = new PackageService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
@@ -195,7 +199,9 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.REWARDS_ADMIN, CommandAction.CHECKIN_MAKEUP,
                             CommandAction.CHECKIN_CARDS_BUY, CommandAction.CHECKIN_CARDS_ADMIN,
                             CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN,
-                            CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT))
+                            CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT,
+                            CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE, CommandAction.PACKAGE_INSPECT,
+                            CommandAction.PACKAGE_REMOVE))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -207,6 +213,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
                     .then(leaderboardCommand("leaderboard"))
+                    .then(packageCommand())
                     .then(checkinCardsAndMakeupCommand())
                     .then(cdkCommand())
                     .then(sidebarCommand())
@@ -281,6 +288,10 @@ public final class ModMindEntry implements ModInitializer {
         commands.register(ModuleId.LEADERBOARDS, target -> {
             target.register(leaderboardCommand("leaderboard"));
             target.register(topCommand());
+        });
+        commands.register(ModuleId.PACKAGES, target -> {
+            target.register(packageCommand());
+            target.register(packageCommand("packages"));
         });
         commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("balance")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
@@ -390,6 +401,8 @@ public final class ModMindEntry implements ModInitializer {
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
     }
+
+    public static PackageService packageService() { return PACKAGE_SERVICE; }
 
     /** Applies one already-validated snapshot for both command reloads and module GUI changes. */
     public static void applyRuntimeConfigChange(net.minecraft.server.MinecraftServer server,
@@ -511,6 +524,62 @@ public final class ModMindEntry implements ModInitializer {
                                         .executes(context -> sendLeaderboardChat(context.getSource(),
                                                 StringArgumentType.getString(context, "id"),
                                                 LongArgumentType.getLong(context, "page"))))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> packageCommand() {
+        return packageCommand("package");
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> packageCommand(String literal) {
+        return Commands.literal(literal)
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE,
+                        CommandAction.PACKAGE_INSPECT, CommandAction.PACKAGE_REMOVE)
+                        .and(source -> isModuleEnabled(ModuleId.PACKAGES)))
+                .executes(context -> openPackageFromSource(context.getSource()))
+                .then(Commands.literal("open").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_OPEN))
+                        .executes(context -> openPackageFromSource(context.getSource())))
+                .then(Commands.literal("give").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_GIVE))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("package", StringArgumentType.word())
+                                        .executes(context -> givePackage(context, 1))
+                                        .then(Commands.argument("amount", LongArgumentType.longArg(1L, 4096L))
+                                                .executes(context -> givePackage(context, (int) LongArgumentType.getLong(context, "amount"))))))
+                        )
+                .then(Commands.literal("inspect").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_INSPECT))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .executes(context -> inspectPackages(context))))
+                .then(Commands.literal("remove").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_REMOVE))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("instance", StringArgumentType.word())
+                                        .executes(context -> removePackage(context)))));
+    }
+
+    private static int openPackageFromSource(CommandSourceStack source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        return openPackageMenu(source.getPlayerOrException());
+    }
+    private static int openPackageMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.PACKAGES) || !COMMAND_PERMISSIONS.canUse(player, CommandAction.PACKAGE_OPEN)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true); return 0;
+        }
+        player.openMenu(new SimpleMenuProvider((syncId, inventory, ignored) -> PackageScreenHandler.createServer(syncId, inventory, player),
+                ServerText.translatable("gui.omnitools.packages.title"))); return 1;
+    }
+    private static int givePackage(CommandContext<CommandSourceStack> context, int count) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        String id = StringArgumentType.getString(context, "package");
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            for (int i=0;i<count;i++) PACKAGE_SERVICE.create(context.getSource().getServer(), profile.id(), id, "admin:" + context.getSource().getTextName());
+        }
+        return 1;
+    }
+    private static int inspectPackages(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        int total = 0; for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) total += PackageData.get(context.getSource().getServer()).list(profile.id()).size();
+        int packageCount = total;
+        context.getSource().sendSuccess(() -> Component.literal("packages: " + packageCount), false); return 1;
+    }
+    private static int removePackage(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        UUID id; try { id = UUID.fromString(StringArgumentType.getString(context, "instance")); } catch (IllegalArgumentException e) { return 0; }
+        boolean removed = false; for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) removed |= PackageData.get(context.getSource().getServer()).remove(profile.id(), id);
+        return removed ? 1 : 0;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> topCommand() {
@@ -1617,7 +1686,11 @@ public final class ModMindEntry implements ModInitializer {
                     || (!snapshot.enabled(ModuleId.LEADERBOARDS)
                     && player.containerMenu instanceof LeaderboardScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.LEADERBOARDS_OPEN)
-                    && player.containerMenu instanceof LeaderboardScreenHandler)
+                        && player.containerMenu instanceof LeaderboardScreenHandler)
+                    || (!snapshot.enabled(ModuleId.PACKAGES)
+                        && player.containerMenu instanceof PackageScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.PACKAGE_OPEN)
+                        && player.containerMenu instanceof PackageScreenHandler)
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)

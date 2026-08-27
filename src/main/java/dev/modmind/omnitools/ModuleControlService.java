@@ -63,7 +63,21 @@ public final class ModuleControlService {
         if (module == ModuleId.TITLES && !enabled && hasTitleRewards(snapshot)) {
             return Optional.of(DependencyBlock.TITLES_REQUIRED_BY_REWARDS);
         }
+        if (module == ModuleId.PACKAGES && !enabled && hasPackageRewards(snapshot)) {
+            return Optional.of(DependencyBlock.PACKAGES_REQUIRED_BY_REWARDS);
+        }
         return Optional.empty();
+    }
+
+    private static boolean hasPackageRewards(OmniToolsConfigSnapshot snapshot) {
+        return java.util.stream.Stream.of(
+                        snapshot.rewards().dailyRewards().stream(),
+                        snapshot.rewards().monthlyRewards().values().stream().flatMap(java.util.Collection::stream),
+                        snapshot.rewards().onlineTimeRewards().stream().flatMap(m -> m.rewards().stream()),
+                        snapshot.achievements().achievements().stream().flatMap(a -> a.rewards().stream()),
+                        snapshot.cdk().campaigns().stream().flatMap(c -> c.rewards().stream()))
+                .flatMap(stream -> stream)
+                .anyMatch(reward -> reward.type() == dev.modmind.omnitools.reward.RewardType.PACKAGE);
     }
 
     private static boolean hasTitleRewards(OmniToolsConfigSnapshot snapshot) {
@@ -84,7 +98,8 @@ public final class ModuleControlService {
     public enum DependencyBlock {
         TITLE_EFFECTS_REQUIRES_TITLES("gui.omnitools.modules.blocked.title_effects_requires_titles"),
         TITLES_REQUIRED_BY_EFFECTS("gui.omnitools.modules.blocked.titles_required_by_effects"),
-        TITLES_REQUIRED_BY_REWARDS("gui.omnitools.modules.blocked.titles_required_by_rewards");
+        TITLES_REQUIRED_BY_REWARDS("gui.omnitools.modules.blocked.titles_required_by_rewards"),
+        PACKAGES_REQUIRED_BY_REWARDS("gui.omnitools.modules.blocked.packages_required_by_rewards");
 
         private final String translationKey;
 

@@ -1,21 +1,13 @@
 {
-  "prompt": "静态审查结论：OmniTools 已经从单一签到模组发展为一个较完整的纯服务端功能平台，但目前更像“功能已经很多、需要收敛稳定性”的阶段。最大风险不在功能数量，而在配置默认值、热重载一致性、排行榜性能和中心入口过度集中。以下结论基于源码和文档检查，未执行构建、单元测试或服务器冒烟测试。\n\n**一、已经实现的内容**\n\n| 영역 | 当前实现 |\n| --- | --- |\n| 服务端形态 | `fabric.mod.json` 设置了 `\"environment\": \"server\"`，没有客户端 entrypoint，GUI 通过服务端 ScreenHandler 提供。[fabric.mod.json](D:/mod/qiandao/src/main/resources/fabric.mod.json:8) |\n| 模块化配置 | 根配置、模块配置、公共模板、配置迁移和版本号体系已经存在。`ModuleId` 已包含签到、CDK、在线奖励、商店、称号、成就、权限、命令菜单、侧边栏、排行榜等模块。[ModuleId.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ModuleId.java:7) |\n| 配置加载与重载 | `OmniToolsConfigManager` 支持全量重载、单模块重载、模块开关、失败保留旧快照和原子写入。[OmniToolsConfigManager.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:35) |\n| 现有基础功能 | 每日签到、补签卡、在线奖励、商店与货币、称号、限时称号、称号效果、CDK、云存储、权限、命令菜单、侧边栏均有对应源码和配置文件。 |\n| 奖励体系 | 奖励支持货币、物品、NBT/组件物品、称号、限时称号、指令和补签卡；奖励账本包含待处理、失败、阻塞、重试和人工结算状态。 |\n| 成就系统 | 支持挖掘、合成、使用、损坏、拾取、丢弃、实体击杀、被实体击杀和 `custom` 统计；支持目标组、标签、通配符以及 `sum`、`each`、`any`、`all`、`not` 组合。[StatisticQuery.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/statistics/StatisticQuery.java:28) |\n| 占位符 | 内置占位符目前为 22 个，覆盖货币、签到、在线时长、称号、成就；可选 Text Placeholder API 通过反射桥接。[OmniToolsPlaceholderResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OmniToolsPlaceholderResolver.java:12) |\n| 侧边栏 | 支持文本页面、排行榜页面、固定页面、轮播页面、Placeholder API 和第三方侧边栏冲突策略。[SidebarConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/sidebar/SidebarConfig.java:337) |\n| 排行榜 | 排行榜已接入配置快照、命令、GUI、聊天分页和侧边栏；支持离线统计文件、目标组、通配符、原版自定义统计和成就关联。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:23) |\n\n**二、当前最明显的缺口**\n\n1. **排行榜模块的根开关存在默认值矛盾**\n\n   文档和 `defaults()` 都说明排行榜默认关闭，但运行配置 `run/config/omnitools/config.json` 没有 `leaderboards` 项。[run/config/omnitools/config.json](D:/mod/qiandao/run/config/omnitools/config.json:27)\n\n   更严重的是，解析已有根配置时，缺失模块会走：\n\n   ```java\n   value == null || !value.isJsonObject() || bool(..., true)\n   ```\n\n   因此缺少 `leaderboards` 时会被解析为 `enabled=true`。[OmniToolsRootConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java:126)\n\n   结果是：文档说默认关闭，但某些旧配置实际会意外启用排行榜，开始扫描所有玩家统计文件。\n\n2. **模块生命周期抽象没有真正接通**\n\n   `ConfigurableModule.apply()`、`ConfigModuleRegistry.applyAll()` 已经定义，但当前唯一的 `applyAll` 调用点是接口本身，实际重载仍集中转发到 `ModMindEntry.applyRuntimeConfigChange()`。[ConfigModuleRegistry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigModuleRegistry.java:60)、[RuntimeConfigApplier.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RuntimeConfigApplier.java:8)\n\n   这意味着新增模块时，仍可能需要修改中心入口，容易出现“配置已经加载，但运行时清理或刷新遗漏”的问题。\n\n3. **`ModMindEntry.java` 过度集中**\n\n   当前主入口约 1714 行，承担启动、命令注册、配置应用、GUI 打开、事件处理、侧边栏、排行榜和权限逻辑。它已经成为主要回归风险来源，后续每添加一个模块都会扩大影响范围。\n\n4. **排行榜还不是“所有原版统计”的完整抽象**\n\n   当前支持 9 类统计域，但“方块放置”没有原版精确统计，只能用 `item_used` 近似。距离、时间、伤害等需要通过 `custom` 统计 ID，并不是所有统计都提供了专门的语义层。[docs/modules/leaderboards.md](D:/mod/qiandao/docs/modules/leaderboards.md:30)\n\n   因此文档必须明确区分：\n\n   - 精确支持的统计类型；\n   - 通过 `custom_stat` 支持的原版统计；\n   - 原版不存在、只能近似的统计，例如精确方块放置数。\n\n5. **排行榜离线扫描仍有扩展性风险**\n\n   `LeaderboardService` 会枚举 `stats/<uuid>.json`，并在服务器 tick 中按 `max_files_per_tick` 分批读取。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:82)\n\n   虽然已经避免一次性扫描，但每次刷新仍可能：\n\n   - 在主线程执行大量磁盘读取；\n   - 对每个玩家计算所有榜单；\n   - 对每个榜单完整排序；\n   - 在大型服务器上产生较长的快照延迟。\n\n   另外，离线玩家名称只从 `knownNames` 获取，未记录过的玩家可能显示为 UUID 前缀。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:29)\n\n6. **文档、Schema 和运行时规则仍需持续对齐**\n\n   目前同时存在 `docs/modules/`、`docs/guides/`、`docs/reference/`、`docs/examples/`、旧兼容页面和 `archive/`。文档维护清单已经存在，但还没有看到自动检查“源码字段、Schema、示例、文档表格”一致性的机制。[validation-checklist.md](D:/mod/qiandao/docs/maintainers/validation-checklist.md:7)\n\n7. **可选 Placeholder API 的发布链路需要复核**\n\n   `fabric.mod.json` 将 Placeholder API 放在 `suggests` 中，但 `build.gradle` 又以 `modImplementation` 引入本地 JAR。[fabric.mod.json](D:/mod/qiandao/src/main/resources/fabric.mod.json:22)、[build.gradle](D:/mod/qiandao/build.gradle:34)\n\n   这不一定会导致最终 JAR 产生硬依赖，但必须确认发布包在没有 Placeholder API 的服务器上仍能正常启动和运行。\n\n**三、最值得优先处理的风险**\n\n**P0：配置开关语义错误**\n\n优先修复缺失模块字段的默认值逻辑，特别是 `leaderboards`。建议统一为：\n\n- 新配置生成：明确写出所有模块；\n- 旧配置加载：缺失模块使用版本迁移策略；\n- 不允许解析器直接把未知/缺失模块无条件当作 `true`；\n- 增加测试覆盖“缺少 leaderboards 时必须为 false”。\n\n**P0：完成真实运行验证**\n\n当前只能确认代码路径存在，不能确认服务器行为。至少需要验证：\n\n1. 首次启动是否正确生成所有配置；\n2. 排行榜缺失根开关时的实际状态；\n3. `/omnitools reload` 和单模块重载；\n4. GUI 打开期间禁用模块；\n5. 侧边栏和排行榜联动；\n6. Placeholder API 安装与未安装两种环境；\n7. 奖励发放中途断服、背包满、NBT 物品和指令奖励异常恢复。\n\n**P1：拆分中心入口并启用模块生命周期**\n\n建议让每个模块拥有自己的：\n\n- 配置加载器；\n- Schema/运行时校验；\n- 命令注册器；\n- `apply(previous, current, runtime)`；\n- 启用、禁用和重载清理逻辑。\n\n`ModMindEntry` 只保留启动、事件总线和服务容器，避免继续添加业务代码。\n\n**P1：优化排行榜扫描**\n\n建议按以下顺序处理：\n\n1. 缓存统计文件的修改时间，未变化文件不重复解析；\n2. 文件读取和解析采用有界后台队列，主线程只接收结果；\n3. 增加每榜单最大排名数，使用 Top-K 而不是完整排序；\n4. 增加扫描进度、耗时、文件数和快照年龄诊断；\n5. 使用服务器用户缓存补全离线玩家名称；\n6. 对 `StatisticQuery` 预解析统计对象，避免重复注册表查找。\n\n**P1：加强奖励一致性和安全性**\n\n指令奖励、NBT 物品、限时称号和背包满场景仍应视为高风险路径。奖励账本应保持幂等，不能通过删除记录解决失败；指令奖励需要继续受全局白名单、长度限制和权限配置约束。\n\n**P2：完善文档与配置体验**\n\n最终应形成一套机器可验证的发布流程：\n\n- Java 配置类生成 Schema；\n- Schema 生成带注释示例；\n- 示例配置自动校验；\n- 文档命令和字段从源码/Schema 交叉检查；\n- 明确“已实现、近似实现、规划中”三种状态。\n\n总体判断：核心功能覆盖面已经很高，排行榜和模块化配置也已经接入主架构；但在修复根配置默认值、完成服务器级验证、拆分 `ModMindEntry` 和控制排行榜资源消耗之前，不建议把当前状态视为稳定发行版。",
+  "prompt": "可以，建议把礼包设计成一个独立的“礼包模块”，底层复用现有奖励、物品解析、奖励账本和 GUI 框架。\n\n当前项目已经具备几个重要基础：\n\n- 奖励类型集中在 [`RewardDefinition.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java:17)。\n- 物品和完整 SNBT 解析集中在 [`ItemStackConfigParser.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java:28)。\n- 奖励幂等、失败重试和奖励箱逻辑在 [`RewardGrantService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:147) 和 [`RewardClaimLedger.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java:27)。\n- 当前奖励箱只展示“待投递物品”，因为 [`RewardInboxScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java:148) 只筛选带物品快照的账本记录，不能直接把礼包当成普通物品处理。\n\n因此，推荐采用“虚拟礼包实例 + 独立礼包 GUI”的方案，而不是生成一个容易被复制、丢失或篡改的实体礼包物品。\n\n**一、模块和文件结构**\n\n新增模块：\n\n```text\nconfig/omnitools/\n├── config.json\n└── packages/\n    └── config.json\n```\n\n新增模块 ID：\n\n```text\npackages\n```\n\n需要接入：\n\n- `ModuleId.PACKAGES`\n- `OmniToolsRootConfig`\n- `OmniToolsConfigSnapshot`\n- `OmniToolsConfigManager`\n- `ConfigValidator`\n- `ConfigModuleRegistry`\n- `ConfigPaths`\n- `/omnitools reload packages`\n\n建议新增类：\n\n```text\npackage/PackageConfig.java\npackage/PackageDefinition.java\npackage/PackageItem.java\npackage/PackageInstance.java\npackage/PackageData.java\npackage/PackageService.java\npackage/PackageDeliveryBatch.java\nPackageScreenHandler.java\nPackageConfirmScreenHandler.java\n```\n\n玩家获得的不是普通物品，而是一个服务端保存的礼包实例：\n\n```text\n礼包实例：\n- instance_id\n- package_id\n- package_version\n- display_name\n- icon\n- mode\n- item_snapshot\n- source_event\n- status\n- granted_at\n```\n\n礼包发放时保存礼包内容快照。以后服主修改礼包配置，不会改变已经发放但尚未打开的礼包。\n\n**二、配置文件设计**\n\n建议使用 `quantity` 表示礼包内的数量，而不是直接使用原版 ItemStack 的 `count`。这样可以支持超过 64 个物品，并由服务端自动拆分成多个堆叠。\n\n```jsonc\n{\n  \"format_version\": 1,\n\n  \"settings\": {\n    \"max_packages_per_player\": 256,\n    \"max_quantity_per_entry\": 2304,\n    \"delivery_policy\": \"inventory_then_inbox\",\n    \"random_strategy\": \"uniform\"\n  },\n\n  \"packages\": [\n    {\n      \"id\": \"starter\",\n      \"display\": \"&a新手礼包\",\n      \"description\": [\n        \"&7打开后获得全部新手物资\"\n      ],\n      \"icon\": \"minecraft:chest\",\n      \"mode\": \"all\",\n\n      \"items\": [\n        {\n          \"id\": \"bread\",\n          \"item\": \"minecraft:bread\",\n          \"quantity\": 16\n        },\n        {\n          \"id\": \"iron\",\n          \"item\": \"minecraft:iron_ingot\",\n          \"quantity\": 32\n        },\n        {\n          \"id\": \"starter_sword\",\n          \"nbt\": \"{id:'minecraft:iron_sword',count:1,components:{'minecraft:custom_name':'{\\\"text\\\":\\\"新手铁剑\\\"}'}}\",\n          \"quantity\": 1\n        }\n      ]\n    },\n\n    {\n      \"id\": \"random_material\",\n      \"display\": \"&b随机材料礼包\",\n      \"description\": [\n        \"&7随机获得其中一种材料\"\n      ],\n      \"icon\": \"minecraft:barrel\",\n      \"mode\": \"random_one\",\n\n      \"items\": [\n        {\n          \"id\": \"coal\",\n          \"item\": \"minecraft:coal\",\n          \"quantity\": 128\n        },\n        {\n          \"id\": \"iron\",\n          \"item\": \"minecraft:iron_ingot\",\n          \"quantity\": 64\n        },\n        {\n          \"id\": \"gold\",\n          \"item\": \"minecraft:gold_ingot\",\n          \"quantity\": 32\n        }\n      ]\n    }\n  ]\n}\n```\n\n字段规则：\n\n| 字段 | 说明 |\n| --- | --- |\n| `id` | 礼包唯一 ID，发布后不要修改 |\n| `display` | 礼包名称，支持颜色和占位符 |\n| `description` | 礼包说明 |\n| `icon` | GUI 中显示的物品 ID |\n| `mode` | `all` 或 `random_one` |\n| `items` | 礼包内容列表 |\n| `item` | 普通物品 ID |\n| `nbt` | 完整 ItemStack SNBT |\n| `quantity` | 该物品实际发放数量 |\n| `random_strategy` | 默认 `uniform`，按条目均匀随机 |\n| `max_quantity_per_entry` | 防止配置错误导致一次发放过多物品 |\n\n`quantity` 业务上不受 64 限制。比如配置 1000 个钻石，服务端自动拆分为 64、64、64……的多个堆叠。\n\n但不建议真正取消所有安全上限。应当允许服主调整上限，同时保留服务器级最大值，避免误配置造成卡服或超大存档。\n\n完整 SNBT 仍然复用现有的 32 KiB 限制和组件校验规则。由于现有物品解析器要求单个 ItemStack 数量不超过 64，礼包应解析“单个物品原型”，再由 `quantity` 进行批量发放。\n\n**三、两种打开模式**\n\n`all` 模式：\n\n```text\n一次打开获得 items 中的所有物品及其数量。\n```\n\n例如：\n\n```text\n面包 16\n铁锭 32\n新手铁剑 1\n```\n\n`random_one` 模式：\n\n```text\n一次打开只随机选择一个条目，并发放该条目的完整 quantity。\n```\n\n例如抽中煤炭后，玩家获得 128 个煤炭，不会再重复抽取其他条目。\n\n建议第一版使用均匀随机：\n\n```text\n每个 items 条目的概率相同\n```\n\n后续可以增加：\n\n```json\n{\n  \"id\": \"diamond\",\n  \"item\": \"minecraft:diamond\",\n  \"quantity\": 16,\n  \"weight\": 5\n}\n```\n\n但随机结果必须在服务器端保存，不能只在 GUI 点击时临时计算。否则玩家在断线、重启或重复点击时可能重新获得不同结果。\n\n**四、发放流程**\n\n礼包来源分为三种：\n\n1. 管理员命令发放。\n2. 奖励模块发放。\n3. 商店购买后发放。\n\n统一流程：\n\n```text\n创建礼包实例\n    ↓\n保存 package_id、版本和内容快照\n    ↓\n玩家打开礼包\n    ↓\n服务端锁定礼包实例\n    ↓\nall：生成全部物品\nrandom_one：只生成一个随机物品\n    ↓\n保存已选择结果\n    ↓\n检查背包空间\n    ↓\n可以完全放入：直接投递\n无法完全放入：进入奖励箱投递队列\n    ↓\n全部投递完成\n    ↓\n标记礼包实例为 OPENED\n```\n\n必须保存随机选择结果和投递状态。例如：\n\n```text\nPENDING\nOPENING\nDELIVERING\nWAITING_INBOX\nOPENED\nBLOCKED\n```\n\n服务器崩溃后：\n\n- 如果尚未选择随机结果，重新开始选择；\n- 如果已经选择，必须使用原来的结果，不能重新随机；\n- 如果部分物品已经进入投递流程，不能直接重复发放；\n- 如果投递结果不明确，进入管理员可审计的阻塞状态。\n\n建议新增通用的 `PackageDeliveryBatch`，而不是让一个礼包只对应一条物品账本记录。因为一个礼包可能包含多个物品堆叠，而当前奖励账本的一条物品记录只保存一个 ItemStack 快照。\n\n**五、命令设计**\n\n玩家命令：\n\n```text\n/omnitools packages\n```\n\n打开自己的礼包 GUI。\n\n```text\n/omnitools package open\n```\n\n打开礼包列表。\n\n```text\n/omnitools package open <instance_id>\n```\n\n打开指定礼包实例。\n\n管理员命令：\n\n```text\n/omnitools package give <player> <package_id>\n/omnitools package give <player> <package_id> <amount>\n/omnitools package inspect <player>\n/omnitools package remove <player> <instance_id>\n```\n\n建议新增权限动作：\n\n```text\npackage.open      PLAYER\npackage.give      ADMIN\npackage.inspect    ADMIN\npackage.remove     ADMIN\n```\n\n这些动作应加入 [`CommandAction.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/permissions/CommandAction.java:8)，并允许在权限配置文件中覆盖。\n\n管理员执行：\n\n```text\n/omnitools reload packages\n```\n\n只重载礼包配置，不影响已经发放的礼包实例。\n\n**六、GUI 设计**\n\n建议新增独立礼包 GUI，而不是直接修改现有奖励箱的物品列表逻辑。\n\n礼包列表界面：\n\n- 54 格箱子界面；\n- 每个礼包实例使用配置中的 `icon`；\n- 名称显示礼包名称；\n- Lore 显示礼包模式、来源、发放时间；\n- `all` 显示“打开后获得全部物品”；\n- `random_one` 显示“打开后随机获得一件物品”；\n- 点击礼包后进入确认界面；\n- 关闭按钮固定在右上角；\n- 翻页按钮使用现有 GUI 导航组件。\n\n确认界面：\n\n```text\n[礼包图标]\n新手礼包\n\n打开后获得：\n面包 x16\n铁锭 x32\n新手铁剑 x1\n\n[确认打开] [取消]\n```\n\n随机礼包的确认界面不显示具体结果，只显示：\n\n```text\n随机获得以下物品中的一种\n```\n\n如果背包空间不足：\n\n```text\n礼包已经打开，无法直接放入背包的物品已转入奖励箱。\n```\n\n建议在现有 [`RewardInboxScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/RewardInboxScreenHandler.java:29) 中增加“礼包入口按钮”，但不要直接把礼包伪装成普通物品奖励。\n\n**七、与奖励模块联动**\n\n新增奖励类型：\n\n```text\npackage\n```\n\n奖励配置：\n\n```json\n{\n  \"id\": \"starter_package\",\n  \"type\": \"package\",\n  \"package\": \"starter\"\n}\n```\n\n这样签到、在线奖励、成就、CDK 都可以使用：\n\n```json\n\"rewards\": [\n  {\n    \"id\": \"daily_package\",\n    \"type\": \"package\",\n    \"package\": \"starter\"\n  }\n]\n```\n\n需要修改：\n\n- `RewardType`\n- `RewardDefinition`\n- `RewardDefinition.parse`\n- `RewardGrantService`\n- `ConfigValidator`\n- `RewardClaimLedger`\n- 统一奖励 Schema\n- 奖励文档和示例\n\n奖励发放时不直接给予物品，而是创建一个礼包实例。这样仍然可以使用现有的奖励事件 ID 保证幂等：\n\n```text\nachievement:<player_uuid>:<achievement_id>:starter_package\n```\n\n同一个成就重复检查不会重复创建礼包。\n\n**八、与商店模块联动**\n\n商店可以增加商品类型：\n\n```json\n{\n  \"index\": 5,\n  \"type\": \"package\",\n  \"package\": \"random_material\",\n  \"price\": 100\n}\n```\n\n购买流程必须是事务式的：\n\n```text\n确认礼包存在\n    ↓\n确认玩家余额足够\n    ↓\n生成购买事务 ID\n    ↓\n扣除货币\n    ↓\n创建礼包实例\n    ↓\n标记购买完成\n```\n\n如果服务器在扣钱和创建礼包之间崩溃，必须通过购买账本恢复，不能出现“扣钱但没有礼包”的情况。\n\n第一阶段建议只支持虚拟礼包。以后如果需要玩家之间交易，再增加带签名 NBT 的实体礼包物品，但那会引入复制、丢失、跨服和伪造风险。\n\n**九、必须加入的安全限制**\n\n建议至少加入以下限制：\n\n- 礼包 ID 不允许重复；\n- 礼包内容最多 256 个条目；\n- 单个礼包最大总数量；\n- 每个玩家最大未打开礼包数；\n- SNBT 最大 32 KiB；\n- 禁止礼包嵌套礼包，避免递归展开；\n- 禁止客户端提交任意 `package_id` 或物品内容；\n- GUI 点击时重新验证礼包实例所有权；\n- 随机结果由服务端生成并保存；\n- 已打开礼包不能再次打开；\n- 配置重载不能改变已发放礼包快照；\n- 所有管理员发放、删除、人工结算都写入审计日志。\n\n**十、建议开发顺序**\n\n1. **第一阶段：礼包配置和数据模型**\n\n   新增 `packages/config.json`、配置解析、Schema、礼包实例 SavedData、数量拆分和 SNBT 校验。\n\n2. **第二阶段：礼包服务和可靠投递**\n\n   实现 `all`、`random_one`、随机结果持久化、背包不足进入奖励箱、崩溃恢复和幂等处理。\n\n3. **第三阶段：命令和 GUI**\n\n   增加玩家礼包列表、确认打开界面、管理员发放命令、权限节点和翻页。\n\n4. **第四阶段：奖励模块联动**\n\n   增加 `RewardType.PACKAGE`，使签到、成就、在线奖励和 CDK 可以发礼包。\n\n5. **第五阶段：商店联动**\n\n   增加礼包商品类型，加入货币扣除和礼包创建的事务账本。\n\n6. **第六阶段：文档和验收**\n\n   补充配置示例、NBT 教程、随机礼包说明、权限表、故障恢复说明和完整测试案例。\n\n**十一、重点验收案例**\n\n至少要验证：\n\n- `all` 模式能完整发放所有物品；\n- `random_one` 每次只选择一个条目；\n- 随机条目数量大于 64 时能自动拆堆；\n- NBT 物品的名称、Lore、附魔和组件保持不变；\n- 背包不足时礼包不会丢失；\n- 重复点击不会重复发放；\n- 玩家断线、服务器重启后不会重新随机；\n- 修改配置不会改变旧礼包内容；\n- 奖励发放重复检查不会重复创建礼包；\n- 商店扣款失败不会创建礼包；\n- 商店扣款成功但服务器中断时可以恢复；\n- 玩家不能打开其他玩家的礼包实例。\n\n这套方案与当前 OmniTools 的模块化配置、统一奖励和奖励账本设计兼容，同时保留了以后接入商店、成就、CDK 和其他奖励来源的扩展空间。本轮仅进行了只读结构审查，没有修改、构建或测试项目。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-27T14:03:44.123Z",
-  "summary": "已完成剩余实现与验收工作。\n\n本次修正：\n\n- 修复根配置中缺失模块的默认值逻辑。旧配置或当前配置未写 `modules.leaderboards` 时，排行榜现在明确保持关闭，不会意外触发离线统计扫描。\n- 新增回归测试 `missingLeaderboardFlagDefaultsToDisabled`。\n- 更新 [sidebar.md](/D:/mod/qiandao/docs/modules/sidebar.md)，正文改为 v3 页面模型，补充固定页、轮播页、排行榜页、v2 兼容映射、字段约束及故障处理。\n- 将运行配置和根配置参考中的排行榜开关补齐为 `enabled: false`。\n- 中文语言资源已确认合法 JSON；同时检查了资源目录和运行配置下的全部 `.json` 文件。\n\n最终验证结果：\n\n- `./gradlew.bat test --no-daemon`：通过\n- `modmind_validate_content`：`success=true`，`errors=[]`，`warnings=[]`\n- 全部 JSON 资源解析：通过\n- `modmind_build_project`：构建成功，产物 `modmind-current-project.jar`\n- `modmind_test_matrix({targets:[\"server\"]})`：通过，服务端就绪后稳定运行 15 秒\n- `git diff --check`：通过\n\n服务端运行日志位于：\n\n`D:/mod/qiandao/.modmind/builds/runServer-1787839256112.log`\n\n当前工作区没有新增构建或运行阻塞。",
-  "finalResponse": "已完成剩余实现与验收工作。\n\n本次修正：\n\n- 修复根配置中缺失模块的默认值逻辑。旧配置或当前配置未写 `modules.leaderboards` 时，排行榜现在明确保持关闭，不会意外触发离线统计扫描。\n- 新增回归测试 `missingLeaderboardFlagDefaultsToDisabled`。\n- 更新 [sidebar.md](/D:/mod/qiandao/docs/modules/sidebar.md)，正文改为 v3 页面模型，补充固定页、轮播页、排行榜页、v2 兼容映射、字段约束及故障处理。\n- 将运行配置和根配置参考中的排行榜开关补齐为 `enabled: false`。\n- 中文语言资源已确认合法 JSON；同时检查了资源目录和运行配置下的全部 `.json` 文件。\n\n最终验证结果：\n\n- `./gradlew.bat test --no-daemon`：通过\n- `modmind_validate_content`：`success=true`，`errors=[]`，`warnings=[]`\n- 全部 JSON 资源解析：通过\n- `modmind_build_project`：构建成功，产物 `modmind-current-project.jar`\n- `modmind_test_matrix({targets:[\"server\"]})`：通过，服务端就绪后稳定运行 15 秒\n- `git diff --check`：通过\n\n服务端运行日志位于：\n\n`D:/mod/qiandao/.modmind/builds/runServer-1787839256112.log`\n\n当前工作区没有新增构建或运行阻塞。",
+  "createdAt": "2026-08-27T15:57:51.228Z",
+  "summary": "已完成审查反馈要求的全部工作流阶段：\n\n- `modmind_validate_content`：通过  \n  - `success=true`\n  - `errors=[]`\n  - `warnings=[]`\n- `modmind_build_project`：通过  \n  - 产物：`modmind-current-project.jar`\n  - 大小：759,728 bytes\n- `modmind_test_matrix({targets:[\"server\"]})`：通过  \n  - 服务端成功启动\n  - 出现 `Done (...)! For help, type \"help\"`\n  - 稳定运行 15 秒\n  - 日志：[runServer-1787846145408.log](D:/mod/qiandao/.modmind/builds/runServer-1787846145408.log)\n- `git diff --check`：通过\n\n运行日志确认：\n\n- `omnitools 0.1.0` 正常加载\n- 模组初始化完成\n- 服务端正常进入就绪状态\n- Placeholder API 占位符注册完成\n- 未发现 `ERROR`、异常堆栈或礼包模块加载错误\n\n本轮没有新增代码修改，保留了此前礼包模块、排行榜模块及文档改动。",
+  "finalResponse": "已完成审查反馈要求的全部工作流阶段：\n\n- `modmind_validate_content`：通过  \n  - `success=true`\n  - `errors=[]`\n  - `warnings=[]`\n- `modmind_build_project`：通过  \n  - 产物：`modmind-current-project.jar`\n  - 大小：759,728 bytes\n- `modmind_test_matrix({targets:[\"server\"]})`：通过  \n  - 服务端成功启动\n  - 出现 `Done (...)! For help, type \"help\"`\n  - 稳定运行 15 秒\n  - 日志：[runServer-1787846145408.log](D:/mod/qiandao/.modmind/builds/runServer-1787846145408.log)\n- `git diff --check`：通过\n\n运行日志确认：\n\n- `omnitools 0.1.0` 正常加载\n- 模组初始化完成\n- 服务端正常进入就绪状态\n- Placeholder API 占位符注册完成\n- 未发现 `ERROR`、异常堆栈或礼包模块加载错误\n\n本轮没有新增代码修改，保留了此前礼包模块、排行榜模块及文档改动。",
   "intent": "engineering",
   "tasks": [],
   "files": [
-    {
-      "path": "docs/modules/sidebar.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/reference/root-config.md",
-      "purpose": "外部代理修改"
-    },
     {
       "path": "run/config/omnitools/config.json",
       "purpose": "外部代理修改"
@@ -61,19 +53,107 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRenderService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinRewardInfoScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModuleControlService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/OnlineTimeRewardScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigMigration.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ModuleId.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigSnapshot.java",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/config/ConfigMigrationTest.java",
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-27-2.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-27-3.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardType.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/packages.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/packages/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-27-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/PackageScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageDefinition.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageInstance.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageItem.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageService.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -82,7 +162,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-27T13-43-48-486Z",
+  "snapshotId": "2026-08-27T14-40-47-556Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -103,7 +183,7 @@
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 17 changed managed files"
+      "implementation": "Detected 37 changed managed files"
     }
   }
 }

@@ -6,6 +6,7 @@ import dev.modmind.omnitools.ModMindEntry;
 import dev.modmind.omnitools.TitleData;
 import dev.modmind.omnitools.TitleDisplayService;
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.packages.PackageService;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
@@ -17,6 +18,7 @@ import java.util.UUID;
 
 /** Applies one event in configuration order with per-reward idempotency and durable failure state. */
 public final class RewardGrantService {
+    private final PackageService packageService = new PackageService();
     public RewardGrantResult grant(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards) {
         if (!player.getUUID().equals(event.playerId())) {
             return RewardGrantResult.failed(0, 0, "reward event belongs to another player");
@@ -147,6 +149,7 @@ public final class RewardGrantService {
                 case ITEM -> grantItem(player, reward, ledger, event);
                 case TITLE -> grantTitle(player, reward, ledger, event);
                 case COMMAND -> grantCommand(player, reward, ledger, event);
+                case PACKAGE -> grantPackage(player, reward, ledger, event);
             };
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
@@ -169,7 +172,26 @@ public final class RewardGrantService {
             case TITLE -> grantTitle(player, reward, ledger, event);
             case ITEM -> blocked(ledger, event, reward, "item_delivery_outcome_unknown");
             case COMMAND -> blocked(ledger, event, reward, "command_dispatch_outcome_unknown");
+            case PACKAGE -> grantPackage(player, reward, ledger, event);
         };
+    }
+
+    private SingleResult grantPackage(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
+                                      RewardEvent event) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.PACKAGES)) {
+            return blocked(ledger, event, reward, "packages_disabled");
+        }
+        ledger.beginApplying(event, reward.id(), "package_create");
+        try {
+            packageService.create(player.level().getServer(), player.getUUID(), reward.packageId(), event.id());
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+            return SingleResult.granted();
+        } catch (IllegalStateException exception) {
+            return blocked(ledger, event, reward, exception.getMessage() == null ? "package_create_failed" : exception.getMessage());
+        } catch (RuntimeException exception) {
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
+            return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
+        }
     }
 
     private SingleResult grantCurrency(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,

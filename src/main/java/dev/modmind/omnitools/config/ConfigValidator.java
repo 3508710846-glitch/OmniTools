@@ -36,8 +36,12 @@ public final class ConfigValidator {
                 || snapshot.commandMenus() == null
                 || snapshot.sidebar() == null
                 || snapshot.leaderboards() == null
+                || snapshot.packages() == null
                 || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
+        }
+        if (!snapshot.enabled(ModuleId.PACKAGES) && !snapshot.packages().packages().isEmpty()) {
+            throw new IllegalArgumentException("packages definitions require the packages module to be enabled");
         }
         validateSidebar(snapshot);
         validateLeaderboards(snapshot);
@@ -193,6 +197,14 @@ public final class ConfigValidator {
             }
             if (reward.amount() < 1L || reward.amount() > snapshot.rewards().makeup().maxCards()) {
                 throw new IllegalArgumentException(context + " has a makeup-card amount outside the configured limit");
+            }
+        }
+        if (reward.type() == RewardType.PACKAGE) {
+            if (!snapshot.enabled(ModuleId.PACKAGES)) {
+                throw new IllegalArgumentException(context + " contains a package reward but packages is disabled");
+            }
+            if (reward.packageId().isBlank() || snapshot.packages().definition(reward.packageId()).isEmpty()) {
+                throw new IllegalArgumentException(context + " references unknown package " + reward.packageId());
             }
         }
     }

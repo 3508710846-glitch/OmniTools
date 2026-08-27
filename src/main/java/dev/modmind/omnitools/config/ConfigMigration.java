@@ -125,6 +125,9 @@ public final class ConfigMigration {
             if (module == ModuleId.LEADERBOARDS) {
                 enabled = false;
             }
+            if (module == ModuleId.PACKAGES) {
+                enabled = false;
+            }
             status.addProperty("enabled", enabled);
             modules.add(module.id(), status);
         }

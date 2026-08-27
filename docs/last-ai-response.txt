@@ -1,24 +1,25 @@
-已完成剩余实现与验收工作。
+已完成审查反馈要求的全部工作流阶段：
 
-本次修正：
-
-- 修复根配置中缺失模块的默认值逻辑。旧配置或当前配置未写 `modules.leaderboards` 时，排行榜现在明确保持关闭，不会意外触发离线统计扫描。
-- 新增回归测试 `missingLeaderboardFlagDefaultsToDisabled`。
-- 更新 [sidebar.md](/D:/mod/qiandao/docs/modules/sidebar.md)，正文改为 v3 页面模型，补充固定页、轮播页、排行榜页、v2 兼容映射、字段约束及故障处理。
-- 将运行配置和根配置参考中的排行榜开关补齐为 `enabled: false`。
-- 中文语言资源已确认合法 JSON；同时检查了资源目录和运行配置下的全部 `.json` 文件。
-
-最终验证结果：
-
-- `./gradlew.bat test --no-daemon`：通过
-- `modmind_validate_content`：`success=true`，`errors=[]`，`warnings=[]`
-- 全部 JSON 资源解析：通过
-- `modmind_build_project`：构建成功，产物 `modmind-current-project.jar`
-- `modmind_test_matrix({targets:["server"]})`：通过，服务端就绪后稳定运行 15 秒
+- `modmind_validate_content`：通过  
+  - `success=true`
+  - `errors=[]`
+  - `warnings=[]`
+- `modmind_build_project`：通过  
+  - 产物：`modmind-current-project.jar`
+  - 大小：759,728 bytes
+- `modmind_test_matrix({targets:["server"]})`：通过  
+  - 服务端成功启动
+  - 出现 `Done (...)! For help, type "help"`
+  - 稳定运行 15 秒
+  - 日志：[runServer-1787846145408.log](D:/mod/qiandao/.modmind/builds/runServer-1787846145408.log)
 - `git diff --check`：通过
 
-服务端运行日志位于：
+运行日志确认：
 
-`D:/mod/qiandao/.modmind/builds/runServer-1787839256112.log`
+- `omnitools 0.1.0` 正常加载
+- 模组初始化完成
+- 服务端正常进入就绪状态
+- Placeholder API 占位符注册完成
+- 未发现 `ERROR`、异常堆栈或礼包模块加载错误
 
-当前工作区没有新增构建或运行阻塞。
+本轮没有新增代码修改，保留了此前礼包模块、排行榜模块及文档改动。
