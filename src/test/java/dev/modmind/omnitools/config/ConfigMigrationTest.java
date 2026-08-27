@@ -114,6 +114,24 @@ class ConfigMigrationTest {
         assertThrows(RuntimeException.class, () -> OmniToolsRootConfig.load(root.resolve("config.json")));
     }
 
+    @Test
+    void missingLeaderboardFlagDefaultsToDisabled() throws IOException {
+        Path root = temporaryDirectory.resolve("omnitools");
+        writeRoot(root, """
+                {
+                  "format_version": 4,
+                  "global": {},
+                  "integrations": {},
+                  "modules": { "daily_checkin": { "enabled": true } }
+                }
+                """);
+
+        OmniToolsRootConfig loaded = OmniToolsRootConfig.load(root.resolve("config.json"));
+
+        assertFalse(loaded.enabled(ModuleId.LEADERBOARDS));
+        assertTrue(loaded.enabled(ModuleId.DAILY_CHECKIN));
+    }
+
     private static void writeRoot(Path root, String json) throws IOException {
         Files.createDirectories(root);
         Files.writeString(root.resolve("config.json"), json, StandardCharsets.UTF_8);

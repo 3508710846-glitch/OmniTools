@@ -247,3 +247,144 @@ GUI 使用现有原版 54 格箱子模式：
 5. 补 Schema、示例、中文文档和测试。
 
 验收重点：离线玩家仍进入排行榜；多目标和 `*` 得分正确；错误配置不替换旧快照；排行榜不会在请求 GUI 或聊天时扫描磁盘；侧边栏轮播不破坏原有冲突策略；禁用模块后 GUI、聊天和侧边栏榜单均停止显示。
+
+---
+
+## Development request 2026/8/27 21:43:45
+
+静态审查结论：OmniTools 已经从单一签到模组发展为一个较完整的纯服务端功能平台，但目前更像“功能已经很多、需要收敛稳定性”的阶段。最大风险不在功能数量，而在配置默认值、热重载一致性、排行榜性能和中心入口过度集中。以下结论基于源码和文档检查，未执行构建、单元测试或服务器冒烟测试。
+
+**一、已经实现的内容**
+
+| 영역 | 当前实现 |
+| --- | --- |
+| 服务端形态 | `fabric.mod.json` 设置了 `"environment": "server"`，没有客户端 entrypoint，GUI 通过服务端 ScreenHandler 提供。[fabric.mod.json](D:/mod/qiandao/src/main/resources/fabric.mod.json:8) |
+| 模块化配置 | 根配置、模块配置、公共模板、配置迁移和版本号体系已经存在。`ModuleId` 已包含签到、CDK、在线奖励、商店、称号、成就、权限、命令菜单、侧边栏、排行榜等模块。[ModuleId.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ModuleId.java:7) |
+| 配置加载与重载 | `OmniToolsConfigManager` 支持全量重载、单模块重载、模块开关、失败保留旧快照和原子写入。[OmniToolsConfigManager.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:35) |
+| 现有基础功能 | 每日签到、补签卡、在线奖励、商店与货币、称号、限时称号、称号效果、CDK、云存储、权限、命令菜单、侧边栏均有对应源码和配置文件。 |
+| 奖励体系 | 奖励支持货币、物品、NBT/组件物品、称号、限时称号、指令和补签卡；奖励账本包含待处理、失败、阻塞、重试和人工结算状态。 |
+| 成就系统 | 支持挖掘、合成、使用、损坏、拾取、丢弃、实体击杀、被实体击杀和 `custom` 统计；支持目标组、标签、通配符以及 `sum`、`each`、`any`、`all`、`not` 组合。[StatisticQuery.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/statistics/StatisticQuery.java:28) |
+| 占位符 | 内置占位符目前为 22 个，覆盖货币、签到、在线时长、称号、成就；可选 Text Placeholder API 通过反射桥接。[OmniToolsPlaceholderResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/OmniToolsPlaceholderResolver.java:12) |
+| 侧边栏 | 支持文本页面、排行榜页面、固定页面、轮播页面、Placeholder API 和第三方侧边栏冲突策略。[SidebarConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/sidebar/SidebarConfig.java:337) |
+| 排行榜 | 排行榜已接入配置快照、命令、GUI、聊天分页和侧边栏；支持离线统计文件、目标组、通配符、原版自定义统计和成就关联。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:23) |
+
+**二、当前最明显的缺口**
+
+1. **排行榜模块的根开关存在默认值矛盾**
+
+   文档和 `defaults()` 都说明排行榜默认关闭，但运行配置 `run/config/omnitools/config.json` 没有 `leaderboards` 项。[run/config/omnitools/config.json](D:/mod/qiandao/run/config/omnitools/config.json:27)
+
+   更严重的是，解析已有根配置时，缺失模块会走：
+
+   ```java
+   value == null || !value.isJsonObject() || bool(..., true)
+   ```
+
+   因此缺少 `leaderboards` 时会被解析为 `enabled=true`。[OmniToolsRootConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java:126)
+
+   结果是：文档说默认关闭，但某些旧配置实际会意外启用排行榜，开始扫描所有玩家统计文件。
+
+2. **模块生命周期抽象没有真正接通**
+
+   `ConfigurableModule.apply()`、`ConfigModuleRegistry.applyAll()` 已经定义，但当前唯一的 `applyAll` 调用点是接口本身，实际重载仍集中转发到 `ModMindEntry.applyRuntimeConfigChange()`。[ConfigModuleRegistry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigModuleRegistry.java:60)、[RuntimeConfigApplier.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RuntimeConfigApplier.java:8)
+
+   这意味着新增模块时，仍可能需要修改中心入口，容易出现“配置已经加载，但运行时清理或刷新遗漏”的问题。
+
+3. **`ModMindEntry.java` 过度集中**
+
+   当前主入口约 1714 行，承担启动、命令注册、配置应用、GUI 打开、事件处理、侧边栏、排行榜和权限逻辑。它已经成为主要回归风险来源，后续每添加一个模块都会扩大影响范围。
+
+4. **排行榜还不是“所有原版统计”的完整抽象**
+
+   当前支持 9 类统计域，但“方块放置”没有原版精确统计，只能用 `item_used` 近似。距离、时间、伤害等需要通过 `custom` 统计 ID，并不是所有统计都提供了专门的语义层。[docs/modules/leaderboards.md](D:/mod/qiandao/docs/modules/leaderboards.md:30)
+
+   因此文档必须明确区分：
+
+   - 精确支持的统计类型；
+   - 通过 `custom_stat` 支持的原版统计；
+   - 原版不存在、只能近似的统计，例如精确方块放置数。
+
+5. **排行榜离线扫描仍有扩展性风险**
+
+   `LeaderboardService` 会枚举 `stats/<uuid>.json`，并在服务器 tick 中按 `max_files_per_tick` 分批读取。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:82)
+
+   虽然已经避免一次性扫描，但每次刷新仍可能：
+
+   - 在主线程执行大量磁盘读取；
+   - 对每个玩家计算所有榜单；
+   - 对每个榜单完整排序；
+   - 在大型服务器上产生较长的快照延迟。
+
+   另外，离线玩家名称只从 `knownNames` 获取，未记录过的玩家可能显示为 UUID 前缀。[LeaderboardService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java:29)
+
+6. **文档、Schema 和运行时规则仍需持续对齐**
+
+   目前同时存在 `docs/modules/`、`docs/guides/`、`docs/reference/`、`docs/examples/`、旧兼容页面和 `archive/`。文档维护清单已经存在，但还没有看到自动检查“源码字段、Schema、示例、文档表格”一致性的机制。[validation-checklist.md](D:/mod/qiandao/docs/maintainers/validation-checklist.md:7)
+
+7. **可选 Placeholder API 的发布链路需要复核**
+
+   `fabric.mod.json` 将 Placeholder API 放在 `suggests` 中，但 `build.gradle` 又以 `modImplementation` 引入本地 JAR。[fabric.mod.json](D:/mod/qiandao/src/main/resources/fabric.mod.json:22)、[build.gradle](D:/mod/qiandao/build.gradle:34)
+
+   这不一定会导致最终 JAR 产生硬依赖，但必须确认发布包在没有 Placeholder API 的服务器上仍能正常启动和运行。
+
+**三、最值得优先处理的风险**
+
+**P0：配置开关语义错误**
+
+优先修复缺失模块字段的默认值逻辑，特别是 `leaderboards`。建议统一为：
+
+- 新配置生成：明确写出所有模块；
+- 旧配置加载：缺失模块使用版本迁移策略；
+- 不允许解析器直接把未知/缺失模块无条件当作 `true`；
+- 增加测试覆盖“缺少 leaderboards 时必须为 false”。
+
+**P0：完成真实运行验证**
+
+当前只能确认代码路径存在，不能确认服务器行为。至少需要验证：
+
+1. 首次启动是否正确生成所有配置；
+2. 排行榜缺失根开关时的实际状态；
+3. `/omnitools reload` 和单模块重载；
+4. GUI 打开期间禁用模块；
+5. 侧边栏和排行榜联动；
+6. Placeholder API 安装与未安装两种环境；
+7. 奖励发放中途断服、背包满、NBT 物品和指令奖励异常恢复。
+
+**P1：拆分中心入口并启用模块生命周期**
+
+建议让每个模块拥有自己的：
+
+- 配置加载器；
+- Schema/运行时校验；
+- 命令注册器；
+- `apply(previous, current, runtime)`；
+- 启用、禁用和重载清理逻辑。
+
+`ModMindEntry` 只保留启动、事件总线和服务容器，避免继续添加业务代码。
+
+**P1：优化排行榜扫描**
+
+建议按以下顺序处理：
+
+1. 缓存统计文件的修改时间，未变化文件不重复解析；
+2. 文件读取和解析采用有界后台队列，主线程只接收结果；
+3. 增加每榜单最大排名数，使用 Top-K 而不是完整排序；
+4. 增加扫描进度、耗时、文件数和快照年龄诊断；
+5. 使用服务器用户缓存补全离线玩家名称；
+6. 对 `StatisticQuery` 预解析统计对象，避免重复注册表查找。
+
+**P1：加强奖励一致性和安全性**
+
+指令奖励、NBT 物品、限时称号和背包满场景仍应视为高风险路径。奖励账本应保持幂等，不能通过删除记录解决失败；指令奖励需要继续受全局白名单、长度限制和权限配置约束。
+
+**P2：完善文档与配置体验**
+
+最终应形成一套机器可验证的发布流程：
+
+- Java 配置类生成 Schema；
+- Schema 生成带注释示例；
+- 示例配置自动校验；
+- 文档命令和字段从源码/Schema 交叉检查；
+- 明确“已实现、近似实现、规划中”三种状态。
+
+总体判断：核心功能覆盖面已经很高，排行榜和模块化配置也已经接入主架构；但在修复根配置默认值、完成服务器级验证、拆分 `ModMindEntry` 和控制排行榜资源消耗之前，不建议把当前状态视为稳定发行版。

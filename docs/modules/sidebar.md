@@ -1,83 +1,99 @@
 # 侧边栏
 
-## 1. 用途与场景
+## 1. 功能用途、适用场景与依赖
 
-侧边栏使用原版计分板显示动态文本。每位玩家可切换显示，文本通过统一渲染器解析内置与可选第三方占位符。
+侧边栏使用原版计分板向玩家展示动态信息。页面可以是文本页，也可以读取排行榜模块的内存快照。Placeholder API 为可选依赖；未安装时内置占位符仍可用，第三方占位符显示为未解析文本。
 
-## 2. 前置条件、关联模块与开关
+## 2. 根开关与禁用后的行为
 
-根开关为 `modules.sidebar.enabled`。Text Placeholder API 是可选依赖；未安装时内置占位符仍正常。
+根开关为 <code>modules.sidebar.enabled</code>，默认开启。禁用后清理 OmniTools 侧边栏并停止刷新；排行榜模块关闭时，侧边栏会自动跳过排行榜页面，静态文本页继续显示。
 
-## 3. 配置路径与重载
+## 3. 配置路径、首次生成行为与格式版本
 
-文件为 `config/omnitools/sidebar/config.json`，修改后执行 `/omnitools reload`。
+配置文件为 <code>config/omnitools/sidebar/config.json</code>。首次加载会生成 v3 配置，当前有效格式为 <code>format_version: 3</code>。v1/v2 文件会在内存中映射为单个 <code>main</code> 文本页，不会破坏旧字段；保存或手工迁移后再使用 v3 页面结构。修改后执行 <code>/omnitools reload sidebar</code>。
 
-## 4. 最小可用配置
+## 4. 命令与默认权限
 
-下方以余额行和推荐的 `skip` 冲突策略构成最小可用配置。
+| 命令 | 默认权限 | 作用 |
+| --- | --- | --- |
+| <code>/omnitools sidebar toggle</code> | <code>PLAYER</code> | 切换自己的侧边栏显示 |
+| <code>/omnitools sidebar status</code> | <code>PLAYER</code> | 查看当前显示状态 |
+| <code>/omnitools reload sidebar</code> | <code>omnitools.admin</code> | 重载侧边栏配置 |
 
-## 5. 注释教学版 `jsonc`
+## 5. 配置字段表
 
-教学版，不能直接复制：
+| 字段 | 类型、范围与默认值 | 错误行为 |
+| --- | --- | --- |
+| <code>format_version</code> | 整数，必须为 <code>3</code>（v1/v2 自动兼容） | 其他版本拒绝重载 |
+| <code>default_visible</code> | 布尔，默认 <code>true</code> | 非布尔值拒绝重载 |
+| <code>refresh_interval_ticks</code> | 整数 <code>5</code>--<code>600</code>，默认 <code>20</code> | 越界拒绝重载 |
+| <code>conflict_policy</code> | <code>skip</code>、<code>replace</code>、<code>restore</code>，默认 <code>skip</code> | 未知值拒绝重载 |
+| <code>presentation.mode</code> | <code>fixed</code> 或 <code>rotate</code>，默认 <code>fixed</code> | 未知值拒绝重载 |
+| <code>presentation.fixed_page</code> | 页面 ID；固定模式必填 | 引用不存在页面拒绝重载 |
+| <code>presentation.rotation_ticks</code> | 整数 <code>20</code>--<code>72000</code>，默认 <code>200</code> | 越界拒绝重载 |
+| <code>presentation.page_ids</code> | 页面 ID 数组；轮播模式至少一项 | 重复或未知 ID 拒绝重载 |
+| <code>pages</code> | 最多 64 个页面 | 超限拒绝重载 |
+| <code>pages[].type</code> | <code>text</code> 或 <code>leaderboard</code> | 未知类型拒绝重载 |
+| <code>pages[].lines</code> | 文本页最多 15 行 | 空文本页或超限拒绝重载 |
+| <code>pages[].leaderboard_id</code> | 排行榜页面必填，引用排行榜模块 ID | 无效 ID 拒绝重载 |
+| <code>pages[].max_entries</code> | 排行榜页 <code>1</code>--<code>15</code>，默认 <code>10</code> | 越界拒绝重载 |
+| <code>pages[].line_format</code> | 非空文本，最长 256 字符 | 空值或超限拒绝重载 |
 
-```jsonc
-{
-  "format_version": 2, // 侧边栏配置格式版本。
-  "default_visible": true, // 新玩家默认是否看到侧边栏。
-  "refresh_interval_ticks": 20, // 5--600
-  "title": "&b&lOmniTools", // 侧边栏标题，可使用颜色代码。
-  "conflict_policy": "skip", // skip、replace、restore
-  "lines": [{ "id": "money", "text": "&e货币: &f%balance_formatted%" }] // 每行的稳定 ID 和显示文本。
-}
-```
+## 6. 最小可用 JSON 配置
 
-## 6. 可直接复制版 `json`
+    {
+      "format_version": 3,
+      "default_visible": true,
+      "refresh_interval_ticks": 20,
+      "conflict_policy": "skip",
+      "presentation": { "mode": "fixed", "fixed_page": "main", "rotation_ticks": 200, "page_ids": ["main"] },
+      "pages": [{
+        "id": "main",
+        "type": "text",
+        "title": "&b&lOmniTools",
+        "lines": [{ "id": "money", "text": "&e货币: &f%balance_formatted%" }]
+      }]
+    }
 
-```json
-{
-  "format_version": 2,
-  "default_visible": true,
-  "refresh_interval_ticks": 20,
-  "title": "&b&lOmniTools",
-  "conflict_policy": "skip",
-  "lines": [
-    { "id": "money", "text": "&e货币: &f%balance_formatted%" },
-    { "id": "checkin", "text": "&a签到: &f%checkin_total_days%" },
-    { "id": "online", "text": "&d在线: &f%online_today_hms%" },
-    { "id": "world", "text": "&b世界: &f%world:name%" }
-  ]
-}
-```
+## 7. 带注释的 JSONC 教学配置
 
-## 7. 字段表
+完整教学配置见 [sidebar.jsonc](../examples/config-platform/sidebar.jsonc)。核心结构如下：
 
-| 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
-| --- | --- | --- | --- | --- |
-| `format_version` | 整数 | 否 | 2 | 使用非正整数。 |
-| `default_visible` | 布尔 | 否 | true | 写成字符串。 |
-| `refresh_interval_ticks` | 整数 | 否 | 5--600，默认 20 | 写 1。 |
-| `title` | 文本 | 否 | 最长 64 | 太长或不可见。 |
-| `lines` | 数组 | 是 | 最多 15 行 | 行 ID 重复。 |
-| `lines[].id` | 字符串 | 是 | 1--32，字母数字下划线连字符 | 含空格。 |
-| `lines[].text` | 文本 | 是 | 最长 256、非空 | 空文本。 |
-| `conflict_policy` | 枚举 | 否 | `skip`/`replace`/`restore` | 仅旧配置可能出现 `warn`/`disabled`，新配置不要使用。 |
+    {
+      "format_version": 3,
+      "presentation": {
+        "mode": "rotate", // fixed 或 rotate；所有玩家共用服务器时钟
+        "rotation_ticks": 200,
+        "fixed_page": "main",
+        "page_ids": ["main", "mine_all", "hostile_kills"]
+      },
+      "pages": [
+        { "id": "main", "type": "text", "title": "&b&lOmniTools", "lines": [
+          { "id": "money", "text": "&e货币: &f%balance_formatted%" }
+        ] },
+        { "id": "mine_all", "type": "leaderboard", "leaderboard_id": "mine_all_blocks",
+          "title": "&e&l全方块挖掘榜", "max_entries": 10,
+          "line_format": "&7#{rank} &f{player} &b{value}" }
+      ]
+    }
 
-## 8. 全部配置场景
+排行榜页面只能读取已生成快照，不会在刷新或玩家请求时扫描磁盘。排行榜模块关闭、榜单 ID 暂不可用或快照尚未生成时，该页面被跳过。
 
-`skip` 发现第三方侧边栏时不覆盖，推荐默认；`replace` 明确替换；`restore` 在 OmniTools 关闭时恢复先前显示目标。旧 `warn`、`disabled` 仅为兼容迁移值，会按 `skip` 处理，不能作为新配置示例。
+## 8. 常见高级场景
 
-## 9. 指令、权限与默认角色
+- <code>fixed</code> 模式始终显示 <code>fixed_page</code>。
+- <code>rotate</code> 模式按服务器统一 tick 时钟轮播 <code>page_ids</code>，不会因玩家进服时间不同而错位。
+- <code>skip</code> 发现第三方侧边栏时保留对方显示；<code>replace</code> 临时替换；<code>restore</code> 关闭 OmniTools 后恢复原目标。
+- 页面总行数仍受原版 15 行上限约束；占位符见 [占位符参考](../reference/placeholders.md)，第三方扩展见 [Placeholder API](../reference/placeholder-api.md)。
 
-`/omnitools sidebar toggle` 和 `status` 默认 `PLAYER`。
+## 9. 相关模块与模板引用
 
-## 10. 占位符
+侧边栏不定义奖励模板。排行榜页引用 <code>leaderboards</code> 模块中的榜单 ID；跨模块根开关和重载语义见 [统一配置平台](../config-platform.md)。
 
-可用[22 个内置占位符](../reference/placeholders.md)；可选 API 文法和 `%world:name%` 见[Placeholder API](../reference/placeholder-api.md)。
+## 10. 数据保存、备份与不可随意修改的 ID
 
-## 11. 数据与升级
+玩家显示偏好保存在 OmniTools SavedData；页面 ID、行 ID 和排行榜 ID 是配置契约，发布后不要随意修改。备份 <code>config/omnitools/sidebar/config.json</code>，并按运维指南备份世界 <code>data/</code>。
 
-每玩家显示偏好保存在 SavedData。禁用模块会清理 OmniTools 侧边栏；`restore` 可恢复此前目标。
+## 11. 热重载后的即时行为与常见故障
 
-## 12. 验收与排错
-
-分别测试 `skip`、`replace`、`restore`，确认刷新周期与玩家切换命令。第三方占位符显示 `-` 时检查 API 与注册 ID。
+执行 <code>/omnitools reload sidebar</code> 后立即使用新页面和轮播状态；失败时保留旧配置。若排行榜页不显示，先确认 <code>modules.leaderboards.enabled</code>、榜单 ID、快照刷新状态和 <code>leaderboards</code> 权限，再检查 <code>conflict_policy</code> 是否跳过了第三方侧边栏。

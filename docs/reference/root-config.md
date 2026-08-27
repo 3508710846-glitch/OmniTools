@@ -63,7 +63,8 @@
     "cloud_storage": { "enabled": true },
     "permissions": { "enabled": false },
     "command_menu": { "enabled": true },
-    "sidebar": { "enabled": true }
+    "sidebar": { "enabled": true },
+    "leaderboards": { "enabled": false }
   }
 }
 ```

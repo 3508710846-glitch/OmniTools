@@ -123,8 +123,13 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
                 } else if (value != null) {
                     throw new JsonParseException("modules." + module.id() + " must be an object");
                 }
-                modules.put(module, value == null || !value.isJsonObject()
-                        || bool(value.getAsJsonObject(), "enabled", true));
+                // Newer modules are opt-in when omitted from a legacy/current root file.
+                // Keep this fallback aligned with defaults() and the migration policy so a
+                // missing leaderboard flag cannot unexpectedly start an offline scan.
+                boolean defaultEnabled = module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS;
+                modules.put(module, value == null
+                        ? defaultEnabled
+                        : bool(value.getAsJsonObject(), "enabled", defaultEnabled));
             }
             return new OmniToolsRootConfig(version, bool(global, "debug", false),
                     string(global, "timezone", "Asia/Shanghai"),
