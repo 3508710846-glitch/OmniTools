@@ -1,28 +1,211 @@
 {
-  "prompt": "**结论：这次任务主体已完成，但不能判定为 100% 完成。**\n\n按“让基础模块高度可配置化”的目标，当前大约完成 **75%～85%**：\n\n已完成：\n\n- 已建立统一配置快照、模块注册和根配置开关。\n- 支持全量重载、单模块重载、模块启停和失败回滚，见 [OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java)。\n- 已注册签到、在线奖励、成就、CDK、商店、称号、称号效果、云存储、权限、命令菜单、侧边栏等模块。\n- 已加入公共奖励、条件、文本模板，支持模板引用、字段覆盖、循环引用检测，见 [CommonConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/CommonConfig.java)。\n- 签到、在线奖励、成就、CDK 已接入公共奖励模板。\n- 已补充模块 Schema、示例配置和配置平台文档，见 [config-platform.md](/D:/mod/qiandao/docs/config-platform.md)。\n\n尚未完全完成：\n\n- `ConfigurableModule.apply()` 和 `ConfigModuleRegistry.applyAll()` 已定义，但实际运行时仍主要通过 [RuntimeConfigApplier.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RuntimeConfigApplier.java) 调用 [ModMindEntry.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java) 的集中式逻辑。\n- `ModuleCommandRegistrar` 目前主要用于兼容别名，主命令树仍集中在 `ModMindEntry`。\n- 商店、称号、称号效果、权限、命令菜单、侧边栏和云存储尚未全面接入公共模板体系。\n- Schema 与 Java 运行时校验存在两套规则，尚未建立自动一致性检查。\n- 本次没有执行构建、单元测试、服务器启动或热重载实测，因此无法确认运行期全部可靠。\n\n**最终判断：**\n\n如果验收标准是“统一配置、模块开关、热重载、公共奖励模板和文档”，可以认为基本完成。\n\n如果验收标准是“每个模块都完全独立管理生命周期、命令和模板”，则仍未完成。建议工作台下一步优先：\n\n1. 执行 `./gradlew test` 和服务器热重载冒烟测试。\n2. 让模块自身真正实现 `apply()`，减少 `ModMindEntry` 的集中逻辑。\n3. 完成命令注册迁移。\n4. 为商店、称号、侧边栏、命令菜单补充公共模板。\n5. 增加 Schema 与运行时解析的一致性测试。\n\n本次检查为只读检查，未修改文件、安装依赖或运行测试。",
+  "prompt": "当前文档体系基础很好：已有模块文档、入门、参考、运维指南、示例、预设和 Schema。问题不在“文档不够”，而在于入口、真源和历史资料需要彻底分层。\n\n已确认两点：\n\n- `docs/configuration.md`、`docs/achievements.md`、`docs/backup-and-recovery.md`、`docs/reward-consistency.md`、`docs/upgrade-guide.md`、`docs/modules/module-management.md` 已是兼容旧链接的跳转页，不应直接删除。\n- [升级指南](/D:/mod/qiandao/docs/guides/upgrade-guide.md) 仍写根配置迁移到格式版本 `3`，但当前实际配置与 Schema 使用 `format_version: 4`。这是应优先修正的真实内容漂移。\n\n**目标结构**\n\n```text\nREADME.md                         # 项目介绍、安装、最短上手、文档入口\n\ndocs/\n  index.md                        # 唯一文档导航页\n  getting-started/                # 新服主 10 分钟上手\n  modules/                        # 每个功能模块一篇完整说明\n  reference/                      # 跨模块的固定语法与字段参考\n  guides/                         # 运维流程、重载、备份、升级、故障处理\n  examples/                       # 可复制的完整配置\n  presets/                        # 可加载的配置预设\n  schemas/                        # 编辑器补全与格式约束\n  archive/                        # 历史方案、过期设计与迁移记录\n  maintainers/                    # 文档地图、编写规范、校验清单\n```\n\n保留 [config-platform.md](/D:/mod/qiandao/docs/config-platform.md) 在 `docs/` 根目录即可。它是所有模块共享的配置契约，不属于单一模块，也不应塞进入门教程。\n\n**真源划分**\n\n| 内容 | 唯一真源 | 其他页面处理方式 |\n|---|---|---|\n| 根配置、模块开关、公共模板、重载语义 | `docs/config-platform.md` 与 `reference/root-config.md` | 模块文档只链接，不重复解释整套规则。 |\n| 奖励类型、NBT 物品、限时称号、指令安全 | `reference/rewards.md` | 签到、在线奖励、成就、CDK 只说明各自如何引用奖励。 |\n| 内置与第三方占位符 | `reference/placeholders.md`、`reference/placeholder-api.md` | 侧边栏与命令菜单只说明支持位置和示例。 |\n| 模块命令、权限、配置、数据、重载 | `docs/modules/<module>.md` | 不在 README、入门或指南中维护第二份命令表。 |\n| 备份、升级、奖励账本结算 | `docs/guides/` | 根目录旧页面保留一段跳转提示。 |\n| 未实现构想和历史需求 | `docs/archive/` | 不进入 `index.md` 导航，不得描述成已实现功能。 |\n\n**模块文档统一模板**\n\n每篇 `docs/modules/*.md` 固定为以下顺序：\n\n1. 功能用途、适用场景、依赖模块。\n2. 根开关与禁用后的行为。\n3. 配置路径、首次生成行为、格式版本。\n4. 命令与默认权限表。\n5. 配置字段表：类型、必填、范围、默认值、错误行为。\n6. 最小可用 `json` 配置。\n7. 带注释的 `jsonc` 教学配置。\n8. 常见高级场景。\n9. 相关奖励、占位符、模板引用。\n10. 数据保存、备份与不可随意修改的 ID。\n11. 热重载后的即时行为与常见故障。\n\n成就模块保留现有 12 个独立示例和预设文件，但正文只维护一张“场景 -> 示例文件 -> 适用条件”的索引表，避免同一 JSON 同时出现在正文和示例文件中。\n\n**执行阶段**\n\n1. **文档盘点与标记**\n   为每个文档标记 `canonical`、`redirect`、`archive`、`internal`、`example` 或 `schema`。\n   输出 `docs/maintainers/document-map.md`，明确页面用途、负责人和真源关系。\n\n2. **先修正事实漂移**\n   以源码、默认配置、`ModuleId`、`CommandAction`、各 `*Config` 为准核对：\n   - 配置格式版本；\n   - 配置路径；\n   - 命令、别名和默认权限；\n   - 模块依赖；\n   - 默认值；\n   - 已实现与规划功能边界。\n\n   第一项应修复升级指南中的根配置版本 `3 -> 4`。\n\n3. **整理导航与入口**\n   - `README.md` 只保留安装、服务端兼容、快速开始和文档入口。\n   - `docs/index.md` 按“新手开始、模块配置、参考资料、运维与升级”导航。\n   - 保留现有旧路径跳转页，避免外部链接失效。\n   - 将 `docs/idea.md` 中的未来方案、旧工作请求移入 `docs/archive/`，并明确“非当前功能”。\n\n4. **模块文档标准化**\n   逐篇套用统一模板。优先顺序：\n   - 每日签到与补签卡；\n   - 成就；\n   - 奖励/CDK；\n   - 商店与货币；\n   - 称号与称号效果；\n   - 命令菜单、侧边栏；\n   - 权限、云存储、Placeholder API、模块管理。\n\n5. **示例与 Schema 收口**\n   - 每个示例注明目标配置文件、前置模块、重载命令和适用版本。\n   - `.json` 必须可直接复制解析；`.jsonc` 只用于教学。\n   - Schema 不重复写成长篇教程，只作为编辑器提示和字段约束入口。\n   - 所有示例奖励 ID、称号 ID、物品 ID 必须与说明文字对应。\n\n6. **建立文档验收机制**\n   每次发布前自动或人工检查：\n   - 所有 Markdown 链接有效；\n   - `json` 示例可解析；\n   - 文档命令能在 `ModMindEntry`/`CommandAction` 找到；\n   - 配置字段能在对应 `*Config` 找到；\n   - 文档格式版本与 Schema、默认配置一致；\n   - UTF-8 中文显示正常；\n   - `archive/` 内容未被主导航引用；\n   - README 没有重新膨胀成模块说明书。\n\n**验收标准**\n\n- 新服主从 README 到第一次完成签到、成就或商店配置，不需要跳转超过三层。\n- 每个启用模块均有且仅有一篇完整的主说明。\n- 同一个配置字段、命令或默认值只维护一个真源。\n- 旧链接仍可访问，但不会形成第二份可维护内容。\n- 规划、历史记录与已实现功能完全分离。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-27T05:06:59.752Z",
-  "summary": "已补齐 `managed_download` 工作流记录。\n\n受管关系已确认：Fabric API `0.141.6+1.21.11` 与 Text Placeholder API `2.8.2+1.21.10` 均有受管 JAR、源码和许可证记录。重复调用 `addon_prepare` 被工具按重复请求拒绝，未进行非受管下载。",
-  "finalResponse": "已补齐 `managed_download` 工作流记录。\n\n受管关系已确认：Fabric API `0.141.6+1.21.11` 与 Text Placeholder API `2.8.2+1.21.10` 均有受管 JAR、源码和许可证记录。重复调用 `addon_prepare` 被工具按重复请求拒绝，未进行非受管下载。",
-  "intent": "informational",
+  "createdAt": "2026-08-27T08:36:03.963Z",
+  "summary": "已补齐审计所需阶段。\n\n- `modmind_build_project` 成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- `modmind_test_matrix([\"server\"])` 成功：服务端就绪后稳定运行 15 秒。\n- 服务端日志：[runServer-1787819658648.log](D:/mod/qiandao/.modmind/builds/runServer-1787819658648.log)\n\n实现与内容校验已有记录，未重复执行。",
+  "finalResponse": "已补齐审计所需阶段。\n\n- `modmind_build_project` 成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- `modmind_test_matrix([\"server\"])` 成功：服务端就绪后稳定运行 15 秒。\n- 服务端日志：[runServer-1787819658648.log](D:/mod/qiandao/.modmind/builds/runServer-1787819658648.log)\n\n实现与内容校验已有记录，未重复执行。",
+  "intent": "engineering",
   "tasks": [
-    "受管准备 Fabric API 及其可选占位符集成"
+    "盘点文档真源与兼容入口",
+    "整理导航、维护者地图和历史归档入口",
+    "修正升级与模块参考的事实漂移",
+    "校验链接、示例 JSON 与文档编码"
   ],
-  "files": [],
-  "tests": [],
+  "files": [
+    {
+      "path": "README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/config-platform.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/configuration.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/achievement-examples/01-mine-one-block.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/minimal-server/README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/reward-examples/README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/guides/placeholder-api.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/guides/upgrade-guide.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/idea.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/index.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/achievements.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/cdk.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/daily-checkin.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/online-reward.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/reference/rewards.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/cdk.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-6.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-26-7.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-2.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-3.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/debug.log",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/latest.log",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/server.properties",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/level.dat",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/world/level.dat_old",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/archive/request-history.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/achievement-examples/README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/README.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/maintainers/document-map.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/maintainers/validation-checklist.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/maintainers/writing-guide.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/presets/achievements/README.md",
+      "purpose": "外部代理修改"
+    }
+  ],
+  "tests": [
+    "已使用 ModMind 托管构建",
+    "已使用 ModMind Minecraft 测试"
+  ],
   "warnings": [],
-  "buildVerified": false,
-  "runtimeVerified": false,
+  "snapshotId": "2026-08-27T07-10-40-166Z",
+  "buildVerified": true,
+  "runtimeVerified": true,
   "workflow": {
-    "required": [],
+    "required": [
+      "implementation",
+      "validate",
+      "build",
+      "runtime_test"
+    ],
     "completed": [
+      "intent",
       "plan",
+      "validate",
+      "build",
+      "runtime_test",
+      "implementation",
       "todo_complete"
     ],
     "missing": [],
     "evidence": {
+      "intent": "modmind_set_intent recorded task intent",
       "plan": "modmind_update_todo published the ordered plan",
+      "validate": "modmind_validate_content completed successfully",
+      "build": "modmind_build_project completed successfully",
+      "runtime_test": "modmind_test_matrix passed runtime targets",
+      "implementation": "Detected 40 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }
