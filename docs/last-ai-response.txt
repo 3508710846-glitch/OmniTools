@@ -1,3 +1,3 @@
-`managed_download` 已完成并记录成功证据。
+已补齐 `managed_download` 工作流记录。
 
-ModMind 已受管准备 Fabric API `0.141.6+1.21.11`，验证 JAR 位于 `libs/modmind/fabric-api-0.141.6+1.21.11.jar`，并带有精确版本源码引用。Text Placeholder API 的既有受管 JAR、哈希与源码关系仍完整保留。
+受管关系已确认：Fabric API `0.141.6+1.21.11` 与 Text Placeholder API `2.8.2+1.21.10` 均有受管 JAR、源码和许可证记录。重复调用 `addon_prepare` 被工具按重复请求拒绝，未进行非受管下载。
