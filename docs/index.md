@@ -1,20 +1,14 @@
 # OmniTools 文档
 
-[统一配置平台](config-platform.md) 说明根快照、公共模板、JSONC 教学文件和 Schema。
+这是唯一的文档导航入口。所有可复制的 `json` 代码块都符合严格 JSON；带注释的 `jsonc` 仅用于教学，不能直接放进 `config/`。旧根目录页面仅保留外部链接兼容，当前规则以本页链接的主说明为准。
 
-本目录面向第一次管理 Fabric 服务端的服主。所有可复制的 `json` 代码块都符合严格 JSON；带注释的 `jsonc` 仅用于讲解，不能直接放进 `.json` 文件。
+## 新手开始
 
-## 快速入口
+- [第一次配置](getting-started/first-setup.md)：从首次启动到第一次成功重载。
+- [JSON、物品 ID 与颜色](getting-started/configuration-basics.md)：编辑配置所需基础。
+- [排错](getting-started/troubleshooting.md)：配置加载与功能异常排查。
 
-- [第一次配置](getting-started/first-setup.md)
-- [JSON、物品 ID 与颜色](getting-started/configuration-basics.md)
-- [排错](getting-started/troubleshooting.md)
-- [根配置参考](reference/root-config.md)
-- [统一奖励格式](reference/rewards.md)
-- [22 个 OmniTools 占位符](reference/placeholders.md)
-- [可选 Text Placeholder API](reference/placeholder-api.md)
-
-## 模块
+## 模块配置
 
 - [每日签到](modules/daily-checkin.md)
 - [CDK 与补签卡](modules/cdk.md)
@@ -28,11 +22,27 @@
 - [命令菜单](modules/command-menu.md)
 - [侧边栏](modules/sidebar.md)
 
-## 跨模块指南
+## 固定语法与配置平台
+
+- [统一配置平台](config-platform.md)：根快照、公共模板、全量与单模块重载。
+- [根配置参考](reference/root-config.md)：全局开关、命令安全与集成。
+- [统一奖励格式](reference/rewards.md)：奖励类型、物品 SNBT、限时称号和安全边界。
+- [内置占位符](reference/placeholders.md)
+- [可选 Text Placeholder API](reference/placeholder-api.md)
+- [配置教学示例](examples/config-platform/README.md) 与 [Schema](schemas/)
+
+## 运维与升级
 
 - [模块管理与热重载](guides/module-management.md)
 - [配置升级](guides/upgrade-guide.md)
 - [备份与恢复](guides/backup-and-recovery.md)
 - [奖励一致性与奖励箱](guides/reward-consistency.md)
 
-历史设计位于 `archive/`，不作为配置真源。`last-ai-change.json` 和 `last-ai-response.txt` 是内部记录，未纳入导航。
+## 示例与预设
+
+- [最小服务器配置](examples/minimal-server/README.md)
+- [成就条件示例](examples/achievement-examples/README.md)
+- [奖励示例](examples/reward-examples/README.md)
+- [成就预设](presets/achievements/README.md)
+
+历史方案和旧工作请求位于 `archive/`，不描述为当前功能，也不纳入主导航。文档维护规则与发布检查见[维护者文档](maintainers/document-map.md)。

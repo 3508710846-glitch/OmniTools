@@ -1,6 +1,57 @@
 # CDK 兑换码
 
-CDK 是独立模块，根开关为 `modules.cdk.enabled`，配置文件为 `config/omnitools/cdk/config.json`。首版通过命令输入兑换码，不使用客户端文本输入 GUI。
+## 1. 用途、场景与依赖
+
+CDK 用于按活动向玩家投递统一奖励。适合开服礼、节日活动和补偿，不提供客户端文本输入 GUI，玩家通过命令兑换。奖励可引用货币、物品、称号、补签卡或受控指令；完整格式见[奖励参考](../reference/rewards.md)。
+
+## 2. 根开关与禁用行为
+
+根开关为 `modules.cdk.enabled`。关闭后 `/omnitools cdk` 不可用，不会继续处理新的兑换；已保存的兑换记录和待投递奖励不会被删除。重新启用后，活动从当前有效配置恢复。
+
+## 3. 配置路径、生成与重载
+
+配置文件为 `config/omnitools/cdk/config.json`，首次启动会生成 `format_version: 1`、默认安全限制和空活动列表。修改后执行：
+
+```text
+/omnitools reload cdk
+```
+
+涉及 `config/omnitools/config.json` 或 `common/` 模板时，使用完整 `/omnitools reload`。校验失败时旧快照继续运行。
+
+## 4. 命令与默认权限
+
+| 命令 | 权限动作 | 默认角色 | 说明 |
+| --- | --- | --- | --- |
+| `/omnitools cdk redeem <code>` | `cdk.redeem` | `PLAYER` | 兑换一个 CDK。 |
+| `/omnitools cdk status` | `cdk.redeem` | `PLAYER` | 查看本人已记录活动的投递状态。 |
+| `/omnitools cdk admin list` | `cdk.admin` | `ADMIN` | 查看当前活动的兑换计数。 |
+| `/omnitools cdk admin audit <id>` | `cdk.admin` | `ADMIN` | 查看指定活动的兑换计数。 |
+
+普通玩家只会收到“CDK 无效或当前不可用”；系统不会区分码不存在、过期、用尽或已兑换，以免泄露可枚举信息。
+
+## 5. 配置字段
+
+| 字段 | 类型 | 必填 | 范围 / 默认值 | 错误行为 |
+| --- | --- | --- | --- | --- |
+| `format_version` | 整数 | 是 | 必须为 `1` | 拒绝重载。 |
+| `security` | 对象 | 是 | 见下表 | 缺失或越界时拒绝重载。 |
+| `campaigns` | 数组 | 是 | 可为空 | 非数组时拒绝重载。 |
+| `campaigns[].id` | 稳定 ID | 是 | 1--64 位小写字母、数字、`_`、`.`、`-` | 重复或无效时拒绝重载。 |
+| `campaigns[].code` | 字符串 | 是 | 长度不超过 `security.max_code_length` | 原始码不写入日志或审计。 |
+| `campaigns[].starts_at` / `expires_at` | UTC ISO-8601 时间 | 否 | 开始必须早于到期 | 无效时间或顺序拒绝重载。 |
+| `campaigns[].max_uses` | 非负整数 | 是 | `0` 为不限；最大 10,000,000 | 到达限制后不再兑换。 |
+| `campaigns[].rewards` | 奖励数组 | 是 | 至少一个；支持模板 | 无效奖励或引用拒绝重载。 |
+
+| `security` 字段 | 范围 | 默认值 |
+| --- | --- | --- |
+| `max_code_length` | 4--256 | 64 |
+| `cooldown_ticks` | 0--72,000 | 20 |
+| `max_failed_attempts` | 1--100 | 5 |
+| `lockout_seconds` | 1--86,400 | 60 |
+
+## 6. 最小可用 JSON
+
+将下列严格 JSON 写入 `config/omnitools/cdk/config.json`。活动的 `id` 是永久稳定 ID；已有兑换记录后不要改名、删除或复用它。
 
 ```json
 {
@@ -15,75 +66,38 @@ CDK 是独立模块，根开关为 `modules.cdk.enabled`，配置文件为 `conf
     {
       "id": "welcome_2026",
       "code": "OMNI-2026-WELCOME",
-      "starts_at": "2026-08-01T00:00:00Z",
-      "expires_at": "2026-09-01T00:00:00Z",
       "max_uses": 0,
       "rewards": [
-        { "id": "coins", "type": "currency", "amount": 500 },
-        { "id": "makeup_cards", "type": "makeup_card", "amount": 2 },
-        {
-          "id": "vip_7d",
-          "type": "title",
-          "title": "architect",
-          "duration": { "mode": "active_days", "days": 7 },
-          "renewal": "extend"
-        }
+        { "id": "welcome_coins", "type": "currency", "amount": 500 },
+        { "id": "welcome_cards", "type": "makeup_card", "amount": 2 }
       ]
     }
   ]
 }
 ```
 
-`campaigns[].id` 是永久稳定 ID。每位玩家按 UUID 对同一个活动只能兑换一次；`max_uses: 0` 表示不限全服次数，其他正整数限制全服总兑换次数。活动仅保存规范化后兑换码的哈希，服务端日志、普通玩家反馈和管理员审计都不会回显原始兑换码。
+## 7. JSONC 教学配置
 
-一旦活动已有兑换记录，不能修改或删除其活动 ID、兑换码、奖励、总次数和有效期。`/omnitools reload` 将拒绝这种配置并保留旧快照；要发放新奖励请建立新活动 ID。
+带注释示例位于[配置平台示例目录](../examples/config-platform/cdk.jsonc)。它演示公共奖励模板覆盖；删除注释后才能写入真实配置文件。
 
-命令：
+## 8. 高级场景
 
-- `/omnitools cdk redeem <code>`：兑换。
-- `/omnitools cdk status`：查看本人的已记录且待投递的活动。
-- `/omnitools cdk admin list`：查看所有当前活动的兑换计数。
-- `/omnitools cdk admin audit <id>`：查看一个活动的兑换计数。
+用 `starts_at`、`expires_at` 和 `max_uses` 控制活动窗口与全服次数。`max_uses: 0` 表示不限制全服次数，但每个玩家按 UUID 对同一 `campaigns[].id` 永远只能兑换一次。
 
-玩家兑换事件固定为 `cdk:<campaign-id>:<player-uuid>`，使用统一奖励账本投递。重复输入、重连和服务器中断恢复不会重复发放货币、补签卡、称号或物品；待处理物品仍由奖励箱处理。
+配置加载后只保留规范化码的 SHA-256 哈希。已有兑换记录的活动定义会被指纹保护：修改活动 ID、兑换码、奖励、总次数或有效期时，重载会拒绝该活动。需要新奖励时建立新的活动 ID，不要扩展旧活动。
 
-# 补签卡
+## 9. 奖励、补签卡与模板
 
-补签卡属于签到模块的玩家数据，不是可交易物品。配置位于 `config/omnitools/daily_checkin/config.json`：
+`campaigns[].rewards` 使用统一奖励数组，并可通过 `template` 或 `$ref` 引用 `common/rewards.json`。临时称号的 `active_days`、三种续期策略及“仅在佩戴时扣时间”的规则以[奖励参考](../reference/rewards.md)为准。
 
-```json
-"makeup": {
-  "enabled": true,
-  "max_cards": 99,
-  "max_backfill_days": 7,
-  "max_uses_per_calendar_month": 3,
-  "earliest_eligible_day": "first_seen",
-  "affects_streak": true,
-  "daily_reward_policy": "none",
-  "counts_for_monthly_milestones": true,
-  "purchase": { "enabled": true, "price": 200 }
-}
-```
+`makeup_card` 奖励发放的是签到模块玩家数据中的虚拟权益，不是可交易物品。补签资格、购买、每月额度和是否计入月度里程碑由[每日签到](daily-checkin.md#补签卡规则)配置和说明决定。
 
-只能补今天之前、过去 `max_backfill_days` 天以内、且不早于玩家首次进入服务器的漏签日期。已签到、未来日期、卡不足和本月次数用完都会在不扣卡的情况下失败。补签在一份玩家存档同步操作中完成日期校验、扣卡、记录来源和连续签到重算。
+## 10. 数据、账本与备份
 
-默认不补发每日奖励（`daily_reward_policy: "none"`），但会计入月度进度。只有明确设置 `daily_reward_policy: "grant"` 才会补发每日奖励；这是高经济影响选项。`counts_for_monthly_milestones` 控制补签是否参与月度里程碑。
+兑换事件 ID 固定为 `cdk:<campaign-id>:<player-uuid>`。统一奖励账本确保重复输入、重连和服务端中断恢复不会重复发放；背包容纳不下的物品仍进入奖励箱。CDK 兑换计数、玩家兑换记录和活动定义指纹保存于世界数据，升级或回档前必须备份世界 `data/` 和配置目录。
 
-命令：
+## 11. 热重载、验收与排错
 
-- `/omnitools checkin cards`
-- `/omnitools checkin cards buy <amount>`
-- `/omnitools checkin makeup <yyyy-MM-dd>`
-- `/omnitools checkin cards admin give <player> <amount>`
-- `/omnitools checkin cards admin take <player> <amount>`
+重载成功后新增活动立即可兑换；失败后旧活动与旧安全限制继续运行。测试时应验证同一玩家重复兑换仅投递一次、两人同时兑换最后一个限量码只成功一人，以及包含 NBT 物品、限时称号和补签卡的奖励在重启后不重复发放。
 
-签到日历将历史漏签显示为时钟入口，点击后必须再次确认才会扣卡。主页的补签卡信息格显示持有数量、本月使用次数和购买入口。
-
-# 验收案例
-
-1. 同一 CDK 连续兑换两次，奖励只写入一次；两名玩家同时兑换最后一个限量活动，只有一人成功。
-2. CDK 同时包含 NBT 物品、`active_days` 称号和补签卡时，重启后不会重复发放。
-3. 无卡、已签到、超期、未来日期或月度额度耗尽时，补签不扣卡。
-4. 补昨天后连续签到正确衔接，且不会改变今天的签到名次。
-5. 卸下限时称号、重启服务器、称号到期自动卸下、永久称号再获临时奖励时，剩余有效时间符合奖励参考规则。
-6. `/omnitools reload` 失败时，旧 CDK 和补签规则仍继续生效。
+若兑换失败，先检查模块开关、活动时间、总次数、玩家历史记录和奖励引用。不要尝试在日志中查找原始兑换码；该值不会被保留或回显。

@@ -38,7 +38,7 @@
     "rewards": [
       { "id": "coins", "type": "currency", "amount": 10 },
       {
-        "id": "stone_vip_7d", "type": "title", "title": "vip",
+        "id": "stone_architect_7d", "type": "title", "title": "architect",
         "duration": { "mode": "active_days", "days": 7 }, "renewal": "max"
       }
     ] // 成就完成后发放的奖励。
@@ -53,8 +53,8 @@
   "format_version": 2,
   "achievements": [
     {
-      "id": "mine_one_stone",
-      "display": "石匠起步",
+      "id": "starter_stone",
+      "display": "初次挖掘",
       "description": "挖掘 1 个石头",
       "icon": "minecraft:stone",
       "requirements": {
@@ -64,22 +64,11 @@
         "match": "sum",
         "at_least": 1
       },
-      "rewards": [
-        { "id": "coins", "type": "currency", "amount": 10 },
-        {
-          "id": "stone_vip_7d",
-          "type": "title",
-          "title": "vip",
-          "duration": { "mode": "active_days", "days": 7 },
-          "renewal": "max"
-        }
-      ]
+      "rewards": [{ "id": "starter_coins", "type": "currency", "amount": 10 }]
     }
   ]
 }
 ```
-
-同一文件也作为 [01-mine-one-block.json](../examples/achievement-examples/01-mine-one-block.json) 独立保存。
 
 ## 7. 字段表
 
@@ -94,20 +83,21 @@
 
 ## 8. 全部配置场景
 
-每个文件都是可复制的完整 `achievements/config.json`：
+每个文件都是可复制的完整 `achievements/config.json`。完整 JSON 只维护在示例目录，本页只维护索引：
 
-- [01 挖掘一个方块](../examples/achievement-examples/01-mine-one-block.json)
-- [02 多目标总和](../examples/achievement-examples/02-sum-multiple-targets.json)
-- [03 每个目标都达标](../examples/achievement-examples/03-each-target-must-pass.json)
-- [04 任一条件](../examples/achievement-examples/04-any-condition.json)
-- [05 全部条件](../examples/achievement-examples/05-all-conditions.json)
-- [06 非条件](../examples/achievement-examples/06-not-condition.json)
-- [07 距离](../examples/achievement-examples/07-distance-statistics.json)
-- [08 时间](../examples/achievement-examples/08-time-statistics.json)
-- [09 伤害](../examples/achievement-examples/09-damage-statistics.json)
-- [10 实体与 Boss](../examples/achievement-examples/10-entity-and-boss.json)
-- [11 目标组、标签、通配符](../examples/achievement-examples/11-target-groups-tags-wildcards.json)
-- [12 四类奖励](../examples/achievement-examples/12-four-reward-types.json)
+| 场景 | 示例文件 | 适用条件 |
+| --- | --- | --- |
+| 挖掘单一方块 | [01](../examples/achievement-examples/01-mine-one-block.json) | 单目标 `stat`。 |
+| 多目标累计 | [02](../examples/achievement-examples/02-sum-multiple-targets.json) | `match: sum`。 |
+| 每个目标达标 | [03](../examples/achievement-examples/03-each-target-must-pass.json) | `match: each`。 |
+| 任一或全部条件 | [04](../examples/achievement-examples/04-any-condition.json)、[05](../examples/achievement-examples/05-all-conditions.json) | `any`、`all` 条件树。 |
+| 排除条件 | [06](../examples/achievement-examples/06-not-condition.json) | `not` 条件树。 |
+| 距离、时间或伤害 | [07](../examples/achievement-examples/07-distance-statistics.json)、[08](../examples/achievement-examples/08-time-statistics.json)、[09](../examples/achievement-examples/09-damage-statistics.json) | 带单位的 `custom` 统计。 |
+| 实体与 Boss | [10](../examples/achievement-examples/10-entity-and-boss.json) | 实体击杀统计。 |
+| 目标组、标签和通配符 | [11](../examples/achievement-examples/11-target-groups-tags-wildcards.json) | `$目标组`、标签、`*`。 |
+| 奖励组合 | [12](../examples/achievement-examples/12-four-reward-types.json) | 货币、物品、称号和受控指令。 |
+
+示例的目标路径、适用版本与重载命令见[成就示例目录](../examples/achievement-examples/README.md)。
 
 仓库附带的可加载预设位于 `docs/presets/achievements/`：
 

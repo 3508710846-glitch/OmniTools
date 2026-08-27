@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "OmniTools CDK configuration",
   "type": "object",
-  "required": ["format_version", "campaigns"],
+  "required": ["format_version", "security", "campaigns"],
   "properties": {
     "format_version": { "const": 1 },
     "security": { "type": "object" },

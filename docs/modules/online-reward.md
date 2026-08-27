@@ -30,7 +30,7 @@
       "rewards": [
         { "id": "coins", "type": "currency", "amount": 50 },
         {
-          "id": "online_vip_7d", "type": "title", "title": "vip",
+          "id": "online_architect_7d", "type": "title", "title": "architect",
           "duration": { "mode": "active_days", "days": 7 }, "renewal": "extend"
         }
       ] // 里程碑奖励数组。
@@ -51,9 +51,9 @@
       "rewards": [
         { "id": "coins", "type": "currency", "amount": 50 },
         {
-          "id": "online_vip_7d",
+          "id": "online_architect_7d",
           "type": "title",
-          "title": "vip",
+          "title": "architect",
           "duration": { "mode": "active_days", "days": 7 },
           "renewal": "extend"
         }

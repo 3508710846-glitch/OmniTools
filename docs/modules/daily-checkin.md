@@ -27,7 +27,7 @@
     "rewards": [
       { "id": "daily_coins", "type": "currency", "amount": 100 }, // 稳定奖励 ID、类型和数量。
       {
-        "id": "daily_vip_7d", "type": "title", "title": "vip",
+        "id": "daily_architect_7d", "type": "title", "title": "architect",
         "duration": { "mode": "active_days", "days": 7 }, "renewal": "extend"
       } // 仅在在线佩戴时扣除的临时称号。
     ]
@@ -60,9 +60,9 @@
     "rewards": [
       { "id": "daily_coins", "type": "currency", "amount": 100 },
       {
-        "id": "daily_vip_7d",
+        "id": "daily_architect_7d",
         "type": "title",
-        "title": "vip",
+        "title": "architect",
         "duration": { "mode": "active_days", "days": 7 },
         "renewal": "extend"
       }

@@ -15,9 +15,9 @@
     "components": {} // 可选的原版或已注册模组数据组件
   },
   {
-    "id": "vip_week",
+    "id": "architect_week",
     "type": "title",
-    "title": "vip", // 必须是 titles 配置中已有的 ID
+    "title": "architect", // 必须是 titles 配置中已有的 ID
     "duration": {
       "mode": "active_days", // permanent 或 active_days
       "days": 7
@@ -46,9 +46,9 @@
     "components": {}
   },
   {
-    "id": "vip_week",
+    "id": "architect_week",
     "type": "title",
-    "title": "vip",
+    "title": "architect",
     "duration": {
       "mode": "active_days",
       "days": 7
@@ -84,9 +84,9 @@
 
 ```json
 {
-  "id": "vip_7_days",
+  "id": "architect_7_days",
   "type": "title",
-  "title": "vip",
+  "title": "architect",
   "duration": { "mode": "active_days", "days": 7 },
   "renewal": "extend"
 }
@@ -96,6 +96,7 @@
 - `active_days` 必须有正整数 `days`；1 天等于 1,728,000 个在线且佩戴时的服务器 tick。
 - `permanent` 不能有 `days`。
 - `renewal`：`extend`（默认，追加新时长）、`replace`（替换为新时长）、`max`（取新旧较大值）。
+- 有效时间**只在玩家在线且实际佩戴该称号时**消耗；卸下、切换、离线和服务器停止期间不扣除。
 - 已经是永久的称号不会被临时奖励缩短或覆盖。
 - 同一个奖励事件和奖励 ID 只处理一次；不同事件再次奖励同一称号时才按 `renewal` 续期。
 - 重载后已发放的剩余时长保持不变；修改奖励定义只影响新创建的奖励事件。
@@ -148,18 +149,6 @@ GUI 称号卡会显示“永久”或剩余有效佩戴时间；`/titles time` �
 - `amount` 必须是正整数，并且不能大于签到配置 `makeup.max_cards`。
 - 奖励账本会先写入 `APPLYING`，随后将 `eventId + rewardId` 与卡余额在同一份玩家存档中提交；重连或重启后的重试不会重复加卡。
 - 达到卡片上限时，该奖励保持待处理状态，玩家使用卡片释放容量后可由既有账本重试投递。
-
-## 限时称号规则
-
-称号奖励可省略 `duration`，此时为永久称号。限时称号使用 `duration.mode: "active_days"` 和正整数 `days`。时间**只在玩家在线且实际佩戴该称号时**消耗；卸下、切换到其他称号、离线和服务器停止期间都不会扣除。
-
-`renewal` 的三种策略：
-
-- `extend`：在已有剩余时间上追加新时长。
-- `replace`：将现有剩余时间替换为新时长。
-- `max`：保留新旧两个时长中较大的值。
-
-永久授权不能被临时奖励缩短或替换。称号卡和 `/omnitools titles time` 会显示永久状态或剩余有效佩戴时间。
 
 ## 命令奖励安全边界
 

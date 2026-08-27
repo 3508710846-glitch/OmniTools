@@ -1,10 +1,10 @@
-# Unified configuration platform
+# 统一配置平台
 
-OmniTools uses one root snapshot and typed module files. A reload reads every enabled module,
-validates the complete candidate, and publishes it only after all checks pass. A failed reload keeps
-the previous snapshot.
+本页是根配置、模块开关、公共模板和重载语义的唯一说明。模块页面只说明本模块如何引用这些能力；根字段的逐项约束见[根配置参考](reference/root-config.md)。
 
-## Files
+OmniTools 使用一份根快照和带类型的模块文件。重载会读取所有已启用模块，校验完整候选配置，并且只在所有检查通过后发布；失败时保留上一份快照。
+
+## 配置文件
 
 ```text
 config/omnitools/
@@ -15,14 +15,11 @@ config/omnitools/
   <module>/config.json
 ```
 
-`config.json` is the only file that controls module switches, timezone, language, integrations, and
-command security. The `common` files contain data-only templates. They cannot execute commands or
-override ledger, permission, NBT, text-length, condition-depth, or item-count limits.
+`config.json` 是唯一控制模块开关、时区、语言、集成与命令安全的文件。`common` 中仅保存数据模板，不能执行命令，也不能覆盖账本、权限、NBT、文本长度、条件深度或物品数量限制。
 
-## Template references
+## 模板引用
 
-Use `template` (or `$ref`) inside a reward or achievement condition object. Fields in the module
-entry override fields from the common template:
+在奖励或成就条件对象中使用 `template`（或 `$ref`）引用公共模板。模块条目中的字段会覆盖模板字段：
 
 ```json
 {
@@ -32,50 +29,36 @@ entry override fields from the common template:
 }
 ```
 
-Unknown references, cycles, and more than four nested references reject the complete reload. Existing
-module files without references remain valid and keep their original format versions.
+未知引用、循环引用或超过四层嵌套会拒绝整次重载。未使用引用的既有模块配置仍有效，并维持各自的格式版本。
 
-## Authoring files
+## 编写文件
 
-- `config.json` and module `config.json` are strict JSON and can be loaded directly.
-- `config.jsonc` files under `docs/examples/config-platform/` are teaching copies; comments must be
-  removed before copying them into `config/`.
-- `docs/schemas/` contains JSON Schema starting points for editor completion. Runtime validation is
-  still performed by the typed Java parsers.
+- `config.json` 和模块 `config.json` 都是可直接加载的严格 JSON。
+- `docs/examples/config-platform/` 下的 `config.jsonc` 是教学副本；写入 `config/` 前必须删除注释。
+- `docs/schemas/` 提供编辑器补全所需的 JSON Schema；运行时仍由带类型的 Java 解析器校验。
 
-## Module examples and schemas
+## 模块教学示例与 Schema
 
-`docs/examples/config-platform/` contains a teaching copy for the root file, all three common
-files, and each module configuration. Copy the relevant JSON shape into the matching file under
-`config/omnitools/`; a module example does not enable its module.
+`docs/examples/config-platform/` 含根配置、三个公共文件和每个模块配置的教学副本。将对应 JSON 结构复制到 `config/omnitools/` 下的匹配路径；示例本身不会启用模块。每个示例的目标路径、前置开关、适用版本和重载命令见[示例目录](examples/config-platform/README.md)。
 
-| Module | Teaching example | Schema |
+| 模块 | 教学示例 | Schema |
 | --- | --- | --- |
-| Daily check-in | `daily-checkin.jsonc` | `daily-checkin.schema.json` |
-| Online reward | `online-reward.jsonc` | `online-reward.schema.json` |
-| Shop | `shop.jsonc` | `shop.schema.json` |
-| Titles | `titles.jsonc` | `titles.schema.json` |
-| Title effects | `title-effects.jsonc` | `title-effects.schema.json` |
-| Achievements | `achievement.jsonc` | `achievements.schema.json` |
+| 每日签到 | `daily-checkin.jsonc` | `daily-checkin.schema.json` |
+| 在线奖励 | `online-reward.jsonc` | `online-reward.schema.json` |
+| 商店 | `shop.jsonc` | `shop.schema.json` |
+| 称号 | `titles.jsonc` | `titles.schema.json` |
+| 称号效果 | `title-effects.jsonc` | `title-effects.schema.json` |
+| 成就 | `achievement.jsonc` | `achievements.schema.json` |
 | CDK | `cdk.jsonc` | `cdk.schema.json` |
-| Cloud storage | `cloud-storage.jsonc` | `cloud-storage.schema.json` |
-| Permissions | `permissions.jsonc` | `permissions.schema.json` |
-| Command menu registry | `command-menu.jsonc` | `command-menu.schema.json` |
-| Sidebar | `sidebar.jsonc` | `sidebar.schema.json` |
+| 云存储 | `cloud-storage.jsonc` | `cloud-storage.schema.json` |
+| 权限 | `permissions.jsonc` | `permissions.schema.json` |
+| 命令菜单注册表 | `command-menu.jsonc` | `command-menu.schema.json` |
+| 侧边栏 | `sidebar.jsonc` | `sidebar.schema.json` |
 
-The common schemas are `common-rewards.schema.json`, `common-conditions.schema.json`, and
-`common-texts.schema.json`. Template references are accepted only by reward lists and achievement
-conditions; they do not make command execution, permission bypass, or persistent-data rules
-configurable.
+公共 Schema 为 `common-rewards.schema.json`、`common-conditions.schema.json` 和 `common-texts.schema.json`。模板引用仅可用于奖励列表和成就条件，不能让命令执行、权限绕过或持久化数据规则变为可配置项。
 
-The platform warns about unknown fields, while malformed values and unsafe references block reload.
-Use a new `format_version` and a migration step for incompatible changes; do not silently reinterpret
-an existing reward ID or ledger event.
+平台会警告未知字段；格式错误和不安全引用会阻止重载。对不兼容修改必须新建 `format_version` 并提供迁移步骤；不得静默重解释既有奖励 ID 或账本事件。
 
-## Reload scope
+## 重载范围
 
-Use `/omnitools reload` after changing the root file or any file under `common/`; it reparses every
-enabled module and publishes one validated snapshot. Use `/omnitools reload <module-id>` after
-changing only that module's `config.json`. The partial form reparses the selected module, reuses the
-active definitions of every other module, still runs complete cross-module validation, and publishes
-nothing when validation fails. Valid module ids are the directory names listed above.
+修改根配置或 `common/` 下任何文件后使用 `/omnitools reload`：它会重新解析所有已启用模块，并发布一份已校验的快照。只修改某一模块 `config.json` 后可使用 `/omnitools reload <module-id>`：它重解析目标模块、复用其他模块的活动定义，仍执行完整跨模块校验；校验失败时不发布任何内容。有效模块 ID 为上表中的目录名。
