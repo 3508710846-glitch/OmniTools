@@ -41,6 +41,8 @@ import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.commandmenu.CommandMenuScreenHandler;
 import dev.modmind.omnitools.commandmenu.CommandMenuService;
 import dev.modmind.omnitools.sidebar.SidebarService;
+import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
+import dev.modmind.omnitools.leaderboard.LeaderboardService;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardEvent;
@@ -66,6 +68,7 @@ public final class ModMindEntry implements ModInitializer {
     private static CloudStorageConfig cloudStorageConfig = CloudStorageConfig.defaultConfig();
     private static AchievementService achievementService = AchievementService.empty();
     private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
+    private static final LeaderboardService LEADERBOARD_SERVICE = new LeaderboardService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
@@ -79,6 +82,7 @@ public final class ModMindEntry implements ModInitializer {
             onlineTimeRewardService = new OnlineTimeRewardService();
             achievementService = AchievementService.empty();
             CDK_SERVICE.replace(CdkConfig.empty());
+            LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LegacySavedDataMigration.migrate(server);
@@ -107,6 +111,9 @@ public final class ModMindEntry implements ModInitializer {
             }
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
                 achievementService().tick(server);
+            }
+            if (isModuleEnabled(ModuleId.LEADERBOARDS)) {
+                leaderboardService().tick(server);
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().tick(server);
@@ -139,6 +146,9 @@ public final class ModMindEntry implements ModInitializer {
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().onJoin(player);
+            }
+            if (isModuleEnabled(ModuleId.LEADERBOARDS)) {
+                leaderboardService().onJoin(player);
             }
             LocalDate date = CheckinData.today(server);
             if (isModuleEnabled(ModuleId.DAILY_CHECKIN)
@@ -184,7 +194,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.SIDEBAR_TOGGLE, CommandAction.SIDEBAR_STATUS, CommandAction.REWARDS_RETRY,
                             CommandAction.REWARDS_ADMIN, CommandAction.CHECKIN_MAKEUP,
                             CommandAction.CHECKIN_CARDS_BUY, CommandAction.CHECKIN_CARDS_ADMIN,
-                            CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN))
+                            CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN,
+                            CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -195,6 +206,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(titleCommand("titles"))
                     .then(cloudStorageCommand("storage"))
                     .then(achievementCommand())
+                    .then(leaderboardCommand("leaderboard"))
                     .then(checkinCardsAndMakeupCommand())
                     .then(cdkCommand())
                     .then(sidebarCommand())
@@ -266,6 +278,10 @@ public final class ModMindEntry implements ModInitializer {
             target.register(cloudStorageCommand("cloudstorage"));
             target.register(cloudStorageCommand("cstorage"));
         });
+        commands.register(ModuleId.LEADERBOARDS, target -> {
+            target.register(leaderboardCommand("leaderboard"));
+            target.register(topCommand());
+        });
         commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("balance")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
                         CommandAction.CURRENCY_BALANCE_OTHER))
@@ -326,6 +342,10 @@ public final class ModMindEntry implements ModInitializer {
         return SIDEBAR_SERVICE;
     }
 
+    public static LeaderboardService leaderboardService() {
+        return LEADERBOARD_SERVICE;
+    }
+
     static ModuleControlService moduleControlService() {
         return MODULE_CONTROL;
     }
@@ -365,6 +385,7 @@ public final class ModMindEntry implements ModInitializer {
         titleEffectConfig = snapshot.titleEffects();
         cloudStorageConfig = snapshot.cloudStorage();
         CDK_SERVICE.replace(snapshot.cdk());
+        LEADERBOARD_SERVICE.replace(snapshot.leaderboards());
         // Keep existing achievement menus bound to the live service. Its revision
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
@@ -465,6 +486,115 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openAchievementMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> leaderboardCommand(String literal) {
+        return Commands.literal(literal)
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.LEADERBOARDS_OPEN,
+                        CommandAction.LEADERBOARDS_CHAT).and(source -> isModuleEnabled(ModuleId.LEADERBOARDS)))
+                .executes(context -> openLeaderboardFromSource(context.getSource(), ""))
+                .then(Commands.literal("open")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.LEADERBOARDS_OPEN))
+                        .executes(context -> openLeaderboardFromSource(context.getSource(), ""))
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .executes(context -> openLeaderboardFromSource(context.getSource(),
+                                        StringArgumentType.getString(context, "id")))))
+                .then(Commands.literal("list")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.LEADERBOARDS_OPEN))
+                        .executes(context -> listLeaderboards(context.getSource())))
+                .then(Commands.literal("chat")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.LEADERBOARDS_CHAT))
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .executes(context -> sendLeaderboardChat(context.getSource(),
+                                        StringArgumentType.getString(context, "id"), 1))
+                                .then(Commands.argument("page", LongArgumentType.longArg(1L, 100_000L))
+                                        .executes(context -> sendLeaderboardChat(context.getSource(),
+                                                StringArgumentType.getString(context, "id"),
+                                                LongArgumentType.getLong(context, "page"))))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> topCommand() {
+        return Commands.literal("top")
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.LEADERBOARDS_CHAT)
+                        .and(source -> isModuleEnabled(ModuleId.LEADERBOARDS)))
+                .then(Commands.argument("id", StringArgumentType.word())
+                        .executes(context -> sendLeaderboardChat(context.getSource(),
+                                StringArgumentType.getString(context, "id"), 1))
+                        .then(Commands.argument("page", LongArgumentType.longArg(1L, 100_000L))
+                                .executes(context -> sendLeaderboardChat(context.getSource(),
+                                        StringArgumentType.getString(context, "id"),
+                                        LongArgumentType.getLong(context, "page")))));
+    }
+
+    private static int listLeaderboards(CommandSourceStack source) {
+        var boards = leaderboardService().boards();
+        if (boards.isEmpty()) {
+            source.sendFailure(ServerText.translatable("command.omnitools.leaderboard.empty"));
+            return 0;
+        }
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.leaderboard.list", boards.size()), false);
+        for (var board : boards) {
+            source.sendSuccess(() -> Component.literal("- " + board.definition().id() + ": ")
+                    .append(board.definition().display()), false);
+        }
+        return 1;
+    }
+
+    private static int openLeaderboardFromSource(CommandSourceStack source, String boardId) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(ServerText.translatable("command.omnitools.leaderboard.player_only"));
+            return 0;
+        }
+        return openLeaderboardMenu(player, boardId);
+    }
+
+    private static int sendLeaderboardChat(CommandSourceStack source, String boardId, long requestedPage) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(ServerText.translatable("command.omnitools.leaderboard.player_only"));
+            return 0;
+        }
+        if (!isModuleEnabled(ModuleId.LEADERBOARDS)
+                || !COMMAND_PERMISSIONS.canUse(player, CommandAction.LEADERBOARDS_CHAT)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        var board = leaderboardService().board(boardId).orElse(null);
+        if (board == null) {
+            source.sendFailure(ServerText.translatable("command.omnitools.leaderboard.unknown", boardId));
+            return 0;
+        }
+        final int pageSize = 10;
+        int pages = Math.max(1, (board.entries().size() + pageSize - 1) / pageSize);
+        int page = (int) Math.max(1L, Math.min((long) pages, requestedPage));
+        int first = (page - 1) * pageSize;
+        source.sendSuccess(() -> TextTemplateRenderer.render(player, board.definition().display()).copy()
+                .append(Component.literal(" [" + page + "/" + pages + "]").withStyle(ChatFormatting.GRAY)), false);
+        if (board.entries().isEmpty()) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.leaderboard.ranking_empty")
+                    .withStyle(ChatFormatting.GRAY), false);
+        }
+        for (int index = first; index < board.entries().size() && index < first + pageSize; index++) {
+            var entry = board.entries().get(index);
+            source.sendSuccess(() -> Component.literal("#" + entry.rank() + " " + entry.playerName() + " ")
+                    .append(Component.literal(board.format(entry.value())).withStyle(ChatFormatting.AQUA)), false);
+        }
+        var navigation = Component.empty();
+        if (page > 1) {
+            navigation.append(ServerText.translatable("command.omnitools.leaderboard.previous").withStyle(style -> style.withColor(ChatFormatting.AQUA)
+                    .withClickEvent(new ClickEvent.RunCommand("/top " + board.definition().id() + " " + (page - 1)))));
+        }
+        if (page > 1 && page < pages) {
+            navigation.append(Component.literal(" "));
+        }
+        if (page < pages) {
+            navigation.append(ServerText.translatable("command.omnitools.leaderboard.next").withStyle(style -> style.withColor(ChatFormatting.AQUA)
+                    .withClickEvent(new ClickEvent.RunCommand("/top " + board.definition().id() + " " + (page + 1)))));
+        }
+        navigation.append(Component.literal(" ").append(ServerText.translatable("command.omnitools.leaderboard.open"))
+                .withStyle(style -> style.withColor(ChatFormatting.GREEN)
+                .withClickEvent(new ClickEvent.RunCommand("/omnitools leaderboard open " + board.definition().id()))));
+        source.sendSuccess(() -> navigation, false);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> sidebarCommand() {
@@ -1484,6 +1614,10 @@ public final class ModMindEntry implements ModInitializer {
                     && player.containerMenu instanceof AchievementScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.ACHIEVEMENTS_OPEN)
                     && player.containerMenu instanceof AchievementScreenHandler)
+                    || (!snapshot.enabled(ModuleId.LEADERBOARDS)
+                    && player.containerMenu instanceof LeaderboardScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.LEADERBOARDS_OPEN)
+                    && player.containerMenu instanceof LeaderboardScreenHandler)
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
@@ -1639,6 +1773,23 @@ public final class ModMindEntry implements ModInitializer {
                 (syncId, inventory, ignored) -> AchievementScreenHandler.createServer(syncId, inventory, player,
                         achievementService(), 0),
                 ServerText.translatable("gui.omnitools.achievement.title")));
+        return 1;
+    }
+
+    static int openLeaderboardMenu(ServerPlayer player, String boardId) {
+        if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.LEADERBOARDS_OPEN)
+                || !isModuleEnabled(ModuleId.LEADERBOARDS)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        String requested = boardId == null ? "" : boardId.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!requested.isBlank() && !leaderboardService().hasBoard(requested)) {
+            player.displayClientMessage(ServerText.translatable("command.omnitools.leaderboard.unknown", requested), true);
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> LeaderboardScreenHandler.createServer(syncId, inventory, player,
+                        leaderboardService(), requested, 0), ServerText.translatable("gui.omnitools.leaderboard.title")));
         return 1;
     }
 

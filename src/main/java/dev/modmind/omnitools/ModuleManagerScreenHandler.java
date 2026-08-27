@@ -44,7 +44,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             Map.entry(ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST),
             Map.entry(ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK),
             Map.entry(ModuleId.COMMAND_MENU, Items.CHEST),
-            Map.entry(ModuleId.SIDEBAR, Items.PAPER));
+            Map.entry(ModuleId.SIDEBAR, Items.PAPER),
+            Map.entry(ModuleId.LEADERBOARDS, Items.GOLD_INGOT));
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;

@@ -63,7 +63,9 @@
     "rewards.retry": "PLAYER",
     "rewards.admin": "ADMIN",
     "cdk.redeem": "PLAYER",
-    "cdk.admin": "ADMIN"
+    "cdk.admin": "ADMIN",
+    "leaderboards.open": "PLAYER",
+    "leaderboards.chat": "PLAYER"
   }
 }
 ```

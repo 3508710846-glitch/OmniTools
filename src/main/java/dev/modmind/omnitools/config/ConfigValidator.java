@@ -11,6 +11,7 @@ import dev.modmind.omnitools.commandmenu.CommandMenuItem;
 import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.cdk.CdkConfig;
+import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
@@ -34,10 +35,12 @@ public final class ConfigValidator {
                 || snapshot.cdk() == null
                 || snapshot.commandMenus() == null
                 || snapshot.sidebar() == null
+                || snapshot.leaderboards() == null
                 || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
-        validateSidebar(snapshot.sidebar());
+        validateSidebar(snapshot);
+        validateLeaderboards(snapshot);
         validateCommandMenus(snapshot);
         for (AchievementConfig.AchievementDefinition achievement : snapshot.achievements().achievements()) {
             if (achievement.condition() == null || achievement.requirements().isEmpty()) {
@@ -83,13 +86,33 @@ public final class ConfigValidator {
         }
     }
 
-    private static void validateSidebar(SidebarConfig sidebar) {
+    private static void validateSidebar(OmniToolsConfigSnapshot snapshot) {
+        SidebarConfig sidebar = snapshot.sidebar();
         if (sidebar.refreshIntervalTicks() < SidebarConfig.MIN_REFRESH_INTERVAL_TICKS
                 || sidebar.refreshIntervalTicks() > SidebarConfig.MAX_REFRESH_INTERVAL_TICKS) {
             throw new IllegalArgumentException("sidebar.refresh_interval_ticks is out of range");
         }
-        if (sidebar.lines().size() > SidebarConfig.MAX_LINES) {
-            throw new IllegalArgumentException("sidebar.lines contains too many entries");
+        for (SidebarConfig.Page page : sidebar.pages()) {
+            if (page.type() == SidebarConfig.PageType.TEXT && page.lines().size() > SidebarConfig.MAX_LINES) {
+                throw new IllegalArgumentException("sidebar page " + page.id() + " contains too many lines");
+            }
+            if (page.type() == SidebarConfig.PageType.LEADERBOARD && snapshot.enabled(ModuleId.LEADERBOARDS)
+                    && snapshot.leaderboards().definition(page.leaderboardId()).isEmpty()) {
+                throw new IllegalArgumentException("sidebar page " + page.id()
+                        + " references unknown leaderboard " + page.leaderboardId());
+            }
+        }
+    }
+
+    private static void validateLeaderboards(OmniToolsConfigSnapshot snapshot) {
+        for (LeaderboardConfig.LeaderboardDefinition board : snapshot.leaderboards().leaderboards()) {
+            if (!board.linkedAchievement().isBlank()) {
+                if (!snapshot.enabled(ModuleId.ACHIEVEMENTS)
+                        || snapshot.achievements().definition(board.linkedAchievement()).isEmpty()) {
+                    throw new IllegalArgumentException("leaderboard " + board.id()
+                            + " references unavailable achievement " + board.linkedAchievement());
+                }
+            }
         }
     }
 

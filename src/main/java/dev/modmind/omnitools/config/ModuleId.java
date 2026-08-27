@@ -15,7 +15,8 @@ public enum ModuleId {
     CLOUD_STORAGE("cloud_storage"),
     PERMISSIONS("permissions"),
     COMMAND_MENU("command_menu"),
-    SIDEBAR("sidebar");
+    SIDEBAR("sidebar"),
+    LEADERBOARDS("leaderboards");
 
     private final String id;
 

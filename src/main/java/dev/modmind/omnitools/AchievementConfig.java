@@ -13,6 +13,7 @@ import dev.modmind.omnitools.achievement.NotCondition;
 import dev.modmind.omnitools.achievement.StatCondition;
 import dev.modmind.omnitools.achievement.StatisticEvaluationContext;
 import dev.modmind.omnitools.achievement.StatisticTargetResolver;
+import dev.modmind.omnitools.statistics.StatisticQuery;
 import dev.modmind.omnitools.achievement.StatisticUnit;
 import dev.modmind.omnitools.achievement.SumCondition;
 import dev.modmind.omnitools.achievement.TargetMatch;
@@ -364,7 +365,7 @@ public final class AchievementConfig {
         }
         List<String> targets;
         try {
-            targets = StatisticTargetResolver.resolve(requirementType, rawTargets, state.targetGroups,
+            targets = StatisticQuery.resolveTargets(requirementType, rawTargets, state.targetGroups,
                     "achievement " + achievementId);
         } catch (IllegalArgumentException exception) {
             throw new JsonParseException(exception.getMessage());
@@ -440,7 +441,7 @@ public final class AchievementConfig {
             }
             List<String> targets;
             try {
-                targets = StatisticTargetResolver.resolve(type, rawTargets, state.targetGroups,
+                targets = StatisticQuery.resolveTargets(type, rawTargets, state.targetGroups,
                         "sum source for achievement " + achievementId);
             } catch (IllegalArgumentException exception) {
                 throw new JsonParseException(exception.getMessage());
@@ -902,7 +903,7 @@ public final class AchievementConfig {
             return domain;
         }
 
-        static RequirementType parse(String value) {
+        public static RequirementType parse(String value) {
             String normalized = value.trim().toLowerCase(Locale.ROOT);
             for (RequirementType type : values()) {
                 if (type.serializedName.equals(normalized)) {

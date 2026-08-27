@@ -12,6 +12,7 @@
     "daily_checkin": { "enabled": true },
     "achievements": { "enabled": true },
     "shop": { "enabled": true },
-    "cdk": { "enabled": true }
+    "cdk": { "enabled": true },
+    "leaderboards": { "enabled": false } // Disabled by default: it may scan offline player statistics.
   }
 }

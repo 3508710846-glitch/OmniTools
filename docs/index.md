@@ -17,6 +17,7 @@
 - [称号](modules/titles.md)
 - [称号效果](modules/title-effects.md)
 - [成就](modules/achievements.md)
+- [排行榜](modules/leaderboards.md)
 - [云存储](modules/cloud-storage.md)
 - [权限](modules/permissions.md)
 - [命令菜单](modules/command-menu.md)

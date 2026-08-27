@@ -1,0 +1,32 @@
+{
+  "format_version": 1,
+  "refresh_interval_ticks": 200, // At least 20 ticks. GUI and chat only read the cached result.
+  "include_offline_players": true,
+  "exclude_zero_scores": true,
+  "max_files_per_tick": 8, // Limits offline stats files loaded in one server tick.
+  "target_groups": {
+    "stone_family": ["minecraft:stone", "minecraft:deepslate"],
+    "common_hostiles": ["minecraft:zombie", "minecraft:skeleton", "minecraft:creeper"]
+  },
+  "leaderboards": [
+    {
+      "id": "mine_all_blocks",
+      "display": "&eAll block mining",
+      "icon": "minecraft:diamond_pickaxe",
+      "stat": { "type": "block_mined", "targets": ["*"], "aggregation": "sum", "unit": "count" }
+    },
+    {
+      "id": "place_all_blocks",
+      "display": "&aBuilder",
+      "description": "Approximate placements from block item uses",
+      "icon": "minecraft:bricks",
+      "stat": { "type": "item_used", "targets": ["@block_items"], "aggregation": "sum", "unit": "count" }
+    },
+    {
+      "id": "fall_distance",
+      "display": "&fFall distance",
+      "icon": "minecraft:feather",
+      "stat": { "type": "custom", "custom_stat": "minecraft:fall_one_cm", "unit": "blocks" }
+    }
+  ]
+}

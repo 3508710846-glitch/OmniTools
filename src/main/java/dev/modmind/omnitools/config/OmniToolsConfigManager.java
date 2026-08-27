@@ -11,6 +11,7 @@ import dev.modmind.omnitools.commandmenu.CommandMenuConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
 import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.cdk.CdkData;
+import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import net.minecraft.server.MinecraftServer;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
@@ -145,6 +146,7 @@ public final class OmniToolsConfigManager {
         }
         CommandMenuConfig commandMenus = moduleConfig(loaded, ModuleId.COMMAND_MENU, CommandMenuConfig.empty());
         SidebarConfig sidebar = moduleConfig(loaded, ModuleId.SIDEBAR, SidebarConfig.empty());
+        LeaderboardConfig leaderboards = moduleConfig(loaded, ModuleId.LEADERBOARDS, LeaderboardConfig.empty());
         CommandPermissionConfig commandPermissions = moduleConfig(loaded, ModuleId.PERMISSIONS,
                 CommandPermissionConfig.defaults());
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
@@ -153,7 +155,7 @@ public final class OmniToolsConfigManager {
                     ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                storage, achievements, cdk, commandMenus, sidebar, commandPermissions, statuses, revisions.get() + 1L,
+                storage, achievements, cdk, commandMenus, sidebar, leaderboards, commandPermissions, statuses, revisions.get() + 1L,
                 common);
         CrossModuleValidator.validate(candidate);
         moduleRegistry.validateAll(loaded, candidate);
@@ -173,6 +175,7 @@ public final class OmniToolsConfigManager {
         modules.put(ModuleId.PERMISSIONS, snapshot.commandPermissions());
         modules.put(ModuleId.COMMAND_MENU, snapshot.commandMenus());
         modules.put(ModuleId.SIDEBAR, snapshot.sidebar());
+        modules.put(ModuleId.LEADERBOARDS, snapshot.leaderboards());
         return modules;
     }
 
@@ -255,6 +258,12 @@ public final class OmniToolsConfigManager {
                 return context.root().enabled(id()) ? SidebarConfig.load() : SidebarConfig.empty();
             }
         });
+        registry.register(new ConfigurableModule<LeaderboardConfig>() {
+            public ModuleId id() { return ModuleId.LEADERBOARDS; }
+            public LeaderboardConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? LeaderboardConfig.load() : LeaderboardConfig.empty();
+            }
+        });
         return registry;
     }
 
@@ -263,7 +272,7 @@ public final class OmniToolsConfigManager {
         OmniToolsConfigSnapshot published = new OmniToolsConfigSnapshot(candidate.root(), candidate.rewards(),
                 candidate.onlineRewards(), candidate.shop(), candidate.titles(), candidate.titleEffects(),
                 candidate.cloudStorage(), candidate.achievements(), candidate.cdk(), candidate.commandMenus(),
-                candidate.sidebar(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
+                candidate.sidebar(), candidate.leaderboards(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
         snapshot = published;
         return published;
     }
@@ -307,6 +316,7 @@ public final class OmniToolsConfigManager {
         return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
                 AchievementConfig.empty(), CdkConfig.empty(), CommandMenuConfig.empty(), SidebarConfig.empty(),
+                LeaderboardConfig.empty(),
                 CommandPermissionConfig.defaults(), statuses, 0L);
     }
 }

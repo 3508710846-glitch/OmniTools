@@ -7,6 +7,8 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -103,6 +105,17 @@ public final class StatisticTargetResolver {
         }
         if (raw.equals("*")) {
             registry(type).keySet().stream().map(Identifier::toString).forEach(output::add);
+            return;
+        }
+        if (raw.equals("@block_items")) {
+            if (type != AchievementConfig.RequirementType.ITEM_USED) {
+                throw new IllegalArgumentException("@block_items is only valid for item_used statistics in " + context);
+            }
+            for (Item item : BuiltInRegistries.ITEM) {
+                if (item instanceof BlockItem) {
+                    output.add(BuiltInRegistries.ITEM.getKey(item).toString());
+                }
+            }
             return;
         }
         if (raw.startsWith("#")) {

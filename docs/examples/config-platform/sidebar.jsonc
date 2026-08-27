@@ -1,11 +1,31 @@
 {
-  "format_version": 2,
+  "format_version": 3, // Sidebar pages and server-wide presentation rotation.
   "default_visible": true,
   "refresh_interval_ticks": 20,
-  "title": "&bOmniTools",
-  "conflict_policy": "skip",
-  "lines": [
-    { "id": "balance", "text": "&eBalance: &f%omnitools:balance_formatted%" },
-    { "id": "title", "text": "&bTitle: &f%omnitools:title_plain%" }
+  "conflict_policy": "skip", // skip, replace, or restore.
+  "presentation": {
+    "mode": "rotate", // fixed always shows fixed_page; rotate cycles page_ids for every player together.
+    "rotation_ticks": 200,
+    "fixed_page": "main",
+    "page_ids": ["main", "mine_all"]
+  },
+  "pages": [
+    {
+      "id": "main",
+      "type": "text",
+      "title": "&b&lOmniTools",
+      "lines": [
+        { "id": "balance", "text": "&eBalance: &f%omnitools:balance_formatted%" },
+        { "id": "title", "text": "&bTitle: &f%omnitools:title_plain%" }
+      ]
+    },
+    {
+      "id": "mine_all",
+      "type": "leaderboard",
+      "title": "&e&lMining leaderboard",
+      "leaderboard_id": "mine_all_blocks",
+      "max_entries": 10,
+      "line_format": "&7#{rank} &f{player} &b{value}"
+    }
   ]
 }

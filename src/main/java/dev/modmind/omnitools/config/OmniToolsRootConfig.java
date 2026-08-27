@@ -47,7 +47,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
         EnumMap<ModuleId, Boolean> copy = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
             copy.put(module, modules == null || !modules.containsKey(module)
-                    ? module != ModuleId.PERMISSIONS
+                    ? module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS
                     : modules.get(module));
         }
         modules = Map.copyOf(copy);
@@ -56,7 +56,7 @@ public record OmniToolsRootConfig(int formatVersion, boolean debug, String timez
     public static OmniToolsRootConfig defaults() {
         EnumMap<ModuleId, Boolean> modules = new EnumMap<>(ModuleId.class);
         for (ModuleId module : ModuleId.values()) {
-            modules.put(module, module != ModuleId.PERMISSIONS);
+            modules.put(module, module != ModuleId.PERMISSIONS && module != ModuleId.LEADERBOARDS);
         }
         return new OmniToolsRootConfig(CURRENT_FORMAT_VERSION, false, "Asia/Shanghai", "zh_cn",
                 false, CommandSecurityConfig.DEFAULT_MAX_COMMAND_LENGTH, true, DataRetention.FULL,

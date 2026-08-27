@@ -1,52 +1,36 @@
 {
-  "prompt": "当前文档体系基础很好：已有模块文档、入门、参考、运维指南、示例、预设和 Schema。问题不在“文档不够”，而在于入口、真源和历史资料需要彻底分层。\n\n已确认两点：\n\n- `docs/configuration.md`、`docs/achievements.md`、`docs/backup-and-recovery.md`、`docs/reward-consistency.md`、`docs/upgrade-guide.md`、`docs/modules/module-management.md` 已是兼容旧链接的跳转页，不应直接删除。\n- [升级指南](/D:/mod/qiandao/docs/guides/upgrade-guide.md) 仍写根配置迁移到格式版本 `3`，但当前实际配置与 Schema 使用 `format_version: 4`。这是应优先修正的真实内容漂移。\n\n**目标结构**\n\n```text\nREADME.md                         # 项目介绍、安装、最短上手、文档入口\n\ndocs/\n  index.md                        # 唯一文档导航页\n  getting-started/                # 新服主 10 分钟上手\n  modules/                        # 每个功能模块一篇完整说明\n  reference/                      # 跨模块的固定语法与字段参考\n  guides/                         # 运维流程、重载、备份、升级、故障处理\n  examples/                       # 可复制的完整配置\n  presets/                        # 可加载的配置预设\n  schemas/                        # 编辑器补全与格式约束\n  archive/                        # 历史方案、过期设计与迁移记录\n  maintainers/                    # 文档地图、编写规范、校验清单\n```\n\n保留 [config-platform.md](/D:/mod/qiandao/docs/config-platform.md) 在 `docs/` 根目录即可。它是所有模块共享的配置契约，不属于单一模块，也不应塞进入门教程。\n\n**真源划分**\n\n| 内容 | 唯一真源 | 其他页面处理方式 |\n|---|---|---|\n| 根配置、模块开关、公共模板、重载语义 | `docs/config-platform.md` 与 `reference/root-config.md` | 模块文档只链接，不重复解释整套规则。 |\n| 奖励类型、NBT 物品、限时称号、指令安全 | `reference/rewards.md` | 签到、在线奖励、成就、CDK 只说明各自如何引用奖励。 |\n| 内置与第三方占位符 | `reference/placeholders.md`、`reference/placeholder-api.md` | 侧边栏与命令菜单只说明支持位置和示例。 |\n| 模块命令、权限、配置、数据、重载 | `docs/modules/<module>.md` | 不在 README、入门或指南中维护第二份命令表。 |\n| 备份、升级、奖励账本结算 | `docs/guides/` | 根目录旧页面保留一段跳转提示。 |\n| 未实现构想和历史需求 | `docs/archive/` | 不进入 `index.md` 导航，不得描述成已实现功能。 |\n\n**模块文档统一模板**\n\n每篇 `docs/modules/*.md` 固定为以下顺序：\n\n1. 功能用途、适用场景、依赖模块。\n2. 根开关与禁用后的行为。\n3. 配置路径、首次生成行为、格式版本。\n4. 命令与默认权限表。\n5. 配置字段表：类型、必填、范围、默认值、错误行为。\n6. 最小可用 `json` 配置。\n7. 带注释的 `jsonc` 教学配置。\n8. 常见高级场景。\n9. 相关奖励、占位符、模板引用。\n10. 数据保存、备份与不可随意修改的 ID。\n11. 热重载后的即时行为与常见故障。\n\n成就模块保留现有 12 个独立示例和预设文件，但正文只维护一张“场景 -> 示例文件 -> 适用条件”的索引表，避免同一 JSON 同时出现在正文和示例文件中。\n\n**执行阶段**\n\n1. **文档盘点与标记**\n   为每个文档标记 `canonical`、`redirect`、`archive`、`internal`、`example` 或 `schema`。\n   输出 `docs/maintainers/document-map.md`，明确页面用途、负责人和真源关系。\n\n2. **先修正事实漂移**\n   以源码、默认配置、`ModuleId`、`CommandAction`、各 `*Config` 为准核对：\n   - 配置格式版本；\n   - 配置路径；\n   - 命令、别名和默认权限；\n   - 模块依赖；\n   - 默认值；\n   - 已实现与规划功能边界。\n\n   第一项应修复升级指南中的根配置版本 `3 -> 4`。\n\n3. **整理导航与入口**\n   - `README.md` 只保留安装、服务端兼容、快速开始和文档入口。\n   - `docs/index.md` 按“新手开始、模块配置、参考资料、运维与升级”导航。\n   - 保留现有旧路径跳转页，避免外部链接失效。\n   - 将 `docs/idea.md` 中的未来方案、旧工作请求移入 `docs/archive/`，并明确“非当前功能”。\n\n4. **模块文档标准化**\n   逐篇套用统一模板。优先顺序：\n   - 每日签到与补签卡；\n   - 成就；\n   - 奖励/CDK；\n   - 商店与货币；\n   - 称号与称号效果；\n   - 命令菜单、侧边栏；\n   - 权限、云存储、Placeholder API、模块管理。\n\n5. **示例与 Schema 收口**\n   - 每个示例注明目标配置文件、前置模块、重载命令和适用版本。\n   - `.json` 必须可直接复制解析；`.jsonc` 只用于教学。\n   - Schema 不重复写成长篇教程，只作为编辑器提示和字段约束入口。\n   - 所有示例奖励 ID、称号 ID、物品 ID 必须与说明文字对应。\n\n6. **建立文档验收机制**\n   每次发布前自动或人工检查：\n   - 所有 Markdown 链接有效；\n   - `json` 示例可解析；\n   - 文档命令能在 `ModMindEntry`/`CommandAction` 找到；\n   - 配置字段能在对应 `*Config` 找到；\n   - 文档格式版本与 Schema、默认配置一致；\n   - UTF-8 中文显示正常；\n   - `archive/` 内容未被主导航引用；\n   - README 没有重新膨胀成模块说明书。\n\n**验收标准**\n\n- 新服主从 README 到第一次完成签到、成就或商店配置，不需要跳转超过三层。\n- 每个启用模块均有且仅有一篇完整的主说明。\n- 同一个配置字段、命令或默认值只维护一个真源。\n- 旧链接仍可访问，但不会形成第二份可维护内容。\n- 规划、历史记录与已实现功能完全分离。",
+  "prompt": "可以做，并且很适合作为独立的 `leaderboards` 模块。现有成就系统已经能解析全部原版统计族：挖掘、合成、使用、损坏、拾取、丢弃、击杀、被击杀和 `custom` 统计；目标还支持单 ID、多 ID、标签、分组、`*` 全量选择，见 [StatisticTargetResolver.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java)。\n\n关键是不要复制成就的统计逻辑，而是提取共享的 `StatisticQuery` 查询规格，供成就和排行榜共同使用。\n\n**模块设计**\n\n```text\nconfig/omnitools/\n  leaderboards/\n    config.json\n```\n\n根配置新增：\n\n```json\n\"leaderboards\": {\n  \"enabled\": false\n}\n```\n\n建议升级时默认关闭，避免旧服务器升级后立即扫描全部玩家统计文件；新服主配置榜单并启用后才开始工作。\n\n排行榜配置建议：\n\n```jsonc\n{\n  \"format_version\": 1,\n  \"refresh_interval_ticks\": 200,\n  \"include_offline_players\": true,\n  \"exclude_zero_scores\": true,\n\n  \"target_groups\": {\n    \"stone_family\": [\"minecraft:stone\", \"minecraft:deepslate\"],\n    \"common_hostiles\": [\n      \"minecraft:zombie\",\n      \"minecraft:skeleton\",\n      \"minecraft:creeper\"\n    ]\n  },\n\n  \"leaderboards\": [\n    {\n      \"id\": \"mine_stone\",\n      \"display\": \"&b石材矿工\",\n      \"description\": \"累计挖掘石头\",\n      \"icon\": \"minecraft:stone\",\n      \"stat\": {\n        \"type\": \"block_mined\",\n        \"targets\": [\"minecraft:stone\"],\n        \"aggregation\": \"sum\",\n        \"unit\": \"count\"\n      }\n    },\n    {\n      \"id\": \"mine_stone_family\",\n      \"display\": \"&7石材大师\",\n      \"icon\": \"minecraft:deepslate\",\n      \"stat\": {\n        \"type\": \"block_mined\",\n        \"targets\": [\"$stone_family\"],\n        \"aggregation\": \"sum\",\n        \"unit\": \"count\"\n      }\n    },\n    {\n      \"id\": \"mine_all_blocks\",\n      \"display\": \"&e全方块挖掘\",\n      \"icon\": \"minecraft:diamond_pickaxe\",\n      \"stat\": {\n        \"type\": \"block_mined\",\n        \"targets\": [\"*\"],\n        \"aggregation\": \"sum\",\n        \"unit\": \"count\"\n      }\n    },\n    {\n      \"id\": \"place_all_blocks\",\n      \"display\": \"&a建筑达人\",\n      \"icon\": \"minecraft:bricks\",\n      \"stat\": {\n        \"type\": \"item_used\",\n        \"targets\": [\"@block_items\"],\n        \"aggregation\": \"sum\",\n        \"unit\": \"count\"\n      }\n    },\n    {\n      \"id\": \"hostile_kills\",\n      \"display\": \"&c猎魔榜\",\n      \"icon\": \"minecraft:diamond_sword\",\n      \"stat\": {\n        \"type\": \"entity_killed\",\n        \"targets\": [\"$common_hostiles\"],\n        \"aggregation\": \"sum\",\n        \"unit\": \"count\"\n      }\n    },\n    {\n      \"id\": \"fall_distance\",\n      \"display\": \"&f坠落距离\",\n      \"icon\": \"minecraft:feather\",\n      \"stat\": {\n        \"type\": \"custom\",\n        \"custom_stat\": \"minecraft:fall_one_cm\",\n        \"unit\": \"blocks\"\n      }\n    },\n    {\n      \"id\": \"hopper_inspections\",\n      \"display\": \"&6漏斗检查\",\n      \"icon\": \"minecraft:hopper\",\n      \"stat\": {\n        \"type\": \"custom\",\n        \"custom_stat\": \"minecraft:inspect_hopper\",\n        \"unit\": \"count\"\n      }\n    }\n  ]\n}\n```\n\n`aggregation` 建议支持：\n\n- `sum`：多个目标相加，适合“石头 + 深板岩总共挖掘”。\n- `min`：取各目标最低值，适合“每种都挖过多少”的公平排名。\n- `max`：取单一目标最高值。\n\n**必须明确的原版限制**\n\n原版没有精确的“方块放置数”统计。`item_used` 可用于某个方块物品的使用/放置近似值，但并不能保证每次使用都成功放置。\n\n因此新增 `@block_items` 选择器：只展开 `BlockItem`，解决现有 `item_used + [\"*\"]` 会把食物、工具等所有物品使用也统计进去的问题。`block_mined + [\"*\"]` 则可以准确表示所有方块挖掘。\n\n**运行架构**\n\n- 新增 `ModuleId.LEADERBOARDS`、`LeaderboardConfig`、`LeaderboardService`、`LeaderboardScreenHandler`。\n- `LeaderboardConfig` 加入 [OmniToolsConfigManager.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java) 的模块注册、快照、全量重载和单模块重载。\n- 将成就中的统计目标解析提取为共享 `statistics` 包；排行榜读取同一种 `type / targets / custom_stat / unit`。\n- 排行榜只读原版玩家统计，不复制、修改或重置原版统计。\n- 在线玩家定期更新；离线玩家从世界 `stats/<uuid>.json` 对应的 `ServerStatsCounter` 安全读取。\n- 服务端启动时分批扫描，配置 `max_files_per_tick`，禁止在一个 tick 内同步读取大量玩家文件。\n- 每个榜单维护内存快照：完整排序、前若干名、玩家个人名次、刷新时间。GUI、聊天、侧边栏只读快照，不能临时全量排序。\n- 默认排除 0 分玩家；同分按玩家名稳定排序，名次采用密集排名，例如 `1, 1, 2`。\n\n**成就联动**\n\n第一版做“统计语义联动”，不让排行榜影响成就进度：\n\n- 成就和排行榜使用同一套原版统计查询。\n- 两者都支持同样的单目标、多目标、分组、标签与通配符。\n- 可选 `linked_achievement` 字段仅在排行榜 GUI 中显示关联成就和玩家自身进度。\n- 不建议第一版支持“按复杂成就条件树排名”。`all/any/not` 更适合判定是否完成，不天然对应唯一、可解释的分数。\n\n**玩家交互**\n\n新增权限动作：\n\n```text\nleaderboards.open -> PLAYER\nleaderboards.chat -> PLAYER\n```\n\n建议指令：\n\n```text\n/omnitools leaderboard\n/omnitools leaderboard open <id>\n/omnitools leaderboard chat <id> [page]\n/omnitools leaderboard list\n/leaderboard\n/top <id> [page]\n```\n\nGUI 使用现有原版 54 格箱子模式：\n\n- 首页显示已配置榜单。\n- 点击榜单进入排名页。\n- 内容区显示 36 名玩家，页脚提供上一页、关闭、下一页。\n- 每个条目展示：名次、头像或兜底图标、玩家名、格式化分数。\n- 玩家不在当前页时，底部固定显示“我的排名 / 我的分数”。\n- 聊天榜每页建议 10 名，提供可点击的上一页、下一页和打开 GUI。\n\n**侧边栏联动**\n\n现有侧边栏只能向每个玩家展示一个原版 scoreboard，因此不能同时显示多个榜。应将 [SidebarConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/sidebar/SidebarConfig.java) 升级为 v3 的“页面”模型，而不是让排行榜直接抢占第二个侧边栏。\n\n```jsonc\n{\n  \"format_version\": 3,\n  \"default_visible\": true,\n  \"refresh_interval_ticks\": 20,\n  \"conflict_policy\": \"skip\",\n\n  \"presentation\": {\n    \"mode\": \"rotate\",\n    \"rotation_ticks\": 200,\n    \"fixed_page\": \"main\",\n    \"page_ids\": [\"main\", \"mine_all\", \"hostile_kills\"]\n  },\n\n  \"pages\": [\n    {\n      \"id\": \"main\",\n      \"type\": \"text\",\n      \"title\": \"&b&lOmniTools\",\n      \"lines\": [\n        { \"id\": \"money\", \"text\": \"&e货币: &f%balance_formatted%\" }\n      ]\n    },\n    {\n      \"id\": \"mine_all\",\n      \"type\": \"leaderboard\",\n      \"leaderboard_id\": \"mine_all_blocks\",\n      \"title\": \"&e&l全方块挖掘榜\",\n      \"max_entries\": 10,\n      \"line_format\": \"&7#{rank} &f{player} &b{value}\"\n    }\n  ]\n}\n```\n\n规则：\n\n- `presentation.mode: fixed`：只显示 `fixed_page`。\n- `presentation.mode: rotate`：按 `rotation_ticks` 轮播 `page_ids`。\n- 所有人共用服务器轮播节奏，避免玩家进服时间不同导致画面混乱。\n- 榜单模块关闭时，排行榜页面自动跳过；静态页面仍正常显示。\n- 保持侧边栏的 15 行上限、`skip/replace/restore` 冲突策略和玩家个人显示开关。\n- v2 旧配置自动映射为一个 `type: \"text\"` 的 `main` 页面，避免破坏已有侧边栏。\n\n**实施阶段**\n\n1. 抽取共享统计查询和新增 `leaderboards` 配置、快照、校验。\n2. 实现排行榜缓存，先支持在线与离线统计、同分名次、全量/单模块热重载。\n3. 完成 GUI、聊天分页、命令与权限。\n4. 升级侧边栏为页面与轮播模型，保持 v2 配置兼容。\n5. 补 Schema、示例、中文文档和测试。\n\n验收重点：离线玩家仍进入排行榜；多目标和 `*` 得分正确；错误配置不替换旧快照；排行榜不会在请求 GUI 或聊天时扫描磁盘；侧边栏轮播不破坏原有冲突策略；禁用模块后 GUI、聊天和侧边栏榜单均停止显示。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-27T08:36:03.963Z",
-  "summary": "已补齐审计所需阶段。\n\n- `modmind_build_project` 成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- `modmind_test_matrix([\"server\"])` 成功：服务端就绪后稳定运行 15 秒。\n- 服务端日志：[runServer-1787819658648.log](D:/mod/qiandao/.modmind/builds/runServer-1787819658648.log)\n\n实现与内容校验已有记录，未重复执行。",
-  "finalResponse": "已补齐审计所需阶段。\n\n- `modmind_build_project` 成功，产物：[modmind-current-project.jar](D:/mod/qiandao/.modmind/minecraft/mods/modmind-current-project.jar)\n- `modmind_test_matrix([\"server\"])` 成功：服务端就绪后稳定运行 15 秒。\n- 服务端日志：[runServer-1787819658648.log](D:/mod/qiandao/.modmind/builds/runServer-1787819658648.log)\n\n实现与内容校验已有记录，未重复执行。",
+  "createdAt": "2026-08-27T12:22:52.769Z",
+  "summary": "外部代理已完成任务",
+  "finalResponse": "外部代理已完成任务",
   "intent": "engineering",
   "tasks": [
-    "盘点文档真源与兼容入口",
-    "整理导航、维护者地图和历史归档入口",
-    "修正升级与模块参考的事实漂移",
-    "校验链接、示例 JSON 与文档编码"
+    "完成排行榜统计查询与配置平台注册并修复编译问题",
+    "接入排行榜缓存、命令、聊天与服务端 GUI",
+    "升级侧边栏页面与排行榜轮播兼容",
+    "补充文档、Schema、示例与自动验证"
   ],
   "files": [
-    {
-      "path": "README.md",
-      "purpose": "外部代理修改"
-    },
     {
       "path": "docs/config-platform.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/configuration.md",
+      "path": "docs/examples/config-platform/README.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/achievement-examples/01-mine-one-block.json",
+      "path": "docs/examples/config-platform/permissions.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/minimal-server/README.md",
+      "path": "docs/examples/config-platform/root-config.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/reward-examples/README.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/guides/placeholder-api.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/guides/upgrade-guide.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/idea.md",
+      "path": "docs/examples/config-platform/sidebar.jsonc",
       "purpose": "外部代理修改"
     },
     {
@@ -54,55 +38,11 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/achievements.md",
+      "path": "docs/modules/permissions.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/cdk.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/daily-checkin.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/online-reward.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/reference/rewards.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/schemas/cdk.schema.json",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-1.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-2.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-3.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-4.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-5.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-26-7.log.gz",
+      "path": "docs/schemas/sidebar.schema.json",
       "purpose": "外部代理修改"
     },
     {
@@ -146,31 +86,119 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/archive/request-history.md",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/achievement-examples/README.md",
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/config-platform/README.md",
+      "path": "src/main/java/dev/modmind/omnitools/ModuleManagerScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/maintainers/document-map.md",
+      "path": "src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/maintainers/validation-checklist.md",
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigMigration.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/maintainers/writing-guide.md",
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/presets/achievements/README.md",
+      "path": "src/main/java/dev/modmind/omnitools/config/ModuleId.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsConfigSnapshot.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/OmniToolsRootConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/sidebar/SidebarConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/sidebar/SidebarService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/ConfigMigrationTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/config/ModuleIdTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/examples/config-platform/leaderboards.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/modules/leaderboards.md",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/leaderboards.schema.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/config/omnitools/leaderboards/config.json",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-27-1.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/LeaderboardScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/leaderboard/LeaderboardService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/statistics/StatisticQuery.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/leaderboard/LeaderboardConfigTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/sidebar/SidebarConfigTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/statistics/StatisticQueryTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -179,7 +207,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-27T07-10-40-166Z",
+  "snapshotId": "2026-08-27T09-35-14-738Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -190,23 +218,19 @@
       "runtime_test"
     ],
     "completed": [
-      "intent",
       "plan",
       "validate",
       "build",
       "runtime_test",
-      "implementation",
-      "todo_complete"
+      "implementation"
     ],
     "missing": [],
     "evidence": {
-      "intent": "modmind_set_intent recorded task intent",
       "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 40 changed managed files",
-      "todo_complete": "All Todo items are completed after the other required stages"
+      "implementation": "Detected 47 changed managed files"
     }
   }
 }

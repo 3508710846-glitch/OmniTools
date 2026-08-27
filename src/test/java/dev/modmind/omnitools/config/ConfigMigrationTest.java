@@ -39,6 +39,7 @@ class ConfigMigrationTest {
         assertFalse(migrated.enabled(ModuleId.COMMAND_MENU));
         assertFalse(migrated.enabled(ModuleId.SIDEBAR));
         assertFalse(migrated.enabled(ModuleId.CDK));
+        assertFalse(migrated.enabled(ModuleId.LEADERBOARDS));
         assertTrue(hasBackup(root));
     }
 

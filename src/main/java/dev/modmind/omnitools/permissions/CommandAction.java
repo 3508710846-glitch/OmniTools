@@ -30,7 +30,9 @@ public enum CommandAction {
     REWARDS_RETRY("rewards.retry", CommandRole.PLAYER),
     REWARDS_ADMIN("rewards.admin", CommandRole.ADMIN),
     CDK_REDEEM("cdk.redeem", CommandRole.PLAYER),
-    CDK_ADMIN("cdk.admin", CommandRole.ADMIN);
+    CDK_ADMIN("cdk.admin", CommandRole.ADMIN),
+    LEADERBOARDS_OPEN("leaderboards.open", CommandRole.PLAYER),
+    LEADERBOARDS_CHAT("leaderboards.chat", CommandRole.PLAYER);
 
     private final String id;
     private final CommandRole defaultRole;

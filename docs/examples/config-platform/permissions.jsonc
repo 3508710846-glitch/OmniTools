@@ -5,6 +5,8 @@
     "checkin.open": "PLAYER",
     "storage.open": { "role": "ADMIN", "allow_native_node": true },
     "cdk.redeem": "PLAYER",
-    "cdk.admin": "ADMIN"
+    "cdk.admin": "ADMIN",
+    "leaderboards.open": "PLAYER",
+    "leaderboards.chat": "PLAYER"
   }
 }
