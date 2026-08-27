@@ -895,3 +895,9 @@ achievement:<player_uuid>:<achievement_id>:starter_package
 - 玩家不能打开其他玩家的礼包实例。
 
 这套方案与当前 OmniTools 的模块化配置、统一奖励和奖励账本设计兼容，同时保留了以后接入商店、成就、CDK 和其他奖励来源的扩展空间。本轮仅进行了只读结构审查，没有修改、构建或测试项目。
+
+---
+
+## Development request 2026/8/28 00:02:35
+
+将礼物模块的相关文档补充完整，按照之前的标准

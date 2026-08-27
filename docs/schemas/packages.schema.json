@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniTools 礼包配置",
+  "type": "object",
+  "required": ["format_version", "packages"],
+  "additionalProperties": false,
+  "properties": {
+    "format_version": { "const": 1 },
+    "settings": { "$ref": "#/$defs/settings" },
+    "packages": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/package" }
+    }
+  },
+  "$defs": {
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_packages_per_player": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "max_quantity_per_entry": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "max_total_quantity": { "type": "integer", "minimum": 1, "maximum": 589824 },
+        "delivery_policy": { "const": "inventory_then_inbox" },
+        "random_strategy": { "const": "uniform" }
+      }
+    },
+    "package": {
+      "type": "object",
+      "required": ["id", "icon", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "display": { "type": "string", "maxLength": 128 },
+        "description": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "type": "string" }
+        },
+        "icon": { "type": "string", "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$" },
+        "mode": { "enum": ["all", "random_one"] },
+        "version": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/item" }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "quantity"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "item": { "type": "string", "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$" },
+        "count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "components": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object", "maxProperties": 0 }
+          ]
+        },
+        "nbt": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "quantity": { "type": "integer", "minimum": 1 }
+      },
+      "oneOf": [
+        { "required": ["item", "count"], "not": { "required": ["nbt"] } },
+        { "required": ["nbt"], "not": { "required": ["item"] } }
+      ]
+    }
+  }
+}

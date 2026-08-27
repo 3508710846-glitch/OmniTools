@@ -71,6 +71,21 @@
 | `title` | `id`、`title` | `title` 必须在称号模块中存在。可选 `duration` 与 `renewal`。 |
 | `command` | `id`、`run_as`、`command` | `run_as` 只能为 `console`，并受根配置的命令奖励开关与白名单限制。 |
 | `makeup_card` | `id`、`amount` | 发放服务端虚拟补签卡；数量受 `daily_checkin.makeup.max_cards` 限制。 |
+| `package` | `id`、`package` | 创建礼包模块中的虚拟实例；需要启用 `modules.packages`。 |
+
+## 礼包奖励
+
+礼包奖励只创建服务端虚拟礼包实例，不会直接把礼包或其中物品作为一件物品发给玩家：
+
+```json
+{
+  "id": "daily_package",
+  "type": "package",
+  "package": "starter"
+}
+```
+
+`package` 必须引用 `config/omnitools/packages/config.json` 中已加载的定义，否则配置校验失败。奖励账本仍以 `eventId + rewardId` 幂等，重复处理同一事件不会重复创建实例。玩家随后从 `/omnitools packages` 打开；礼包模式、数量拆堆、背包不足和恢复语义见[礼包模块](../modules/packages.md)。商店礼包商品和购买事务目前不属于统一奖励。
 
 ## 称号的有效佩戴时长
 

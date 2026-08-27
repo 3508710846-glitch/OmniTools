@@ -13,6 +13,7 @@
     "achievements": { "enabled": true },
     "shop": { "enabled": true },
     "cdk": { "enabled": true },
-    "leaderboards": { "enabled": false } // Disabled by default: it may scan offline player statistics.
+    "leaderboards": { "enabled": false }, // Disabled by default: it may scan offline player statistics.
+    "packages": { "enabled": false } // Virtual packages are opt-in.
   }
 }

@@ -55,6 +55,7 @@ config/omnitools/
 | 命令菜单注册表 | `command-menu.jsonc` | `command-menu.schema.json` |
 | 侧边栏 | `sidebar.jsonc` | `sidebar.schema.json` |
 | 排行榜 | `leaderboards.jsonc` | `leaderboards.schema.json` |
+| 礼包 | `packages.jsonc` | `packages.schema.json` |
 
 公共 Schema 为 `common-rewards.schema.json`、`common-conditions.schema.json` 和 `common-texts.schema.json`。模板引用仅可用于奖励列表和成就条件，不能让命令执行、权限绕过或持久化数据规则变为可配置项。
 

@@ -1,0 +1,65 @@
+{
+  "format_version": 1,
+  "settings": {
+    "max_packages_per_player": 256,
+    "max_quantity_per_entry": 2304,
+    "max_total_quantity": 589824,
+    "delivery_policy": "inventory_then_inbox",
+    "random_strategy": "uniform"
+  },
+  "packages": [
+    {
+      "id": "starter",
+      "display": "&a新手礼包",
+      "description": [
+        "&7打开后获得全部新手物资"
+      ],
+      "icon": "minecraft:chest",
+      "mode": "all",
+      "version": 1,
+      "items": [
+        {
+          "id": "bread",
+          "item": "minecraft:bread",
+          "count": 1,
+          "quantity": 16
+        },
+        {
+          "id": "iron",
+          "item": "minecraft:iron_ingot",
+          "count": 1,
+          "quantity": 32
+        }
+      ]
+    },
+    {
+      "id": "random_material",
+      "display": "&b随机材料礼包",
+      "description": [
+        "&7随机获得以下材料中的一种"
+      ],
+      "icon": "minecraft:barrel",
+      "mode": "random_one",
+      "items": [
+        {
+          "id": "coal",
+          "item": "minecraft:coal",
+          "count": 1,
+          "quantity": 128
+        },
+        {
+          "id": "iron",
+          "item": "minecraft:iron_ingot",
+          "count": 1,
+          "quantity": 64
+        },
+        {
+          "id": "gold",
+          "item": "minecraft:gold_ingot",
+          "count": 1,
+          "quantity": 32
+        }
+      ]
+    }
+  ]
+}

@@ -16,8 +16,9 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
-        "type": { "enum": ["currency", "item", "title", "command", "makeup_card"] },
+        "type": { "enum": ["currency", "item", "title", "command", "makeup_card", "package"] },
         "amount": { "type": "integer", "minimum": 0 },
+        "package": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
         "template": { "type": "string" },
         "$ref": { "type": "string" }
       },

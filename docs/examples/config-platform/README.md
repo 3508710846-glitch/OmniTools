@@ -19,6 +19,7 @@
 | `permissions.jsonc` | `config/omnitools/permissions/config.json` | 1 | `permissions` | `/omnitools reload permissions` |
 | `command-menu.jsonc` | `config/omnitools/command_menu/config.json` | 1 | `command_menu` | `/omnitools reload command_menu` |
 | `sidebar.jsonc` | `config/omnitools/sidebar/config.json` | 3 | `sidebar` | `/omnitools reload sidebar` |
+| `packages.jsonc` | `config/omnitools/packages/config.json` | 1 | `packages` | `/omnitools reload packages` |
 | `leaderboards.jsonc` | `config/omnitools/leaderboards/config.json` | 1 | `leaderboards` | `/omnitools reload leaderboards` |
 
 每个文件对应的字段约束在 `docs/schemas/`；配置语义、模板引用和全量重载边界以[统一配置平台](../../config-platform.md)为准。

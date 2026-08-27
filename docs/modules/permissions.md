@@ -65,7 +65,11 @@
     "cdk.redeem": "PLAYER",
     "cdk.admin": "ADMIN",
     "leaderboards.open": "PLAYER",
-    "leaderboards.chat": "PLAYER"
+    "leaderboards.chat": "PLAYER",
+    "package.open": "PLAYER",
+    "package.give": "ADMIN",
+    "package.inspect": "ADMIN",
+    "package.remove": "ADMIN"
   }
 }
 ```
