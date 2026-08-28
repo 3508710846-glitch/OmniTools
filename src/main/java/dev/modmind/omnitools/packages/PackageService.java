@@ -11,10 +11,25 @@ public final class PackageService {
     public record OpenResult(Result result, PackageInstance instance, List<ItemStack> delivered, List<ItemStack> pending) {}
 
     public PackageInstance create(MinecraftServer server, UUID owner, String packageId, String sourceEvent) {
+        return create(server, owner, packageId, sourceEvent, "");
+    }
+
+    /**
+     * Creates or reuses an instance for a stable reward grant key. A non-empty key is the
+     * idempotency boundary between the reward ledger and package SavedData.
+     */
+    public PackageInstance create(MinecraftServer server, UUID owner, String packageId, String sourceEvent,
+                                   String grantKey) {
         if (server == null || owner == null) throw new IllegalArgumentException("server and owner are required");
+        PackageData data = PackageData.get(server);
+        if (grantKey != null && !grantKey.isBlank()) {
+            Optional<PackageInstance> existing = data.findByGrantKey(owner, grantKey);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
         PackageConfig config = dev.modmind.omnitools.ModMindEntry.configSnapshot().packages();
         PackageDefinition definition = config.definition(packageId).orElseThrow(() -> new IllegalArgumentException("Unknown package: " + packageId));
-        PackageData data = PackageData.get(server);
         if (data.list(owner).stream().filter(p -> p.status() != PackageInstance.Status.OPENED).count() >= config.settings().maxPackagesPerPlayer()) {
             throw new IllegalStateException("Package limit reached");
         }
@@ -22,9 +37,9 @@ public final class PackageService {
         List<Long> quantities = definition.items().stream().map(PackageItem::quantity).toList();
         PackageInstance instance = new PackageInstance(UUID.randomUUID(), owner, definition.id(), definition.version(),
                 definition.display(), definition.iconId(), definition.mode(), snapshot, quantities, sourceEvent,
+                grantKey,
                 PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
-        data.add(instance);
-        return instance;
+        return data.createIfAbsent(instance);
     }
 
     public OpenResult open(ServerPlayer player, UUID instanceId) {
@@ -43,7 +58,7 @@ public final class PackageService {
                 if (canFitFully(player, stack)) { insertFully(player, stack); delivered.add(stack); }
                 else pending.add(stack);
             }
-            PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), pending, pending.stream().map(s -> (long) s.getCount()).toList(), current.sourceEvent(), pending.isEmpty() ? PackageInstance.Status.OPENED : PackageInstance.Status.WAITING_INBOX, current.grantedAt(), current.selectedItemIndex());
+            PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), pending, pending.stream().map(s -> (long) s.getCount()).toList(), current.sourceEvent(), current.grantKey(), pending.isEmpty() ? PackageInstance.Status.OPENED : PackageInstance.Status.WAITING_INBOX, current.grantedAt(), current.selectedItemIndex());
             data.update(updated);
             return new OpenResult(pending.isEmpty() ? Result.OPENED : Result.WAITING_INBOX, updated, delivered, pending);
         }
@@ -57,7 +72,7 @@ public final class PackageService {
                 ItemStack chosen = payload.get(selected).copy(); chosen.setCount(1);
                 payload = List.of(chosen);
                 quantities = List.of(quantities.get(selected));
-                current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
+                current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), current.grantKey(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
                 data.update(current);
             } else {
                 int index = payload.size() == 1 ? 0 : selected;
@@ -66,7 +81,7 @@ public final class PackageService {
                 quantities = List.of(quantities.get(index));
             }
         } else {
-            current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
+            current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), current.grantKey(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
             data.update(current);
         }
         List<ItemStack> stacks = split(payload, quantities);
@@ -79,7 +94,7 @@ public final class PackageService {
         PackageInstance.Status status = pending.isEmpty() ? PackageInstance.Status.OPENED : PackageInstance.Status.WAITING_INBOX;
         List<ItemStack> persistedItems = pending.isEmpty() ? List.of() : List.copyOf(pending);
         List<Long> stackQuantities = persistedItems.stream().map(stack -> (long) stack.getCount()).toList();
-        PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), persistedItems, stackQuantities, current.sourceEvent(), status, current.grantedAt(), current.selectedItemIndex());
+        PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), persistedItems, stackQuantities, current.sourceEvent(), current.grantKey(), status, current.grantedAt(), current.selectedItemIndex());
         data.update(updated);
         return new OpenResult(pending.isEmpty() ? Result.OPENED : Result.WAITING_INBOX, updated, delivered, pending);
     }

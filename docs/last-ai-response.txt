@@ -1,34 +1,17 @@
-礼包模块文档已按现有模块标准补齐，并与当前源码行为对齐。
+已完成并验证礼包模块可靠性修复：
 
-主要更新：
+- `grantKey = eventId#rewardId` 幂等查询，修复 `APPLYING` 恢复时重复创建礼包。
+- `PackageData` 增加 `findByGrantKey`、`createIfAbsent`，并使用 `RegistryOps` 编解码物品快照。
+- 损坏实例会记录日志、保留原始数据并隔离为 `BLOCKED`。
+- `PackageInstance` 保留兼容构造函数并持久化 `grantKey`。
+- 新增幂等测试：[PackageDataTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/packages/PackageDataTest.java)
+- 校准礼包文档与 Schema，明确当前实现边界及未实现功能。
 
-- 完整重写 [`docs/modules/packages.md`](/D:/mod/qiandao/docs/modules/packages.md)
-  - 启用方式、配置路径和热重载
-  - 完整配置示例
-  - `all` / `random_one` 模式
-  - 数量拆堆、物品原型和完整 SNBT
-  - 虚拟实例快照、状态和恢复语义
-  - 玩家/管理员命令与权限
-  - `package` 奖励联动和幂等说明
-  - 安全边界、备份、排错和验收案例
-  - 明确列出确认 GUI、权重随机、商店事务等尚未实现能力
+验证结果：
 
-- 新增教学配置 [`packages.jsonc`](/D:/mod/qiandao/docs/examples/config-platform/packages.jsonc)
-- 新增 Schema [`packages.schema.json`](/D:/mod/qiandao/docs/schemas/packages.schema.json)
-- 更新配置平台和示例索引
-- 更新根配置文档与示例，加入默认关闭的 `modules.packages.enabled`
-- 更新统一奖励 Schema 和奖励参考，加入 `package` 类型
-- 更新权限文档和权限示例，加入：
-  - `package.open`
-  - `package.give`
-  - `package.inspect`
-  - `package.remove`
-- 更新模块管理和升级指南，说明礼包模块默认关闭及依赖关系
+- 内容校验：通过，无错误或警告。
+- 项目构建：通过，产物为 `modmind-current-project.jar`。
+- 服务端无头测试：通过，服务器就绪后稳定运行 15 秒。
+- `git diff --check`：通过。
 
-验证已完成：
-
-- `modmind_validate_content`：通过，无错误和警告
-- Schema、礼包示例及文档中的 JSON 代码块：解析通过
-- `git diff --check`：通过
-- Gradle 构建：通过
-- 隔离服务端启动测试：通过，稳定运行 15 秒
+当前仍明确未实现持久化 `PackageDeliveryBatch`、确认/预览 GUI、权重随机、商店购买事务和礼包占位符等后续能力。

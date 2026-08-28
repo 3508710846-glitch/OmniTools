@@ -85,7 +85,7 @@
 }
 ```
 
-`package` 必须引用 `config/omnitools/packages/config.json` 中已加载的定义，否则配置校验失败。奖励账本仍以 `eventId + rewardId` 幂等，重复处理同一事件不会重复创建实例。玩家随后从 `/omnitools packages` 打开；礼包模式、数量拆堆、背包不足和恢复语义见[礼包模块](../modules/packages.md)。商店礼包商品和购买事务目前不属于统一奖励。
+`package` 必须引用 `config/omnitools/packages/config.json` 中已加载的定义，否则配置校验失败。奖励账本以 `eventId + rewardId` 构成 `grantKey`；恢复 `APPLYING` 条目时会先查询同一玩家的既有实例，找到后复用而不会再创建。玩家随后从 `/omnitools packages` 打开；礼包模式、数量拆堆、背包不足和恢复语义见[礼包模块](../modules/packages.md)。商店礼包商品和购买事务目前不属于统一奖励。
 
 ## 称号的有效佩戴时长
 

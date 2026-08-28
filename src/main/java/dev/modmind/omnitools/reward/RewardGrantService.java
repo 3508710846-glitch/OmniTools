@@ -178,12 +178,22 @@ public final class RewardGrantService {
 
     private SingleResult grantPackage(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
                                       RewardEvent event) {
+        String grantKey = event.id() + "#" + reward.id();
+        var packageData = dev.modmind.omnitools.packages.PackageData.get(player.level().getServer());
+        var existing = packageData.findByGrantKey(player.getUUID(), grantKey);
+        if (existing.isPresent()) {
+            if (existing.get().status() == dev.modmind.omnitools.packages.PackageInstance.Status.BLOCKED) {
+                return blocked(ledger, event, reward, "package_instance_blocked");
+            }
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "package_reused");
+            return SingleResult.granted();
+        }
         if (!ModMindEntry.isModuleEnabled(ModuleId.PACKAGES)) {
             return blocked(ledger, event, reward, "packages_disabled");
         }
         ledger.beginApplying(event, reward.id(), "package_create");
         try {
-            packageService.create(player.level().getServer(), player.getUUID(), reward.packageId(), event.id());
+            packageService.create(player.level().getServer(), player.getUUID(), reward.packageId(), event.id(), grantKey);
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
             return SingleResult.granted();
         } catch (IllegalStateException exception) {
