@@ -26,6 +26,8 @@ import net.minecraft.world.SimpleMenuProvider;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import dev.modmind.omnitools.config.ModuleId;
@@ -56,6 +58,8 @@ import dev.modmind.omnitools.cdk.CdkData;
 import dev.modmind.omnitools.cdk.CdkService;
 import dev.modmind.omnitools.packages.PackageService;
 import dev.modmind.omnitools.packages.PackageData;
+import dev.modmind.omnitools.packages.PackageInstance;
+import dev.modmind.omnitools.packages.PackageDeliveryBatch;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -104,6 +108,13 @@ public final class ModMindEntry implements ModInitializer {
             TitleData.unbind(server);
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            if (isModuleEnabled(ModuleId.PACKAGES)) {
+                packageService().tick(server);
+                if (server.getTickCount() % 1200 == 0) {
+                    PackageData.get(server).cleanupHistory(server,
+                            configSnapshot.packages().settings().historyRetentionDays());
+                }
+            }
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 onlineTimeRewardService().tick(server);
             }
@@ -201,7 +212,7 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN,
                             CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT,
                             CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE, CommandAction.PACKAGE_INSPECT,
-                            CommandAction.PACKAGE_REMOVE))
+                            CommandAction.PACKAGE_REMOVE, CommandAction.PACKAGE_RESOLVE, CommandAction.PACKAGE_CANCEL))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -533,7 +544,8 @@ public final class ModMindEntry implements ModInitializer {
     private static LiteralArgumentBuilder<CommandSourceStack> packageCommand(String literal) {
         return Commands.literal(literal)
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE,
-                        CommandAction.PACKAGE_INSPECT, CommandAction.PACKAGE_REMOVE)
+                        CommandAction.PACKAGE_INSPECT, CommandAction.PACKAGE_REMOVE, CommandAction.PACKAGE_RESOLVE,
+                        CommandAction.PACKAGE_CANCEL)
                         .and(source -> isModuleEnabled(ModuleId.PACKAGES)))
                 .executes(context -> openPackageFromSource(context.getSource()))
                 .then(Commands.literal("open").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_OPEN))
@@ -547,11 +559,34 @@ public final class ModMindEntry implements ModInitializer {
                         )
                 .then(Commands.literal("inspect").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_INSPECT))
                         .then(Commands.argument("player", GameProfileArgument.gameProfile())
-                                .executes(context -> inspectPackages(context))))
+                                .executes(context -> inspectPackages(context))
+                                .then(Commands.argument("instance", StringArgumentType.word())
+                                        .executes(context -> inspectPackageInstance(context)))))
+                .then(Commands.literal("list").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_INSPECT))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .executes(context -> listPackages(context, "", 1))
+                                .then(Commands.argument("status", StringArgumentType.word())
+                                        .executes(context -> listPackages(context, StringArgumentType.getString(context, "status"), 1))
+                                        .then(Commands.argument("page", LongArgumentType.longArg(1L, 100_000L))
+                                                .executes(context -> listPackages(context, StringArgumentType.getString(context, "status"),
+                                                        (int) LongArgumentType.getLong(context, "page")))))))
                 .then(Commands.literal("remove").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_REMOVE))
                         .then(Commands.argument("player", GameProfileArgument.gameProfile())
                                 .then(Commands.argument("instance", StringArgumentType.word())
-                                        .executes(context -> removePackage(context)))));
+                                         .executes(context -> removePackage(context)))))
+                .then(Commands.literal("resolve").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_RESOLVE))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("instance", StringArgumentType.word())
+                                        .then(Commands.argument("stack", StringArgumentType.word())
+                                                .then(Commands.literal("delivered")
+                                                        .then(Commands.literal("confirm").executes(context -> resolvePackage(context, true))))
+                                                .then(Commands.literal("pending")
+                                                        .then(Commands.literal("confirm").executes(context -> resolvePackage(context, false))))))))
+                .then(Commands.literal("cancel").requires(COMMAND_PERMISSIONS.requirement(CommandAction.PACKAGE_CANCEL))
+                        .then(Commands.argument("player", GameProfileArgument.gameProfile())
+                                .then(Commands.argument("instance", StringArgumentType.word())
+                                        .then(Commands.literal("confirm")
+                                                .executes(ModMindEntry::cancelPackage)))));
     }
 
     private static int openPackageFromSource(CommandSourceStack source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
@@ -566,15 +601,125 @@ public final class ModMindEntry implements ModInitializer {
     }
     private static int givePackage(CommandContext<CommandSourceStack> context, int count) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         String id = StringArgumentType.getString(context, "package");
-        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
-            for (int i=0;i<count;i++) PACKAGE_SERVICE.create(context.getSource().getServer(), profile.id(), id, "admin:" + context.getSource().getTextName());
+        List<NameAndId> profiles = GameProfileArgument.getGameProfiles(context, "player").stream().toList();
+        if (profiles.isEmpty()) {
+            context.getSource().sendFailure(Component.literal("no target players"));
+            return 0;
         }
+        for (NameAndId profile : profiles) {
+            Optional<String> failure = PACKAGE_SERVICE.preflightCreate(context.getSource().getServer(), profile.id(), id, count);
+            if (failure.isPresent()) {
+                context.getSource().sendFailure(Component.literal(profile.name() + ": " + failure.get()));
+                return 0;
+            }
+        }
+        UUID operationId = UUID.randomUUID();
+        List<PackageInstance> created = new ArrayList<>();
+        try {
+            for (NameAndId profile : profiles) {
+                for (int i = 0; i < count; i++) {
+                    created.add(PACKAGE_SERVICE.create(context.getSource().getServer(), profile.id(), id,
+                            "admin:" + context.getSource().getTextName() + ":" + operationId));
+                }
+            }
+        } catch (RuntimeException exception) {
+            PackageData data = PackageData.get(context.getSource().getServer());
+            for (PackageInstance instance : created) data.remove(instance.ownerId(), instance.instanceId());
+            context.getSource().sendFailure(Component.literal("package give rolled back (" + operationId + "): "
+                    + exception.getMessage()));
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.literal("package give " + operationId + ": created " + created.size()), true);
         return 1;
     }
     private static int inspectPackages(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         int total = 0; for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) total += PackageData.get(context.getSource().getServer()).list(profile.id()).size();
         int packageCount = total;
         context.getSource().sendSuccess(() -> Component.literal("packages: " + packageCount), false); return 1;
+    }
+
+    private static int listPackages(CommandContext<CommandSourceStack> context, String statusFilter, int page)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        PackageInstance.Status requested = null;
+        if (statusFilter != null && !statusFilter.isBlank()) {
+            try { requested = PackageInstance.Status.valueOf(statusFilter.trim().toUpperCase(java.util.Locale.ROOT)); }
+            catch (IllegalArgumentException exception) { context.getSource().sendFailure(Component.literal("unknown package status: " + statusFilter)); return 0; }
+        }
+        final PackageInstance.Status filter = requested;
+        int offset = Math.max(0, page - 1) * 20;
+        int shown = 0;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            List<PackageInstance> matches = PackageData.get(context.getSource().getServer()).list(profile.id()).stream()
+                    .filter(instance -> filter == null || instance.status() == filter).toList();
+            context.getSource().sendSuccess(() -> Component.literal(profile.name() + " packages=" + matches.size()), false);
+            for (int i = offset; i < Math.min(matches.size(), offset + 20); i++) {
+                PackageInstance instance = matches.get(i);
+                context.getSource().sendSuccess(() -> Component.literal(instance.instanceId() + " " + instance.status()
+                        + " " + instance.packageId()), false);
+                shown++;
+            }
+        }
+        return shown > 0 ? 1 : 0;
+    }
+
+    private static int inspectPackageInstance(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        UUID id;
+        try { id = UUID.fromString(StringArgumentType.getString(context, "instance")); }
+        catch (IllegalArgumentException exception) { context.getSource().sendFailure(Component.literal("invalid instance UUID")); return 0; }
+        PackageData data = PackageData.get(context.getSource().getServer());
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            PackageInstance instance = data.find(profile.id(), id).orElse(null);
+            if (instance == null) { context.getSource().sendFailure(Component.literal(profile.name() + ": instance not found")); continue; }
+            context.getSource().sendSuccess(() -> Component.literal(formatPackageInspection(data, instance)), false);
+        }
+        return 1;
+    }
+
+    private static String formatPackageInspection(PackageData data, PackageInstance instance) {
+        StringBuilder result = new StringBuilder("instance=").append(instance.instanceId())
+                .append(" package=").append(instance.packageId()).append(" version=").append(instance.packageVersion())
+                .append(" owner=").append(instance.ownerId()).append(" status=").append(instance.status())
+                .append(" grantKey=").append(instance.grantKey()).append(" selected=").append(instance.selectedItemIndex())
+                .append(" grantedAt=").append(instance.grantedAt());
+        data.findDeliveryBatch(instance.instanceId()).ifPresent(batch -> {
+            result.append(" batch=").append(batch.batchId()).append(" batchStatus=").append(batch.status());
+            for (PackageDeliveryBatch.StackEntry stack : batch.stacks()) {
+                result.append(" [stack=").append(stack.stackId()).append(" total=").append(stack.quantity())
+                        .append(" delivered=").append(stack.deliveredQuantity()).append(" status=").append(stack.status()).append(']');
+            }
+        });
+        return result.toString();
+    }
+
+    private static int resolvePackage(CommandContext<CommandSourceStack> context, boolean delivered)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        UUID instanceId;
+        UUID stackId;
+        try {
+            instanceId = UUID.fromString(StringArgumentType.getString(context, "instance"));
+            stackId = UUID.fromString(StringArgumentType.getString(context, "stack"));
+        } catch (IllegalArgumentException exception) { context.getSource().sendFailure(Component.literal("invalid UUID")); return 0; }
+        boolean changed = false;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            changed |= PackageData.get(context.getSource().getServer()).resolveStack(profile.id(), instanceId, stackId,
+                    delivered, context.getSource().getServer(), context.getSource().getTextName()).isPresent();
+        }
+        if (!changed) context.getSource().sendFailure(Component.literal("only BLOCKED stacks can be resolved"));
+        return changed ? 1 : 0;
+    }
+
+    private static int cancelPackage(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        UUID instanceId;
+        try { instanceId = UUID.fromString(StringArgumentType.getString(context, "instance")); }
+        catch (IllegalArgumentException exception) { context.getSource().sendFailure(Component.literal("invalid instance UUID")); return 0; }
+        boolean removed = false;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            removed |= PackageData.get(context.getSource().getServer()).cancel(profile.id(), instanceId,
+                    context.getSource().getServer(), context.getSource().getTextName());
+        }
+        if (!removed) context.getSource().sendFailure(Component.literal("only BLOCKED packages without uncertain stacks can be cancelled"));
+        return removed ? 1 : 0;
     }
     private static int removePackage(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         UUID id; try { id = UUID.fromString(StringArgumentType.getString(context, "instance")); } catch (IllegalArgumentException e) { return 0; }

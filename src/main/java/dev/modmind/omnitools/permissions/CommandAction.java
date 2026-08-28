@@ -36,7 +36,9 @@ public enum CommandAction {
     PACKAGE_OPEN("package.open", CommandRole.PLAYER),
     PACKAGE_GIVE("package.give", CommandRole.ADMIN),
     PACKAGE_INSPECT("package.inspect", CommandRole.ADMIN),
-    PACKAGE_REMOVE("package.remove", CommandRole.ADMIN);
+    PACKAGE_REMOVE("package.remove", CommandRole.ADMIN),
+    PACKAGE_RESOLVE("package.resolve", CommandRole.ADMIN),
+    PACKAGE_CANCEL("package.cancel", CommandRole.ADMIN);
 
     private final String id;
     private final CommandRole defaultRole;

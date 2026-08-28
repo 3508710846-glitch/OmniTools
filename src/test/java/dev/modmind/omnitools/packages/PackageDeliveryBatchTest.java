@@ -51,4 +51,20 @@ class PackageDeliveryBatchTest {
         assertTrue(delivered.isComplete());
         assertEquals(1, delivered.cursor());
     }
+
+    @Test
+    void tracksLogicalQuantityWithoutPreExpandingPhysicalStacks() {
+        PackageDeliveryBatch batch = PackageDeliveryBatch.createLogical(UUID.randomUUID(),
+                List.of(new ItemStack(Items.BREAD)), List.of(500L), 10L);
+        PackageDeliveryBatch.StackEntry entry = batch.stacks().getFirst();
+
+        assertEquals(500L, entry.quantity());
+        assertEquals(0L, entry.deliveredQuantity());
+        assertEquals(64, entry.nextStack().getCount());
+
+        PackageDeliveryBatch progressed = batch.withProgress(entry.stackId(), 64L,
+                PackageDeliveryBatch.StackStatus.PENDING, 11L);
+        assertEquals(436L, progressed.stacks().getFirst().remainingQuantity());
+        assertFalse(progressed.isComplete());
+    }
 }

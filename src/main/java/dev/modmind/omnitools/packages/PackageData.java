@@ -1,6 +1,7 @@
 package dev.modmind.omnitools.packages;
 
 import dev.modmind.omnitools.ModMindEntry;
+import dev.modmind.omnitools.reward.RewardClaimLedger;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -109,6 +110,64 @@ public final class PackageData extends SavedData {
 
     public synchronized Optional<PackageDeliveryBatch> findDeliveryBatch(UUID packageInstanceId) {
         return Optional.ofNullable(deliveryBatches.get(packageInstanceId));
+    }
+
+    public synchronized List<PackageDeliveryBatch> listDeliveryBatches() {
+        return List.copyOf(deliveryBatches.values());
+    }
+
+    /** Removes only safe, old completed history. Pending, waiting and blocked assets are retained. */
+    public synchronized int cleanupHistory(MinecraftServer server, int retentionDays) {
+        long cutoff = System.currentTimeMillis() - Math.max(1L, retentionDays) * 86_400_000L;
+        int removed = 0;
+        for (UUID owner : List.copyOf(instances.keySet())) {
+            LinkedHashMap<UUID, PackageInstance> map = instances.get(owner);
+            for (PackageInstance instance : List.copyOf(map.values())) {
+                if (instance.status() != PackageInstance.Status.OPENED || instance.grantedAt() > cutoff) continue;
+                PackageDeliveryBatch batch = deliveryBatches.get(instance.instanceId());
+                if (batch != null && !batch.isComplete()) continue;
+                if (!instance.grantKey().isBlank() && !RewardClaimLedger.isGrantedGrantKey(server, owner, instance.grantKey())) continue;
+                map.remove(instance.instanceId());
+                deliveryBatches.remove(instance.instanceId());
+                removed++;
+            }
+            if (map.isEmpty()) instances.remove(owner);
+        }
+        if (removed > 0) setDirty();
+        return removed;
+    }
+
+    public synchronized Optional<PackageInstance> findByInstanceId(UUID instanceId) {
+        return Optional.ofNullable(findByInstanceIdInternal(instanceId));
+    }
+
+    public synchronized Optional<PackageInstance> resolveStack(UUID owner, UUID instanceId, UUID stackId,
+                                                                boolean delivered, MinecraftServer server, String operator) {
+        PackageInstance instance = find(owner, instanceId).orElse(null);
+        PackageDeliveryBatch batch = deliveryBatches.get(instanceId);
+        if (instance == null || batch == null || instance.status() != PackageInstance.Status.BLOCKED) return Optional.empty();
+        PackageDeliveryBatch.StackEntry entry = batch.stacks().stream().filter(stack -> stack.stackId().equals(stackId)).findFirst().orElse(null);
+        if (entry == null || entry.status() != PackageDeliveryBatch.StackStatus.BLOCKED) return Optional.empty();
+        PackageDeliveryBatch updated = batch.withProgress(stackId, delivered ? entry.quantity() : 0L,
+                delivered ? PackageDeliveryBatch.StackStatus.DELIVERED : PackageDeliveryBatch.StackStatus.PENDING,
+                System.currentTimeMillis()).withStatus(PackageDeliveryBatch.Status.WAITING_INBOX, System.currentTimeMillis());
+        deliveryBatches.put(instanceId, updated);
+        PackageInstance next = instance.withStatus(delivered ? PackageInstance.Status.WAITING_INBOX : PackageInstance.Status.WAITING_INBOX);
+        instances.get(owner).put(instanceId, next);
+        setDirty();
+        PackageAuditLog.write(server, "resolve", "operator=" + operator + " owner=" + owner + " instance=" + instanceId
+                + " stack=" + stackId + " decision=" + (delivered ? "delivered" : "pending"));
+        return Optional.of(next);
+    }
+
+    public synchronized boolean cancel(UUID owner, UUID instanceId, MinecraftServer server, String operator) {
+        PackageInstance instance = find(owner, instanceId).orElse(null);
+        if (instance == null || instance.status() != PackageInstance.Status.BLOCKED) return false;
+        PackageDeliveryBatch batch = deliveryBatches.get(instanceId);
+        if (batch != null && batch.hasUncertainDelivery()) return false;
+        boolean removed = remove(owner, instanceId);
+        if (removed) PackageAuditLog.write(server, "cancel", "operator=" + operator + " owner=" + owner + " instance=" + instanceId);
+        return removed;
     }
 
     /** Creates the initial transaction exactly once for an instance that has entered OPENING. */
@@ -236,7 +295,7 @@ public final class PackageData extends SavedData {
             }
             try {
                 PackageDeliveryBatch batch = decodeDeliveryBatch(batchId, raw, registryLookup);
-                if (findByInstanceId(batch.packageInstanceId()) == null) {
+                if (findByInstanceIdInternal(batch.packageInstanceId()) == null) {
                     throw new IllegalArgumentException("delivery batch references a missing package instance");
                 }
                 if (deliveryBatches.putIfAbsent(batch.packageInstanceId(), batch) != null) {
@@ -287,10 +346,13 @@ public final class PackageData extends SavedData {
             }
             UUID stackId = UUID.fromString(stackTag.getStringOr("stack_id", ""));
             ItemStack snapshot = decodeItem(stackTag.getCompoundOrEmpty("item"), registryLookup);
-            int quantity = stackTag.getIntOr("quantity", 0);
+            boolean logical = stackTag.contains("total_quantity");
+            long quantity = logical ? stackTag.getLongOr("total_quantity", 0L) : stackTag.getIntOr("quantity", 0);
             PackageDeliveryBatch.StackStatus stackStatus = parseDeliveryStackStatus(
                     stackTag.getStringOr("status", "PENDING"));
-            stacks.add(new PackageDeliveryBatch.StackEntry(stackId, snapshot, quantity, stackStatus));
+            long deliveredQuantity = logical ? stackTag.getLongOr("delivered_quantity", 0L)
+                    : (stackStatus == PackageDeliveryBatch.StackStatus.DELIVERED ? quantity : 0L);
+            stacks.add(new PackageDeliveryBatch.StackEntry(stackId, snapshot, quantity, deliveredQuantity, stackStatus));
         }
         return new PackageDeliveryBatch(batchId, instanceId, stacks, tag.getIntOr("cursor", 0),
                 parseDeliveryStatus(tag.getStringOr("status", "PENDING")),
@@ -372,7 +434,7 @@ public final class PackageData extends SavedData {
         }
     }
 
-    private PackageInstance findByInstanceId(UUID instanceId) {
+    private PackageInstance findByInstanceIdInternal(UUID instanceId) {
         for (LinkedHashMap<UUID, PackageInstance> ownerInstances : instances.values()) {
             PackageInstance instance = ownerInstances.get(instanceId);
             if (instance != null) {
@@ -383,7 +445,7 @@ public final class PackageData extends SavedData {
     }
 
     private void blockInstance(UUID instanceId) {
-        PackageInstance instance = findByInstanceId(instanceId);
+        PackageInstance instance = findByInstanceIdInternal(instanceId);
         if (instance == null || instance.status() == PackageInstance.Status.BLOCKED) {
             return;
         }
@@ -399,7 +461,7 @@ public final class PackageData extends SavedData {
         long now = System.currentTimeMillis();
         boolean changed = false;
         for (PackageDeliveryBatch batch : List.copyOf(deliveryBatches.values())) {
-            PackageInstance instance = findByInstanceId(batch.packageInstanceId());
+            PackageInstance instance = findByInstanceIdInternal(batch.packageInstanceId());
             if (instance == null) {
                 corruptBatchRecords.put(batch.batchId(), encodeDeliveryBatch(batch, registries));
                 deliveryBatches.remove(batch.packageInstanceId());
@@ -532,7 +594,9 @@ public final class PackageData extends SavedData {
             CompoundTag stack = new CompoundTag();
             stack.putString("stack_id", entry.stackId().toString());
             stack.put("item", encodeItem(entry.itemSnapshot(), registries));
-            stack.putInt("quantity", entry.quantity());
+            stack.putLong("total_quantity", entry.quantity());
+            stack.putLong("delivered_quantity", entry.deliveredQuantity());
+            stack.putInt("quantity", (int) Math.min(Integer.MAX_VALUE, entry.quantity()));
             stack.putString("status", entry.status().name());
             stacks.add(stack);
         }

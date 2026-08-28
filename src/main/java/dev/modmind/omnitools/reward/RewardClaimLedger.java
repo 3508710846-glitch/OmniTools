@@ -96,6 +96,16 @@ public final class RewardClaimLedger extends SavedData {
         return find(server).map(RewardClaimLedger::unresolvedEntryCount).orElse(0);
     }
 
+    /** Read-only confirmation for package history retention; never creates the ledger. */
+    public static boolean isGrantedGrantKey(MinecraftServer server, UUID playerId, String grantKey) {
+        if (server == null || playerId == null || grantKey == null || grantKey.isBlank()) return false;
+        int separator = grantKey.lastIndexOf('#');
+        if (separator <= 0 || separator == grantKey.length() - 1) return false;
+        return find(server).map(ledger -> ledger.isGranted(
+                new RewardEvent(grantKey.substring(0, separator), playerId), grantKey.substring(separator + 1)))
+                .orElse(false);
+    }
+
     public synchronized Entry entry(RewardEvent event, String rewardId) {
         return events.getOrDefault(event.id(), Map.of()).getOrDefault(normalizeRewardId(rewardId), Entry.pending());
     }

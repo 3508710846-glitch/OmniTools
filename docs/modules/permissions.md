@@ -69,7 +69,9 @@
     "package.open": "PLAYER",
     "package.give": "ADMIN",
     "package.inspect": "ADMIN",
-    "package.remove": "ADMIN"
+    "package.remove": "ADMIN",
+    "package.resolve": "ADMIN",
+    "package.cancel": "ADMIN"
   }
 }
 ```

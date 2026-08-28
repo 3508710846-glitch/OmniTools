@@ -5,7 +5,7 @@
   "required": ["format_version", "packages"],
   "additionalProperties": false,
   "properties": {
-    "format_version": { "const": 1 },
+    "format_version": { "enum": [1, 2] },
     "settings": { "$ref": "#/$defs/settings" },
     "packages": {
       "type": "array",
@@ -19,8 +19,12 @@
       "additionalProperties": false,
       "properties": {
         "max_packages_per_player": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "max_pending_packages_per_player": { "type": "integer", "minimum": 1, "maximum": 4096 },
         "max_quantity_per_entry": { "type": "integer", "minimum": 1, "maximum": 1000000 },
         "max_total_quantity": { "type": "integer", "minimum": 1, "maximum": 589824 },
+        "max_delivery_stacks_per_package": { "type": "integer", "minimum": 1, "maximum": 216 },
+        "delivery_stacks_per_tick": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "history_retention_days": { "type": "integer", "minimum": 1, "maximum": 3650 },
         "delivery_policy": { "const": "inventory_then_inbox" },
         "random_strategy": { "const": "uniform" }
       }

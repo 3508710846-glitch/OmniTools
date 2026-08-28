@@ -208,4 +208,12 @@ DELIVERING（存在不确定堆叠）/ BLOCKED -> 人工检查
 
 ## 当前未实现与后续规划
 
+### V2 稳定性说明
+
+V2 配置兼容 V1 字段，并新增 `max_pending_packages_per_player`、`max_delivery_stacks_per_package`、`delivery_stacks_per_tick` 和 `history_retention_days`。打开礼包只建立逻辑投递条目，按 tick 限量生成物理堆；不会在一次点击中展开超大礼包。`package give` 会先预检全部目标玩家，失败时不创建任何实例，创建阶段异常会回滚本次批次。
+
+系统只自动清理已 `OPENED`、无未完成投递批次且奖励账本已确认的过期历史实例；`PENDING`、`WAITING_INBOX` 和 `BLOCKED` 永不自动删除。
+
+管理员现在可使用 `package list`、`package inspect <player> <instance_uuid>`、`package resolve ... delivered|pending confirm` 和 `package cancel ... confirm` 进行受控审计与处置；这些操作会写入 `config/omnitools/package-audit.log`。商店礼包购买事务仍未实现。
+
 当前版本明确不提供：按权重随机、商店礼包商品及购买事务恢复、指定实例玩家命令、`retry`/`resolve` 人工处理命令、完整批次审计界面、礼包专用占位符和实体礼包物品交易。后续若增加这些能力，应保持现有虚拟实例和快照模型，避免引入可复制的实体礼包。

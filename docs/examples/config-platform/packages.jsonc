@@ -1,9 +1,13 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "settings": {
     "max_packages_per_player": 256,
+    "max_pending_packages_per_player": 256,
     "max_quantity_per_entry": 2304,
     "max_total_quantity": 589824,
+    "max_delivery_stacks_per_package": 216,
+    "delivery_stacks_per_tick": 4,
+    "history_retention_days": 90,
     "delivery_policy": "inventory_then_inbox",
     "random_strategy": "uniform"
   },

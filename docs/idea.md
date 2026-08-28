@@ -2311,3 +2311,47 @@ open_reward_inbox
 - 玩家无法打开其他玩家的实例。
 
 总体建议：先把当前礼包模块提升为“可靠的虚拟资产系统”，再加入权重、保底、商店和赛季玩法。最优先处理的是奖励恢复幂等、物品持久化和投递事务，这三项直接关系到玩家物品和经济数据是否会重复或丢失。本轮仅进行了只读分析，没有修改、构建或测试项目。
+
+---
+
+## Development request 2026/8/28 17:18:03
+
+超大礼包可能卡服。当前允许总数量最高 589824，打开时会预先拆成物品堆，并对每一堆前后同步保存数据；不可堆叠物品或大数量礼包会产生非常多的磁盘写入。
+管理员无法真正处置 BLOCKED 礼包。现有 inspect 仅返回实例总数，remove 会直接删除；没有逐堆审计、确认已发/未发、受控恢复工具。
+/omnitools package give 按玩家、按数量逐个创建。中途达到实例上限或发生异常时，之前创建的礼包不会回滚，属于部分成功。
+已打开礼包只从 GUI 隐藏，数据默认一直保留；长期运行会累积实例和投递批次。
+当前随机仅等权；商店礼包商品及“扣币与创建礼包”的事务恢复尚未实现。
+自动化测试只覆盖少量数据模型状态，未覆盖真实投递、背包满恢复、重启、权限和压力场景。
+交给工作台的实施方案
+
+第一阶段：先补稳定性和数据安全。
+
+将投递批次改为“逻辑条目 + 已投递数量”，不要在一次点击中预生成全部物理物品堆。
+打开礼包只创建投递任务；服务器每 tick 最多投递 delivery_stacks_per_tick 堆，始终在服务端主线程修改背包。
+保留现有 DELIVERING -> BLOCKED 的保守策略：发生不确定中断时绝不自动补发。
+配置增加安全项，并提供 V1 到 V2 迁移：
+"settings": {
+  "max_pending_packages_per_player": 256,
+  "max_delivery_stacks_per_package": 216,
+  "delivery_stacks_per_tick": 4,
+  "history_retention_days": 90
+}
+package give 改为“预检全部目标玩家容量和定义，再统一创建”。任何目标不满足条件时整次命令零创建；命令结果输出成功数、失败原因和批次 ID。
+仅自动清理已 OPENED、无未完成投递批次、且奖励账本已确认完成的历史实例；PENDING、WAITING_INBOX、BLOCKED 永不自动删除。
+第二阶段：补管理员恢复和审计能力。
+
+新增管理员权限与命令：
+
+/omnitools package list <player> [status] [page]
+/omnitools package inspect <player> <instance_uuid>
+/omnitools package resolve <player> <instance_uuid> <stack_uuid> delivered confirm
+/omnitools package resolve <player> <instance_uuid> <stack_uuid> pending confirm
+/omnitools package cancel <player> <instance_uuid> confirm
+inspect 必须显示礼包来源、grantKey、配置版本、随机结果、每个堆的数量和状态、时间戳。resolve 只能由管理员明确确认“该堆已发”或“确认未发”；禁止对 BLOCKED 一键重试。所有高风险操作写入独立审计日志。
+
+第三阶段：补商店联动。
+
+商店商品支持 type: "package"。
+新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。
+使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。
+重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。
