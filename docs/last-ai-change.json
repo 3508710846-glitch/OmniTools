@@ -1,31 +1,27 @@
 {
-  "prompt": "可以，而且建议做成“奖励库”，不建议新增一个可关闭的独立玩法模块。\n\n当前项目已有合适基础：`common/rewards.json` 已支持单条奖励模板，签到、在线奖励、成就、CDK 都经由同一 `RewardDefinition` 和奖励账本发放。但现在仍需在各模块保留奖励数组与本地 `id`，现有公共配置也只有两个简单模板，尚未实现“定义一套奖励组合，多个模块直接调用”。见 [CommonConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/CommonConfig.java:78)、[RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java:71)。\n\n**建议方案**\n\n将 `config/omnitools/common/rewards.json` 从“模板文件”升级为“奖励库”。它不放入 `modules` 总开关，因为签到、成就等模块都依赖它，关闭会导致引用失效。\n\n```json\n{\n  \"format_version\": 2,\n  \"rewards\": {\n    \"coins_100\": {\n      \"type\": \"currency\",\n      \"amount\": 100\n    },\n    \"starter_package\": {\n      \"type\": \"package\",\n      \"package\": \"starter\"\n    },\n    \"geologist_7d\": {\n      \"type\": \"title\",\n      \"title\": \"geologist\",\n      \"duration\": { \"mode\": \"active_days\", \"days\": 7 },\n      \"renewal\": \"extend\"\n    }\n  },\n  \"sets\": {\n    \"daily_basic\": {\n      \"rewards\": [\"coins_100\"]\n    },\n    \"mine_stone_1000\": {\n      \"rewards\": [\"coins_100\", \"geologist_7d\", \"starter_package\"]\n    }\n  }\n}\n```\n\n各业务模块只引用奖励或奖励组，不再重复写货币、物品、称号、指令、礼包的具体内容：\n\n```json\n{\n  \"id\": \"mine_stone_1000\",\n  \"condition\": { \"...\": \"...\" },\n  \"rewards\": [\n    { \"set\": \"mine_stone_1000\" }\n  ]\n}\n```\n\n也允许组合：\n\n```json\n\"rewards\": [\n  { \"set\": \"daily_basic\" },\n  { \"reward\": \"starter_package\" }\n]\n```\n\n实现要求：\n\n- 新增不可变 `RewardCatalog`，由 `CommonConfig` 加载 `rewards` 和 `sets`。\n- 奖励库键名同时作为稳定的奖励 `id`，解析时自动补入 `id`，调用处不得覆盖奖励类型、数量、NBT、指令等内容。\n- `{ \"reward\": \"...\" }` 解析为一个奖励；`{ \"set\": \"...\" }` 递归展开为多个奖励。\n- 支持集合嵌套，但必须检测未知引用、循环引用、最大深度、同一事件展开后重复奖励 ID。\n- 保留 V1 的 `templates`、`template`、`$ref`，保证旧配置继续可用；V2 是推荐写法。\n- 在完整 `/omnitools reload` 时先加载奖励库，再加载签到、在线奖励、成就、CDK，最后沿用现有跨模块校验。称号、礼包、补签卡、命令安全规则仍由现有 [ConfigValidator.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java:162) 校验。\n- 不修改 `RewardGrantService` 和奖励账本语义。最终仍是已解析的 `RewardDefinition`，因此幂等、防重复、物品/NBT 快照、礼包创建逻辑保持不变。\n\n关键规则：奖励 ID 必须视为永久业务 ID。已上线的 `coins_100` 不要改成物品或改作其他用途；需要调整语义时新增 `coins_200_v2`，再修改奖励组。否则已有奖励账本可能将“旧奖励已发”误判为“新奖励已发”。\n\n工作台验收应覆盖：四个模块都能引用同一奖励组；奖励组组合与重复 ID 被正确处理；循环/未知引用阻止整次重载；V1 模板与旧的内联 `rewards` 数组仍可使用；奖励库中的称号、礼包、命令仍触发现有安全校验。\n\n这样能真正做到“奖励只定义一次，业务模块只选择奖励组”，且不会重造现有统一发奖与幂等机制。",
+  "prompt": "当前项目已从“单一签到模组”发展为较完整的纯服务端运营框架，功能覆盖面很高；下一阶段的重点不应继续堆叠玩法，而应优先补齐文档、事务恢复验证和性能边界。\n\n**已实现**\n\n- 平台层：模块总开关、单模块重载、统一权限、配置候选快照校验后原子发布，加载失败会保留旧配置。[配置管理](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java)\n- 核心玩法：签到与补签、在线奖励、CDK、货币商店、称号、成就、云存储、命令菜单、侧边栏、排行榜、礼包。\n- 成就：支持原版统计及 `stat / sum / all / any / not` 条件树，并包含调度预算。\n- 统一奖励：签到、在线奖励、成就、CDK 可复用货币、物品、称号、指令、补签卡、礼包等奖励；奖励库 V2 支持命名奖励集、嵌套引用和循环检测。[奖励库](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java) [发奖服务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java)\n- 礼包：已支持 V2 配置、全量/随机领取、按 tick 分批投递、待领取记录、历史清理、损坏数据隔离、审计日志与管理员 `inspect/resolve/cancel` 处理。[礼包服务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)\n- 商店购买礼包：已有持久化事务链 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，服务器启动时会尝试恢复可证明安全的中断状态。[购买事务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java)\n\n**主要缺口**\n\n| 类型 | 现状 | 影响 |\n|---|---|---|\n| 文档同步 | 礼包、奖励库、商店事务的文档仍混有“未实现”和旧 V1 配置描述 | 服主可能按过期字段配置，无法正确运维 |\n| 端到端验证 | 现有测试侧重解析与数据模型，缺少真实服务器中断恢复流程 | 无法证明扣款、发礼包、重启恢复不会造成重复或遗漏 |\n| 性能验证 | 礼包和商店关键节点仍会同步落盘 | 高并发、不可堆叠物品或慢磁盘时可能拖慢 TPS |\n| 运维闭环 | 礼包已有人工处置命令；商店阻塞事务的“继续、退款、结案”流程仍需确认或补齐 | 管理员遇到异常交易时处理成本高 |\n| 可选依赖兼容 | Placeholder API 使用反射降级，但尚应验证安装、缺失、禁用三种场景 | 侧边栏和文本渲染可能出现版本兼容问题 |\n\n另外，当前运行配置中 `packages`、`leaderboards`、`permissions` 处于关闭状态，因此这些模块虽已有源码，实际服内路径仍未被当前配置验证。\n\n**最高优先级风险**\n\n1. **文档与代码事实不一致**。这是当前最直接的用户风险，尤其是 [礼包文档](D:/mod/qiandao/docs/modules/packages.md)、[奖励参考](D:/mod/qiandao/docs/reference/rewards.md) 与实际 V2 实现互相矛盾。\n2. **跨持久化事务缺少故障演练**。重点覆盖“扣币后崩溃”“创建礼包后崩溃”“背包满分批投递”“重启后恢复”“管理员 resolve/cancel”。\n3. **同步保存的主线程压力未知**。礼包已经有每 tick 限额，但需要在大量待发物品和多人同时购买时测量实际 MSPT。\n\n**建议顺序**\n\n- P0：以源码为唯一事实源，重写并统一奖励、礼包、商店事务文档与示例配置。\n- P0：补真实服务器集成测试/烟雾测试，覆盖交易中断与恢复。\n- P1：增加投递队列、同步保存耗时与阻塞事务数量的日志/监控，并做压力测试。\n- P1：完善商店异常交易的管理员处理命令和审计闭环。\n- P2：确认稳定性后，再扩展礼包、排行榜和跨模块玩法。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-28T10:51:13.818Z",
-  "summary": "奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ \"reward\" }` / `{ \"set\" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。\n\n保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。\n\n验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。",
-  "finalResponse": "奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ \"reward\" }` / `{ \"set\" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。\n\n保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。\n\n验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。",
+  "createdAt": "2026-08-28T11:53:16.178Z",
+  "summary": "已完成本轮同步与验证：\n\n- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。\n- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。\n- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。\n- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。\n- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。\n\n验证结果：\n\n- 受管 build：通过，JAR 823.4 KB。\n- 受管 server smoke：通过，服务端稳定运行 15 秒。\n- 内容校验：通过，无错误或警告。\n- 所有新增/修改文档中的 JSON 代码块均解析通过。\n- 相对 Markdown 链接均存在，`git diff --check` 通过。\n\n当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。",
+  "finalResponse": "已完成本轮同步与验证：\n\n- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。\n- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。\n- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。\n- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。\n- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。\n\n验证结果：\n\n- 受管 build：通过，JAR 823.4 KB。\n- 受管 server smoke：通过，服务端稳定运行 15 秒。\n- 内容校验：通过，无错误或警告。\n- 所有新增/修改文档中的 JSON 代码块均解析通过。\n- 相对 Markdown 链接均存在，`git diff --check` 通过。\n\n当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。",
   "intent": "engineering",
-  "tasks": [
-    "完成奖励库解析与旧配置兼容",
-    "补齐并验证奖励库测试",
-    "执行构建、运行与内容校验"
-  ],
+  "tasks": [],
   "files": [
     {
-      "path": "docs/config-platform.md",
+      "path": "docs/modules/packages.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/config-platform/README.md",
+      "path": "docs/modules/shop-and-currency.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/examples/config-platform/common-rewards.jsonc",
+      "path": "docs/omnitools-handbook.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/schemas/common-rewards.schema.json",
+      "path": "docs/reference/rewards.md",
       "purpose": "外部代理修改"
     },
     {
@@ -97,23 +93,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/config/CommonConfig.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/config/RewardCatalog.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/test/java/dev/modmind/omnitools/config/RewardCatalogTest.java",
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -122,7 +102,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-28T10-29-55-975Z",
+  "snapshotId": "2026-08-28T11-31-11-753Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -132,21 +112,17 @@
       "build"
     ],
     "completed": [
-      "build",
-      "plan",
-      "runtime_test",
       "validate",
-      "implementation",
-      "todo_complete"
+      "build",
+      "runtime_test",
+      "implementation"
     ],
     "missing": [],
     "evidence": {
-      "build": "modmind_test_matrix passed a build/client target",
-      "plan": "modmind_update_todo published the ordered plan",
-      "runtime_test": "modmind_test_matrix passed runtime targets",
       "validate": "modmind_validate_content completed successfully",
-      "implementation": "Detected 26 changed managed files",
-      "todo_complete": "All Todo items are completed after the other required stages"
+      "build": "modmind_test_matrix passed a build/client target",
+      "runtime_test": "modmind_test_matrix passed runtime targets",
+      "implementation": "Detected 22 changed managed files"
     }
   }
 }

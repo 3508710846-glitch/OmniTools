@@ -60,6 +60,7 @@ import dev.modmind.omnitools.packages.PackageService;
 import dev.modmind.omnitools.packages.PackageData;
 import dev.modmind.omnitools.packages.PackageInstance;
 import dev.modmind.omnitools.packages.PackageDeliveryBatch;
+import dev.modmind.omnitools.packages.PackageAuditLog;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -770,7 +771,16 @@ public final class ModMindEntry implements ModInitializer {
     }
     private static int removePackage(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         UUID id; try { id = UUID.fromString(StringArgumentType.getString(context, "instance")); } catch (IllegalArgumentException e) { return 0; }
-        boolean removed = false; for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) removed |= PackageData.get(context.getSource().getServer()).remove(profile.id(), id);
+        boolean removed = false;
+        for (NameAndId profile : GameProfileArgument.getGameProfiles(context, "player")) {
+            boolean current = PackageData.get(context.getSource().getServer()).remove(profile.id(), id);
+            removed |= current;
+            if (current) {
+                PackageAuditLog.write(context.getSource().getServer(), "remove",
+                        "operator=" + context.getSource().getTextName() + " owner=" + profile.id()
+                                + " instance=" + id);
+            }
+        }
         return removed ? 1 : 0;
     }
 

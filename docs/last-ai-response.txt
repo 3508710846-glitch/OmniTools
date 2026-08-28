@@ -1,5 +1,17 @@
-奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ "reward" }` / `{ "set" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。
+已完成本轮同步与验证：
 
-保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。
+- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。
+- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。
+- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。
+- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。
+- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。
 
-验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。
+验证结果：
+
+- 受管 build：通过，JAR 823.4 KB。
+- 受管 server smoke：通过，服务端稳定运行 15 秒。
+- 内容校验：通过，无错误或警告。
+- 所有新增/修改文档中的 JSON 代码块均解析通过。
+- 相对 Markdown 链接均存在，`git diff --check` 通过。
+
+当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。
