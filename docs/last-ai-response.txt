@@ -1,17 +1,8 @@
-已完成并验证礼包模块可靠性修复：
+已完成礼包 P1 界面与展示快照收口。
 
-- `grantKey = eventId#rewardId` 幂等查询，修复 `APPLYING` 恢复时重复创建礼包。
-- `PackageData` 增加 `findByGrantKey`、`createIfAbsent`，并使用 `RegistryOps` 编解码物品快照。
-- 损坏实例会记录日志、保留原始数据并隔离为 `BLOCKED`。
-- `PackageInstance` 保留兼容构造函数并持久化 `grantKey`。
-- 新增幂等测试：[PackageDataTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/packages/PackageDataTest.java)
-- 校准礼包文档与 Schema，明确当前实现边界及未实现功能。
+- [礼包列表](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java) 支持 36 槽分页、状态/来源/Description Lore、奖励箱入口。
+- 新增只读[预览界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackagePreviewScreenHandler.java)和[确认界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageConfirmScreenHandler.java)；随机结果仅在确认后由服务端生成。
+- [PackageInstance](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageInstance.java) 持久化描述快照，配置重载不影响旧礼包展示；重载时会一并关闭三个礼包界面。
+- 更新了[礼包模块文档](D:/mod/qiandao/docs/modules/packages.md)与描述快照回归测试。
 
-验证结果：
-
-- 内容校验：通过，无错误或警告。
-- 项目构建：通过，产物为 `modmind-current-project.jar`。
-- 服务端无头测试：通过，服务器就绪后稳定运行 15 秒。
-- `git diff --check`：通过。
-
-当前仍明确未实现持久化 `PackageDeliveryBatch`、确认/预览 GUI、权重随机、商店购买事务和礼包占位符等后续能力。
+验证已通过：内容校验无错误，`build` 通过，Fabric 服务端启动后稳定运行 15 秒，`git diff --check` 通过。未回退工作区中已有的其他修改。

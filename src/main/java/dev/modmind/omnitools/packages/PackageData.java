@@ -6,6 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.LongTag;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
@@ -35,7 +36,16 @@ public final class PackageData extends SavedData {
     private final Map<UUID, LinkedHashMap<UUID, PackageInstance>> instances = new HashMap<>();
     /** Raw records that could not be decoded; they are retained for administrator recovery. */
     private final Map<UUID, LinkedHashMap<UUID, CompoundTag>> corruptRecords = new HashMap<>();
+    /** Records without a valid UUID cannot become instances, but still must survive a later save. */
+    private final Map<UUID, LinkedHashMap<String, CompoundTag>> malformedInstanceRecords = new HashMap<>();
+    private final Map<String, CompoundTag> malformedOwnerRecords = new LinkedHashMap<>();
+    /** One active or completed delivery transaction per virtual package instance. */
+    private final Map<UUID, PackageDeliveryBatch> deliveryBatches = new LinkedHashMap<>();
+    /** Raw batch records that could not be decoded; retained alongside the blocked instance. */
+    private final Map<UUID, CompoundTag> corruptBatchRecords = new LinkedHashMap<>();
+    private final Map<String, CompoundTag> malformedBatchRecords = new LinkedHashMap<>();
     private HolderLookup.Provider registries;
+    private boolean deliveryRecoveryPending;
 
     public static PackageData get(MinecraftServer server) {
         ServerLevel level = server.getLevel(Level.OVERWORLD);
@@ -46,6 +56,7 @@ public final class PackageData extends SavedData {
         try {
             PackageData data = level.getDataStorage().computeIfAbsent(TYPE);
             data.registries = server.registryAccess();
+            data.reconcileDeliveryBatches();
             return data;
         } finally {
             LOADING_REGISTRIES.remove();
@@ -96,6 +107,47 @@ public final class PackageData extends SavedData {
         return map == null ? List.of() : List.copyOf(map.values());
     }
 
+    public synchronized Optional<PackageDeliveryBatch> findDeliveryBatch(UUID packageInstanceId) {
+        return Optional.ofNullable(deliveryBatches.get(packageInstanceId));
+    }
+
+    /** Creates the initial transaction exactly once for an instance that has entered OPENING. */
+    public synchronized PackageDeliveryBatch createDeliveryBatchIfAbsent(PackageDeliveryBatch candidate) {
+        if (candidate == null) {
+            throw new IllegalArgumentException("Package delivery batch is required");
+        }
+        PackageDeliveryBatch existing = deliveryBatches.get(candidate.packageInstanceId());
+        if (existing != null) {
+            return existing;
+        }
+        deliveryBatches.put(candidate.packageInstanceId(), candidate);
+        corruptBatchRecords.remove(candidate.batchId());
+        setDirty();
+        return candidate;
+    }
+
+    public synchronized boolean updateDeliveryBatch(PackageDeliveryBatch batch) {
+        if (batch == null || !deliveryBatches.containsKey(batch.packageInstanceId())) {
+            return false;
+        }
+        deliveryBatches.put(batch.packageInstanceId(), batch);
+        setDirty();
+        return true;
+    }
+
+    /**
+     * Forces the current transaction state to disk before or after an irreversible inventory
+     * mutation. Package openings deliver at most the player's inventory capacity in one action,
+     * so this trades a bounded amount of I/O for a durable duplicate-prevention boundary.
+     */
+    public void flush(MinecraftServer server) {
+        ServerLevel level = server == null ? null : server.getLevel(Level.OVERWORLD);
+        if (level == null) {
+            throw new IllegalStateException("overworld unavailable");
+        }
+        level.getDataStorage().saveAndJoin();
+    }
+
     public synchronized boolean update(PackageInstance instance) {
         var map = instances.get(instance.ownerId());
         if (map == null || !map.containsKey(instance.instanceId())) {
@@ -115,6 +167,10 @@ public final class PackageData extends SavedData {
         if (corrupt != null) {
             corrupt.remove(id);
         }
+        PackageDeliveryBatch batch = deliveryBatches.remove(id);
+        if (batch != null) {
+            corruptBatchRecords.remove(batch.batchId());
+        }
         setDirty();
         return true;
     }
@@ -124,23 +180,26 @@ public final class PackageData extends SavedData {
         HolderLookup.Provider registries = LOADING_REGISTRIES.get();
         CompoundTag owners = root.getCompoundOrEmpty("owners");
         for (String ownerKey : owners.keySet()) {
+            CompoundTag values = owners.getCompoundOrEmpty(ownerKey);
             UUID owner;
             try {
                 owner = UUID.fromString(ownerKey);
             } catch (IllegalArgumentException exception) {
-                System.err.println("[omnitools] Ignoring invalid package owner UUID: " + ownerKey);
+                System.err.println("[omnitools] Retaining invalid package owner UUID: " + ownerKey);
+                data.malformedOwnerRecords.put(ownerKey, values.copy());
                 continue;
             }
-            CompoundTag values = owners.getCompoundOrEmpty(ownerKey);
             for (String idKey : values.keySet()) {
+                CompoundTag raw = values.getCompoundOrEmpty(idKey).copy();
                 UUID id;
                 try {
                     id = UUID.fromString(idKey);
                 } catch (IllegalArgumentException exception) {
-                    System.err.println("[omnitools] Ignoring invalid package instance UUID: " + idKey);
+                    System.err.println("[omnitools] Retaining invalid package instance UUID: " + idKey);
+                    data.malformedInstanceRecords.computeIfAbsent(owner, ignored -> new LinkedHashMap<>())
+                            .put(idKey, raw);
                     continue;
                 }
-                CompoundTag raw = values.getCompoundOrEmpty(idKey).copy();
                 try {
                     PackageInstance instance = decodeInstance(id, owner, raw, registries);
                     data.instances.computeIfAbsent(owner, ignored -> new LinkedHashMap<>()).put(id, instance);
@@ -155,7 +214,46 @@ public final class PackageData extends SavedData {
                 }
             }
         }
+        data.decodeDeliveryBatches(root.getCompoundOrEmpty("delivery_batches"), registries);
+        data.deliveryRecoveryPending = true;
         return data;
+    }
+
+    private synchronized void decodeDeliveryBatches(CompoundTag batches, HolderLookup.Provider registryLookup) {
+        for (String batchKey : batches.keySet()) {
+            CompoundTag raw = batches.getCompoundOrEmpty(batchKey).copy();
+            UUID batchId;
+            try {
+                batchId = UUID.fromString(batchKey);
+            } catch (IllegalArgumentException exception) {
+                System.err.println("[omnitools] Retaining invalid package delivery batch UUID: " + batchKey);
+                malformedBatchRecords.put(batchKey, raw);
+                UUID instanceId = parseUuid(raw.getStringOr("package_instance_id", ""));
+                if (instanceId != null) {
+                    blockInstance(instanceId);
+                }
+                continue;
+            }
+            try {
+                PackageDeliveryBatch batch = decodeDeliveryBatch(batchId, raw, registryLookup);
+                if (findByInstanceId(batch.packageInstanceId()) == null) {
+                    throw new IllegalArgumentException("delivery batch references a missing package instance");
+                }
+                if (deliveryBatches.putIfAbsent(batch.packageInstanceId(), batch) != null) {
+                    throw new IllegalArgumentException("multiple delivery batches reference the same package instance");
+                }
+            } catch (RuntimeException exception) {
+                String message = exception.getMessage() == null
+                        ? exception.getClass().getSimpleName() : exception.getMessage();
+                System.err.println("[omnitools] Package delivery batch " + batchId
+                        + " could not be decoded and was quarantined: " + message);
+                corruptBatchRecords.put(batchId, raw);
+                UUID instanceId = parseUuid(raw.getStringOr("package_instance_id", ""));
+                if (instanceId != null) {
+                    blockInstance(instanceId);
+                }
+            }
+        }
     }
 
     private static PackageInstance decodeInstance(UUID id, UUID owner, CompoundTag tag,
@@ -171,15 +269,38 @@ public final class PackageData extends SavedData {
         }
         return new PackageInstance(id, owner, tag.getStringOr("package_id", ""),
                 tag.getIntOr("package_version", 1), tag.getStringOr("display", ""),
+                decodeDescription(tag.getListOrEmpty("description")),
                 tag.getStringOr("icon", ""), PackageDefinition.Mode.parse(tag.getStringOr("mode", "all")),
                 items, quantities, tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
                 parseStatus(tag.getStringOr("status", "PENDING")), tag.getLongOr("granted_at", 0L),
                 tag.getIntOr("selected", -1));
     }
 
+    private static PackageDeliveryBatch decodeDeliveryBatch(UUID batchId, CompoundTag tag,
+                                                             HolderLookup.Provider registryLookup) {
+        UUID instanceId = UUID.fromString(tag.getStringOr("package_instance_id", ""));
+        ListTag entries = tag.getListOrEmpty("stacks");
+        List<PackageDeliveryBatch.StackEntry> stacks = new ArrayList<>();
+        for (int index = 0; index < entries.size(); index++) {
+            if (!(entries.get(index) instanceof CompoundTag stackTag)) {
+                throw new IllegalArgumentException("delivery batch stack is not a compound");
+            }
+            UUID stackId = UUID.fromString(stackTag.getStringOr("stack_id", ""));
+            ItemStack snapshot = decodeItem(stackTag.getCompoundOrEmpty("item"), registryLookup);
+            int quantity = stackTag.getIntOr("quantity", 0);
+            PackageDeliveryBatch.StackStatus stackStatus = parseDeliveryStackStatus(
+                    stackTag.getStringOr("status", "PENDING"));
+            stacks.add(new PackageDeliveryBatch.StackEntry(stackId, snapshot, quantity, stackStatus));
+        }
+        return new PackageDeliveryBatch(batchId, instanceId, stacks, tag.getIntOr("cursor", 0),
+                parseDeliveryStatus(tag.getStringOr("status", "PENDING")),
+                tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L));
+    }
+
     private static PackageInstance blockedInstance(UUID id, UUID owner, CompoundTag tag) {
         return new PackageInstance(id, owner, tag.getStringOr("package_id", "corrupt"),
                 tag.getIntOr("package_version", 1), tag.getStringOr("display", "损坏礼包"),
+                decodeDescription(tag.getListOrEmpty("description")),
                 tag.getStringOr("icon", "minecraft:barrier"), PackageDefinition.Mode.ALL,
                 List.of(), List.of(), tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
                 PackageInstance.Status.BLOCKED, tag.getLongOr("granted_at", 0L), -1);
@@ -210,6 +331,101 @@ public final class PackageData extends SavedData {
         return List.copyOf(result);
     }
 
+    private static List<String> decodeDescription(ListTag list) {
+        List<String> description = new ArrayList<>();
+        for (int index = 0; index < list.size(); index++) {
+            if (!(list.get(index) instanceof StringTag line)) {
+                throw new IllegalArgumentException("package description entry is not a string");
+            }
+            description.add(line.value());
+        }
+        return List.copyOf(description);
+    }
+
+    private static ItemStack decodeItem(CompoundTag tag, HolderLookup.Provider registries) {
+        RegistryOps<Tag> ops = registries == null ? null : RegistryOps.create(NbtOps.INSTANCE, registries);
+        return (ops == null ? ItemStack.CODEC.parse(NbtOps.INSTANCE, tag) : ItemStack.CODEC.parse(ops, tag))
+                .getOrThrow(message -> new IllegalArgumentException("package item snapshot is invalid: " + message));
+    }
+
+    private static PackageDeliveryBatch.Status parseDeliveryStatus(String value) {
+        try {
+            return PackageDeliveryBatch.Status.valueOf(value);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("unknown package delivery status: " + value, exception);
+        }
+    }
+
+    private static PackageDeliveryBatch.StackStatus parseDeliveryStackStatus(String value) {
+        try {
+            return PackageDeliveryBatch.StackStatus.valueOf(value);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("unknown package delivery stack status: " + value, exception);
+        }
+    }
+
+    private static UUID parseUuid(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private PackageInstance findByInstanceId(UUID instanceId) {
+        for (LinkedHashMap<UUID, PackageInstance> ownerInstances : instances.values()) {
+            PackageInstance instance = ownerInstances.get(instanceId);
+            if (instance != null) {
+                return instance;
+            }
+        }
+        return null;
+    }
+
+    private void blockInstance(UUID instanceId) {
+        PackageInstance instance = findByInstanceId(instanceId);
+        if (instance == null || instance.status() == PackageInstance.Status.BLOCKED) {
+            return;
+        }
+        instances.get(instance.ownerId()).put(instanceId, instance.withStatus(PackageInstance.Status.BLOCKED));
+    }
+
+    /** Resolves only provable transaction states after a SavedData reload. */
+    private synchronized void reconcileDeliveryBatches() {
+        if (!deliveryRecoveryPending) {
+            return;
+        }
+        deliveryRecoveryPending = false;
+        long now = System.currentTimeMillis();
+        boolean changed = false;
+        for (PackageDeliveryBatch batch : List.copyOf(deliveryBatches.values())) {
+            PackageInstance instance = findByInstanceId(batch.packageInstanceId());
+            if (instance == null) {
+                corruptBatchRecords.put(batch.batchId(), encodeDeliveryBatch(batch, registries));
+                deliveryBatches.remove(batch.packageInstanceId());
+                changed = true;
+                continue;
+            }
+            if (batch.hasUncertainDelivery() || batch.hasBlockedStack() || batch.status() == PackageDeliveryBatch.Status.BLOCKED) {
+                deliveryBatches.put(batch.packageInstanceId(), batch.withStatus(PackageDeliveryBatch.Status.BLOCKED, now));
+                blockInstance(batch.packageInstanceId());
+                changed = true;
+                continue;
+            }
+            if (batch.isComplete()) {
+                deliveryBatches.put(batch.packageInstanceId(), batch.withStatus(PackageDeliveryBatch.Status.COMPLETED, now));
+                if (instance.status() != PackageInstance.Status.OPENED) {
+                    instances.get(instance.ownerId()).put(instance.instanceId(),
+                            instance.withStatus(PackageInstance.Status.OPENED));
+                }
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     private static CompoundTag toTag(PackageData data) {
         CompoundTag root = new CompoundTag();
         CompoundTag owners = new CompoundTag();
@@ -230,6 +446,13 @@ public final class PackageData extends SavedData {
                 tag.putString("package_id", instance.packageId());
                 tag.putInt("package_version", instance.packageVersion());
                 tag.putString("display", instance.displayName());
+                if (!instance.description().isEmpty()) {
+                    ListTag description = new ListTag();
+                    for (String line : instance.description()) {
+                        description.add(StringTag.valueOf(line));
+                    }
+                    tag.put("description", description);
+                }
                 tag.putString("icon", instance.iconId());
                 tag.putString("mode", instance.mode().serializedName());
                 tag.putString("source", instance.sourceEvent());
@@ -261,7 +484,71 @@ public final class PackageData extends SavedData {
             }
             owners.put(ownerEntry.getKey().toString(), values);
         }
+        for (Map.Entry<UUID, LinkedHashMap<String, CompoundTag>> ownerEntry : data.malformedInstanceRecords.entrySet()) {
+            String ownerKey = ownerEntry.getKey().toString();
+            CompoundTag values = owners.getCompoundOrEmpty(ownerKey).copy();
+            for (Map.Entry<String, CompoundTag> entry : ownerEntry.getValue().entrySet()) {
+                if (!values.contains(entry.getKey())) {
+                    values.put(entry.getKey(), entry.getValue().copy());
+                }
+            }
+            owners.put(ownerKey, values);
+        }
+        for (Map.Entry<String, CompoundTag> entry : data.malformedOwnerRecords.entrySet()) {
+            if (!owners.contains(entry.getKey())) {
+                owners.put(entry.getKey(), entry.getValue().copy());
+            }
+        }
         root.put("owners", owners);
+        CompoundTag batches = new CompoundTag();
+        for (PackageDeliveryBatch batch : data.deliveryBatches.values()) {
+            batches.put(batch.batchId().toString(), encodeDeliveryBatch(batch, data.registries));
+        }
+        for (Map.Entry<UUID, CompoundTag> entry : data.corruptBatchRecords.entrySet()) {
+            if (!batches.contains(entry.getKey().toString())) {
+                CompoundTag blocked = entry.getValue().copy();
+                blocked.putString("status", PackageDeliveryBatch.Status.BLOCKED.name());
+                batches.put(entry.getKey().toString(), blocked);
+            }
+        }
+        for (Map.Entry<String, CompoundTag> entry : data.malformedBatchRecords.entrySet()) {
+            if (!batches.contains(entry.getKey())) {
+                batches.put(entry.getKey(), entry.getValue().copy());
+            }
+        }
+        root.put("delivery_batches", batches);
         return root;
+    }
+
+    private static CompoundTag encodeDeliveryBatch(PackageDeliveryBatch batch, HolderLookup.Provider registries) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("package_instance_id", batch.packageInstanceId().toString());
+        tag.putInt("cursor", batch.cursor());
+        tag.putString("status", batch.status().name());
+        tag.putLong("created_at", batch.createdAt());
+        tag.putLong("updated_at", batch.updatedAt());
+        ListTag stacks = new ListTag();
+        for (PackageDeliveryBatch.StackEntry entry : batch.stacks()) {
+            CompoundTag stack = new CompoundTag();
+            stack.putString("stack_id", entry.stackId().toString());
+            stack.put("item", encodeItem(entry.itemSnapshot(), registries));
+            stack.putInt("quantity", entry.quantity());
+            stack.putString("status", entry.status().name());
+            stacks.add(stack);
+        }
+        tag.put("stacks", stacks);
+        return tag;
+    }
+
+    private static CompoundTag encodeItem(ItemStack stack, HolderLookup.Provider registries) {
+        Tag encoded = (registries == null
+                ? ItemStack.CODEC.encodeStart(NbtOps.INSTANCE, stack)
+                : ItemStack.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE, registries), stack))
+                .getOrThrow(message -> new IllegalStateException(
+                        "package item snapshot cannot be encoded: " + message));
+        if (!(encoded instanceof CompoundTag compound)) {
+            throw new IllegalStateException("package item snapshot did not encode as a compound");
+        }
+        return compound;
     }
 }

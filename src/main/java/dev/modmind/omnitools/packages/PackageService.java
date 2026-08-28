@@ -3,12 +3,20 @@ package dev.modmind.omnitools.packages;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import java.util.*;
 
-/** Server-authoritative package creation and opening service. */
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+
+/** Server-authoritative creation and durable, conservative opening of virtual packages. */
 public final class PackageService {
     public enum Result { CREATED, OPENED, WAITING_INBOX, BLOCKED, NOT_FOUND, INVALID, LIMIT_REACHED }
-    public record OpenResult(Result result, PackageInstance instance, List<ItemStack> delivered, List<ItemStack> pending) {}
+
+    public record OpenResult(Result result, PackageInstance instance, List<ItemStack> delivered,
+                             List<ItemStack> pending) {
+    }
 
     public PackageInstance create(MinecraftServer server, UUID owner, String packageId, String sourceEvent) {
         return create(server, owner, packageId, sourceEvent, "");
@@ -19,8 +27,10 @@ public final class PackageService {
      * idempotency boundary between the reward ledger and package SavedData.
      */
     public PackageInstance create(MinecraftServer server, UUID owner, String packageId, String sourceEvent,
-                                   String grantKey) {
-        if (server == null || owner == null) throw new IllegalArgumentException("server and owner are required");
+                                  String grantKey) {
+        if (server == null || owner == null) {
+            throw new IllegalArgumentException("server and owner are required");
+        }
         PackageData data = PackageData.get(server);
         if (grantKey != null && !grantKey.isBlank()) {
             Optional<PackageInstance> existing = data.findByGrantKey(owner, grantKey);
@@ -29,101 +39,274 @@ public final class PackageService {
             }
         }
         PackageConfig config = dev.modmind.omnitools.ModMindEntry.configSnapshot().packages();
-        PackageDefinition definition = config.definition(packageId).orElseThrow(() -> new IllegalArgumentException("Unknown package: " + packageId));
-        if (data.list(owner).stream().filter(p -> p.status() != PackageInstance.Status.OPENED).count() >= config.settings().maxPackagesPerPlayer()) {
+        PackageDefinition definition = config.definition(packageId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown package: " + packageId));
+        if (data.list(owner).stream().filter(instance -> instance.status() != PackageInstance.Status.OPENED).count()
+                >= config.settings().maxPackagesPerPlayer()) {
             throw new IllegalStateException("Package limit reached");
         }
-        List<ItemStack> snapshot = definition.items().stream().map(item -> item.prototype()).toList();
+        List<ItemStack> snapshot = definition.items().stream().map(PackageItem::prototype).toList();
         List<Long> quantities = definition.items().stream().map(PackageItem::quantity).toList();
         PackageInstance instance = new PackageInstance(UUID.randomUUID(), owner, definition.id(), definition.version(),
-                definition.display(), definition.iconId(), definition.mode(), snapshot, quantities, sourceEvent,
-                grantKey,
-                PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
+                definition.display(), definition.description(), definition.iconId(), definition.mode(), snapshot, quantities, sourceEvent,
+                grantKey, PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
         return data.createIfAbsent(instance);
     }
 
     public OpenResult open(ServerPlayer player, UUID instanceId) {
-        if (player == null || instanceId == null) return new OpenResult(Result.INVALID, null, List.of(), List.of());
+        if (player == null || instanceId == null) {
+            return result(Result.INVALID, null, List.of(), List.of());
+        }
         PackageData data = PackageData.get(player.level().getServer());
-        PackageInstance current = data.find(player.getUUID(), instanceId).orElse(null);
-        if (current == null) return new OpenResult(Result.NOT_FOUND, null, List.of(), List.of());
-        if (current.status() == PackageInstance.Status.OPENED) return new OpenResult(Result.INVALID, current, List.of(), List.of());
-        if (current.status() == PackageInstance.Status.OPENING || current.status() == PackageInstance.Status.DELIVERING) {
-            return new OpenResult(Result.BLOCKED, current, List.of(), current.items());
+        PackageInstance instance = data.find(player.getUUID(), instanceId).orElse(null);
+        if (instance == null) {
+            return result(Result.NOT_FOUND, null, List.of(), List.of());
         }
-        if (current.status() == PackageInstance.Status.WAITING_INBOX) {
-            List<ItemStack> delivered = new ArrayList<>();
-            List<ItemStack> pending = new ArrayList<>();
-            for (ItemStack stack : current.items()) {
-                if (canFitFully(player, stack)) { insertFully(player, stack); delivered.add(stack); }
-                else pending.add(stack);
+        if (instance.status() == PackageInstance.Status.OPENED) {
+            return result(Result.INVALID, instance, List.of(), List.of());
+        }
+        if (instance.status() == PackageInstance.Status.BLOCKED) {
+            return result(Result.BLOCKED, instance, List.of(), instance.items());
+        }
+
+        PackageDeliveryBatch batch = data.findDeliveryBatch(instance.instanceId()).orElse(null);
+        if (batch != null && (batch.status() == PackageDeliveryBatch.Status.BLOCKED
+                || batch.hasUncertainDelivery() || batch.hasBlockedStack())) {
+            return block(data, player.level().getServer(), instance, batch);
+        }
+        if (batch != null && (batch.status() == PackageDeliveryBatch.Status.COMPLETED || batch.isComplete())) {
+            PackageDeliveryBatch completed = batch.withStatus(PackageDeliveryBatch.Status.COMPLETED,
+                    System.currentTimeMillis());
+            data.updateDeliveryBatch(completed);
+            PackageInstance opened = instance.withStatus(PackageInstance.Status.OPENED);
+            data.update(opened);
+            return result(Result.OPENED, opened, List.of(), List.of());
+        }
+
+        try {
+            if (batch == null) {
+                PackageInstance opening = lockSelection(data, instance);
+                if (opening.mode() == PackageDefinition.Mode.RANDOM_ONE) {
+                    // The selected index is the random package's irreversible result. Persist it
+                    // before constructing or attempting any delivery transaction.
+                    data.flush(player.level().getServer());
+                }
+                batch = PackageDeliveryBatch.create(opening.instanceId(), split(selectedPayload(opening)),
+                        System.currentTimeMillis());
+                batch = data.createDeliveryBatchIfAbsent(batch);
+                instance = opening;
             }
-            PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), pending, pending.stream().map(s -> (long) s.getCount()).toList(), current.sourceEvent(), current.grantKey(), pending.isEmpty() ? PackageInstance.Status.OPENED : PackageInstance.Status.WAITING_INBOX, current.grantedAt(), current.selectedItemIndex());
-            data.update(updated);
-            return new OpenResult(pending.isEmpty() ? Result.OPENED : Result.WAITING_INBOX, updated, delivered, pending);
-        }
-        if (current.status() == PackageInstance.Status.BLOCKED) return new OpenResult(Result.BLOCKED, current, List.of(), current.items());
-        List<ItemStack> payload = current.items();
-        List<Long> quantities = current.quantities();
-        int selected = current.selectedItemIndex();
-        if (current.mode() == PackageDefinition.Mode.RANDOM_ONE) {
-            if (selected < 0 || (selected >= payload.size() && payload.size() > 1)) {
-                selected = new Random().nextInt(payload.size());
-                ItemStack chosen = payload.get(selected).copy(); chosen.setCount(1);
-                payload = List.of(chosen);
-                quantities = List.of(quantities.get(selected));
-                current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), current.grantKey(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
-                data.update(current);
-            } else {
-                int index = payload.size() == 1 ? 0 : selected;
-                ItemStack chosen = payload.get(index).copy();
-                payload = List.of(chosen);
-                quantities = List.of(quantities.get(index));
+            if (instance.status() != PackageInstance.Status.DELIVERING) {
+                instance = instance.withStatus(PackageInstance.Status.DELIVERING);
+                data.update(instance);
             }
-        } else {
-            current = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), payload, quantities, current.sourceEvent(), current.grantKey(), PackageInstance.Status.OPENING, current.grantedAt(), selected);
-            data.update(current);
+        } catch (RuntimeException exception) {
+            System.err.println("[omnitools] Package delivery setup was blocked: instance=" + instance.instanceId()
+                    + " (" + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
+            return block(data, player.level().getServer(), instance, batch);
         }
-        List<ItemStack> stacks = split(payload, quantities);
-        List<ItemStack> pending = new ArrayList<>();
-        List<ItemStack> delivered = new ArrayList<>();
-        for (ItemStack stack : stacks) {
-            if (canFitFully(player, stack)) { insertFully(player, stack); delivered.add(stack); }
-            else pending.add(stack);
-        }
-        PackageInstance.Status status = pending.isEmpty() ? PackageInstance.Status.OPENED : PackageInstance.Status.WAITING_INBOX;
-        List<ItemStack> persistedItems = pending.isEmpty() ? List.of() : List.copyOf(pending);
-        List<Long> stackQuantities = persistedItems.stream().map(stack -> (long) stack.getCount()).toList();
-        PackageInstance updated = new PackageInstance(current.instanceId(), current.ownerId(), current.packageId(), current.packageVersion(), current.displayName(), current.iconId(), current.mode(), persistedItems, stackQuantities, current.sourceEvent(), current.grantKey(), status, current.grantedAt(), current.selectedItemIndex());
-        data.update(updated);
-        return new OpenResult(pending.isEmpty() ? Result.OPENED : Result.WAITING_INBOX, updated, delivered, pending);
+        return deliver(data, player, instance, batch);
     }
 
-    private static List<ItemStack> split(List<ItemStack> payload, List<Long> quantities) {
+    private static PackageInstance lockSelection(PackageData data, PackageInstance instance) {
+        if (instance.items().isEmpty()) {
+            throw new IllegalStateException("package has no item snapshots");
+        }
+        if (instance.mode() != PackageDefinition.Mode.RANDOM_ONE) {
+            PackageInstance opening = instance.withStatus(PackageInstance.Status.OPENING);
+            data.update(opening);
+            return opening;
+        }
+        int selected = instance.selectedItemIndex();
+        int entryCount = instance.items().size();
+        if (selected < 0) {
+            selected = ThreadLocalRandom.current().nextInt(entryCount);
+        } else if (entryCount > 1 && selected >= entryCount) {
+            throw new IllegalStateException("random package selection is out of range");
+        }
+        PackageInstance opening = instance.withOpeningSelection(selected);
+        data.update(opening);
+        return opening;
+    }
+
+    private static Payload selectedPayload(PackageInstance instance) {
+        List<ItemStack> items = instance.items();
+        List<Long> quantities = instance.quantities();
+        if (items.size() != quantities.size() || items.isEmpty()) {
+            throw new IllegalStateException("package snapshot is invalid");
+        }
+        if (instance.mode() != PackageDefinition.Mode.RANDOM_ONE) {
+            return new Payload(items, quantities);
+        }
+        int selected = instance.selectedItemIndex();
+        if (selected < 0) {
+            throw new IllegalStateException("random package selection was not persisted");
+        }
+        // Older interrupted opens replaced the snapshot with the chosen item. Preserve that entry
+        // rather than treating the old original index as an error during migration to batch data.
+        int index = items.size() == 1 ? 0 : selected;
+        if (index >= items.size()) {
+            throw new IllegalStateException("random package selection is out of range");
+        }
+        return new Payload(List.of(items.get(index)), List.of(quantities.get(index)));
+    }
+
+    private static OpenResult deliver(PackageData data, ServerPlayer player, PackageInstance instance,
+                                      PackageDeliveryBatch batch) {
+        List<ItemStack> delivered = new ArrayList<>();
+        try {
+            for (PackageDeliveryBatch.StackEntry entry : batch.stacks()) {
+                if (entry.status() == PackageDeliveryBatch.StackStatus.DELIVERED) {
+                    continue;
+                }
+                if (entry.status() == PackageDeliveryBatch.StackStatus.DELIVERING
+                        || entry.status() == PackageDeliveryBatch.StackStatus.BLOCKED) {
+                    return block(data, player.level().getServer(), instance, batch);
+                }
+                ItemStack stack = entry.stack();
+                if (!canFitFully(player, stack)) {
+                    if (entry.status() != PackageDeliveryBatch.StackStatus.WAITING_INBOX) {
+                        batch = batch.withStackStatus(entry.stackId(), PackageDeliveryBatch.StackStatus.WAITING_INBOX,
+                                System.currentTimeMillis()).withStatus(PackageDeliveryBatch.Status.WAITING_INBOX,
+                                System.currentTimeMillis());
+                        data.updateDeliveryBatch(batch);
+                        data.flush(player.level().getServer());
+                    }
+                    continue;
+                }
+
+                // Persist the ambiguous boundary before changing player inventory.
+                batch = batch.withStackStatus(entry.stackId(), PackageDeliveryBatch.StackStatus.DELIVERING,
+                        System.currentTimeMillis()).withStatus(PackageDeliveryBatch.Status.DELIVERING,
+                        System.currentTimeMillis());
+                data.updateDeliveryBatch(batch);
+                data.flush(player.level().getServer());
+                insertFully(player, stack);
+                batch = batch.withStackStatus(entry.stackId(), PackageDeliveryBatch.StackStatus.DELIVERED,
+                        System.currentTimeMillis());
+                data.updateDeliveryBatch(batch);
+                data.flush(player.level().getServer());
+                delivered.add(stack);
+            }
+        } catch (RuntimeException exception) {
+            System.err.println("[omnitools] Package delivery outcome is unknown and was blocked: instance="
+                    + instance.instanceId() + " (" + exception.getClass().getSimpleName() + ": "
+                    + exception.getMessage() + ")");
+            return block(data, player.level().getServer(), instance, batch);
+        }
+
+        if (batch.isComplete()) {
+            batch = batch.withStatus(PackageDeliveryBatch.Status.COMPLETED, System.currentTimeMillis());
+            data.updateDeliveryBatch(batch);
+            PackageInstance opened = instance.withStatus(PackageInstance.Status.OPENED);
+            data.update(opened);
+            data.flush(player.level().getServer());
+            return result(Result.OPENED, opened, delivered, List.of());
+        }
+
+        batch = batch.withStatus(PackageDeliveryBatch.Status.WAITING_INBOX, System.currentTimeMillis());
+        data.updateDeliveryBatch(batch);
+        PackageInstance waiting = instance.withStatus(PackageInstance.Status.WAITING_INBOX);
+        data.update(waiting);
+        data.flush(player.level().getServer());
+        return result(Result.WAITING_INBOX, waiting, delivered, batch.pendingStacks());
+    }
+
+    private static OpenResult block(PackageData data, MinecraftServer server, PackageInstance instance,
+                                    PackageDeliveryBatch batch) {
+        PackageDeliveryBatch blocked = batch;
+        if (batch != null) {
+            long now = System.currentTimeMillis();
+            for (PackageDeliveryBatch.StackEntry entry : batch.stacks()) {
+                if (entry.status() != PackageDeliveryBatch.StackStatus.DELIVERED) {
+                    blocked = blocked.withStackStatus(entry.stackId(), PackageDeliveryBatch.StackStatus.BLOCKED, now);
+                }
+            }
+            blocked = blocked.withStatus(PackageDeliveryBatch.Status.BLOCKED, now);
+            data.updateDeliveryBatch(blocked);
+        }
+        PackageInstance blockedInstance = instance.withStatus(PackageInstance.Status.BLOCKED);
+        data.update(blockedInstance);
+        try {
+            data.flush(server);
+        } catch (RuntimeException exception) {
+            System.err.println("[omnitools] Package blocked state could not be flushed: instance="
+                    + instance.instanceId() + " (" + exception.getClass().getSimpleName() + ": "
+                    + exception.getMessage() + ")");
+        }
+        List<ItemStack> pending = blocked == null ? instance.items() : remainingStacks(blocked);
+        return result(Result.BLOCKED, blockedInstance, List.of(), pending);
+    }
+
+    private static List<ItemStack> remainingStacks(PackageDeliveryBatch batch) {
+        return batch.stacks().stream()
+                .filter(entry -> entry.status() != PackageDeliveryBatch.StackStatus.DELIVERED)
+                .map(PackageDeliveryBatch.StackEntry::stack)
+                .toList();
+    }
+
+    private static List<ItemStack> split(Payload payload) {
         List<ItemStack> result = new ArrayList<>();
-        for (int index = 0; index < payload.size(); index++) {
-            ItemStack source = payload.get(index);
-            long remaining = quantities.get(index);
+        for (int index = 0; index < payload.items().size(); index++) {
+            ItemStack source = payload.items().get(index);
+            long remaining = payload.quantities().get(index);
             int max = Math.max(1, source.getMaxStackSize());
-            while (remaining > 0) { ItemStack stack = source.copy(); int amount = (int) Math.min(max, remaining); stack.setCount(amount); result.add(stack); remaining -= amount; }
+            while (remaining > 0) {
+                ItemStack stack = source.copy();
+                int amount = (int) Math.min(max, remaining);
+                stack.setCount(amount);
+                result.add(stack);
+                remaining -= amount;
+            }
         }
         return List.copyOf(result);
     }
+
     private static boolean canFitFully(ServerPlayer player, ItemStack reward) {
-        ItemStack simulated = reward.copy(); var inv = player.getInventory();
-        for (int slot = 0; slot < Math.min(36, inv.getContainerSize()) && !simulated.isEmpty(); slot++) {
-            ItemStack present = inv.getItem(slot);
-            if (present.isEmpty()) simulated.setCount(0);
-            else if (ItemStack.isSameItemSameComponents(present, simulated)) simulated.shrink(Math.min(simulated.getCount(), Math.max(0, present.getMaxStackSize() - present.getCount())));
+        ItemStack simulated = reward.copy();
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < Math.min(36, inventory.getContainerSize()) && !simulated.isEmpty(); slot++) {
+            ItemStack present = inventory.getItem(slot);
+            if (present.isEmpty()) {
+                simulated.setCount(0);
+            } else if (ItemStack.isSameItemSameComponents(present, simulated)) {
+                simulated.shrink(Math.min(simulated.getCount(),
+                        Math.max(0, present.getMaxStackSize() - present.getCount())));
+            }
         }
         return simulated.isEmpty();
     }
+
     private static void insertFully(ServerPlayer player, ItemStack reward) {
-        ItemStack actual = reward.copy(); var inv = player.getInventory();
-        for (int slot = 0; slot < Math.min(36, inv.getContainerSize()) && !actual.isEmpty(); slot++) {
-            ItemStack present = inv.getItem(slot);
-            if (present.isEmpty()) { int n = Math.min(actual.getCount(), actual.getMaxStackSize()); ItemStack placed = actual.copy(); placed.setCount(n); inv.setItem(slot, placed); actual.shrink(n); }
-            else if (ItemStack.isSameItemSameComponents(present, actual)) { int n = Math.min(actual.getCount(), Math.max(0, present.getMaxStackSize() - present.getCount())); if (n > 0) { present.grow(n); actual.shrink(n); } }
+        ItemStack actual = reward.copy();
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < Math.min(36, inventory.getContainerSize()) && !actual.isEmpty(); slot++) {
+            ItemStack present = inventory.getItem(slot);
+            if (present.isEmpty()) {
+                int amount = Math.min(actual.getCount(), actual.getMaxStackSize());
+                ItemStack placed = actual.copy();
+                placed.setCount(amount);
+                inventory.setItem(slot, placed);
+                actual.shrink(amount);
+            } else if (ItemStack.isSameItemSameComponents(present, actual)) {
+                int amount = Math.min(actual.getCount(),
+                        Math.max(0, present.getMaxStackSize() - present.getCount()));
+                if (amount > 0) {
+                    present.grow(amount);
+                    actual.shrink(amount);
+                }
+            }
         }
+        if (!actual.isEmpty()) {
+            throw new IllegalStateException("package inventory delivery was not complete");
+        }
+    }
+
+    private static OpenResult result(Result result, PackageInstance instance, List<ItemStack> delivered,
+                                     List<ItemStack> pending) {
+        return new OpenResult(result, instance, List.copyOf(delivered), List.copyOf(pending));
+    }
+
+    private record Payload(List<ItemStack> items, List<Long> quantities) {
     }
 }

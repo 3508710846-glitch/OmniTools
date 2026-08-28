@@ -8,7 +8,7 @@
 - 配置字段、默认值、格式版本和模块 ID 能在对应 `*Config`、`ModuleId`、默认生成配置及 Schema 中找到。
 - 根配置当前为 `format_version: 4`；模块示例使用各自 Schema 支持的格式版本。
 - 奖励、称号、物品与模板 ID 的文字说明和配置内容一致。
-- 礼包文档必须区分当前实现与规划能力：`grantKey` 幂等、实例快照、实际状态集合和背包不足恢复可作为当前行为；独立持久化 `PackageDeliveryBatch`、确认 GUI、权重随机、商店事务和礼包占位符必须标为未实现。
+- 礼包文档必须区分当前实现与规划能力：`grantKey` 幂等、实例快照、RegistryOps 编解码、持久化 `PackageDeliveryBatch`、实际状态集合和背包不足恢复可作为当前行为；确认 GUI、权重随机、商店事务、批次人工结算命令和礼包占位符必须标为未实现。
 - 礼包示例必须同时通过 `docs/schemas/packages.schema.json` 和运行时 `PackageConfig` 的字段约束；严格 JSON 代码块不能包含注释，教学 `jsonc` 必须注明目标路径。
 - UTF-8 中文、JSON 转义和代码块语言标记正常显示。
 - 旧链接页面仍只包含跳转；`archive/` 不被 README 或 `docs/index.md` 主导航引用。

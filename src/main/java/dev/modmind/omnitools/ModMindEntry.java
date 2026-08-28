@@ -1688,9 +1688,13 @@ public final class ModMindEntry implements ModInitializer {
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.LEADERBOARDS_OPEN)
                         && player.containerMenu instanceof LeaderboardScreenHandler)
                     || (!snapshot.enabled(ModuleId.PACKAGES)
-                        && player.containerMenu instanceof PackageScreenHandler)
+                        && (player.containerMenu instanceof PackageScreenHandler
+                        || player.containerMenu instanceof PackagePreviewScreenHandler
+                        || player.containerMenu instanceof PackageConfirmScreenHandler))
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.PACKAGE_OPEN)
-                        && player.containerMenu instanceof PackageScreenHandler)
+                        && (player.containerMenu instanceof PackageScreenHandler
+                        || player.containerMenu instanceof PackagePreviewScreenHandler
+                        || player.containerMenu instanceof PackageConfirmScreenHandler))
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)

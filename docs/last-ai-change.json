@@ -1,15 +1,20 @@
 {
-  "prompt": "可以。当前礼包模块已经有可用骨架：独立配置、虚拟礼包实例、`all/random_one` 两种模式、数量拆堆、NBT 物品、玩家 GUI、管理员发放命令，以及 `type: \"package\"` 奖励联动。核心文件包括 [`PackageConfig.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageConfig.java:1)、[`PackageService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java:1) 和 [`PackageScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java:1)。\n\n但它目前仍属于“基础可用版”。最需要优先修复的是：礼包奖励在 `APPLYING` 状态恢复时可能再次创建礼包，存在重复发放风险；[`RewardGrantService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:170) 的礼包恢复逻辑必须改为幂等查询，而不是无条件创建。\n\n## 一、目标架构\n\n礼包分为两层：\n\n```text\nPackageDefinition\n    配置中的礼包模板，只负责定义内容\n\nPackageInstance\n    玩家实际拥有的礼包，保存完整快照\n\nPackageDeliveryBatch\n    一次开礼包产生的投递事务，保存每个物品的投递状态\n```\n\n继续使用虚拟礼包，不生成实体物品。这样可以避免礼包被丢弃、复制、伪造或通过容器漏洞转移。\n\n## 二、配置设计\n\n保持当前 `format_version: 1` 兼容，后续扩展时升级为 `2`。\n\n当前稳定配置：\n\n```json\n{\n  \"format_version\": 1,\n  \"settings\": {\n    \"max_packages_per_player\": 256,\n    \"max_quantity_per_entry\": 2304,\n    \"max_total_quantity\": 589824,\n    \"delivery_policy\": \"inventory_then_inbox\",\n    \"random_strategy\": \"uniform\"\n  },\n  \"packages\": [\n    {\n      \"id\": \"starter\",\n      \"display\": \"&a新手礼包\",\n      \"description\": [\"&7打开后获得全部新手物资\"],\n      \"icon\": \"minecraft:chest\",\n      \"mode\": \"all\",\n      \"version\": 1,\n      \"items\": [\n        {\n          \"id\": \"bread\",\n          \"item\": \"minecraft:bread\",\n          \"count\": 1,\n          \"quantity\": 16\n        },\n        {\n          \"id\": \"named_sword\",\n          \"nbt\": \"{id:'minecraft:iron_sword',count:1}\",\n          \"quantity\": 1\n        }\n      ]\n    }\n  ]\n}\n```\n\n建议字段规则：\n\n- `id`：稳定礼包 ID，不能随意复用。\n- `version`：礼包定义版本，只用于审计和迁移。\n- `mode`：`all` 或 `random_one`。\n- `quantity`：业务数量，可以大于 64，服务端自动拆堆。\n- `item`、`count`、`components` 与 `nbt` 继续二选一。\n- 已发放礼包必须保存物品快照，配置重载不能修改旧礼包。\n- 禁止礼包嵌套礼包，避免递归发放和资源爆炸。\n\n后续 `format_version: 2` 可增加：\n\n```json\n{\n  \"random\": {\n    \"strategy\": \"weighted\",\n    \"pity\": {\n      \"enabled\": true,\n      \"after\": 10,\n      \"guaranteed_items\": [\"rare_item\"]\n    }\n  },\n  \"open_cooldown_ticks\": 20,\n  \"expires_after_days\": 7\n}\n```\n\n第一版不建议同时实现太多随机规则，先稳定均匀随机，再增加权重和保底。\n\n## 三、实例数据模型\n\n当前 [`PackageInstance`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageInstance.java:1) 还需要补充：\n\n```text\ninstance_id\nowner_id\npackage_id\npackage_version\ndisplay_name\nicon_id\nmode\nitem_snapshots\nquantities\nsource_event\nsource_reward_id\ngrant_key\nstatus\nselected_item_index\ncreated_at\nopened_at\n```\n\n其中：\n\n```text\ngrant_key = source_event + \"#\" + source_reward_id\n```\n\n礼包奖励必须通过 `grant_key` 去重。\n\n状态建议为：\n\n```text\nPENDING\nOPENING\nDELIVERING\nWAITING_INBOX\nOPENED\nBLOCKED\nEXPIRED\n```\n\n## 四、必须修复的幂等问题\n\n礼包奖励流程应改成：\n\n```text\n奖励账本写入 APPLYING\n        ↓\n根据 grant_key 查找已有礼包实例\n        ↓\n已有实例：直接复用\n没有实例：创建实例\n        ↓\n礼包实例保存成功\n        ↓\n奖励账本写入 GRANTED\n```\n\n服务器在以下时机崩溃时，都不能重复创建：\n\n- 创建礼包后、账本标记前；\n- 随机结果保存后、物品投递前；\n- 背包投递过程中；\n- 奖励重试时。\n\n`PackageData` 应增加：\n\n```java\nfindByGrantKey(...)\ncreateIfAbsent(...)\n```\n\n而不是只使用随机 UUID 创建。\n\n## 五、投递事务设计\n\n当前 [`PackageDeliveryBatch`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java:1) 已存在，但还没有承担完整持久化职责。建议改为持久化事务：\n\n```text\nbatch_id\npackage_instance_id\nstacks[\n  {\n    stack_id,\n    item_snapshot,\n    quantity,\n    status\n  }\n]\ncursor\nstatus\n```\n\n每个物品堆状态：\n\n```text\nPENDING\nDELIVERING\nDELIVERED\nWAITING_INBOX\nBLOCKED\n```\n\n投递流程：\n\n```text\n选择礼包\n  ↓\n锁定实例\n  ↓\nrandom_one：先保存随机结果\n  ↓\n生成拆分后的物品堆\n  ↓\n逐堆投递\n  ↓\n背包不足的堆进入 WAITING_INBOX\n  ↓\n全部完成后标记 OPENED\n```\n\nNBT 编解码必须统一使用带注册表的 `RegistryOps`。当前 [`PackageData.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageData.java:1) 使用裸 `NbtOps`，复杂组件或模组物品可能无法正确恢复，应与 [`ItemStackConfigParser.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java:28) 使用同一套 Codec 路径。\n\n损坏存档时不要静默丢弃实例。当前反序列化存在忽略异常的行为，应改为：\n\n- 记录完整日志；\n- 将实例标记为 `BLOCKED`；\n- 保留原始数据；\n- 提供管理员检查和人工处理命令。\n\n## 六、GUI 设计\n\n当前 GUI 只有礼包列表，点击后直接打开，建议拆成三层。\n\n### 礼包列表\n\n- 54 格布局；\n- 支持分页；\n- 显示礼包图标、名称、描述、模式和来源；\n- 显示“待投递”“阻塞”“即将过期”等状态；\n- 增加奖励箱入口；\n- 关闭按钮固定位置。\n\n### 礼包预览\n\n`all` 模式显示全部内容：\n\n```text\n面包 x16\n铁锭 x32\n新手剑 x1\n```\n\n`random_one` 模式显示：\n\n```text\n从以下物品中随机获得一种\n```\n\n预览不能产生随机结果。\n\n### 确认界面\n\n增加：\n\n```text\n确认打开\n取消\n```\n\n随机礼包应在点击确认后由服务端选择并保存结果。\n\n当前礼包名称使用 `Component.literal`，无法正确处理颜色和占位符。应统一调用 `TextTemplateRenderer`，使 `display`、`description` 和 Lore 支持现有文本占位符。\n\n## 七、命令与权限\n\n保留现有命令，并补齐建议：\n\n```text\n/omnitools packages\n/omnitools package open\n/omnitools package open <instance_id>\n/omnitools package preview <instance_id>\n\n/omnitools package give <player> <package_id> [amount]\n/omnitools package inspect <player>\n/omnitools package inspect <player> <instance_id>\n/omnitools package retry <player> <instance_id>\n/omnitools package resolve <player> <instance_id> grant|fail\n/omnitools package remove <player> <instance_id>\n```\n\n新增权限动作：\n\n```text\npackage.open       PLAYER\npackage.preview    PLAYER\npackage.give       ADMIN\npackage.inspect    ADMIN\npackage.retry      ADMIN\npackage.resolve    ADMIN\npackage.remove     ADMIN\n```\n\n管理员批量发放不能循环创建后遇到上限才失败，应先预检查容量，再一次性提交，避免只发出一部分。\n\n## 八、奖励模块联动\n\n现有 `RewardType.PACKAGE` 已经接入，配置形式为：\n\n```json\n{\n  \"id\": \"daily_package\",\n  \"type\": \"package\",\n  \"package\": \"starter\"\n}\n```\n\n需要确保以下规则：\n\n- 礼包模块关闭时，奖励配置直接拒绝重载；\n- 奖励账本用 `eventId + rewardId` 保证幂等；\n- 已创建礼包后修改配置，不改变旧礼包；\n- 礼包创建失败时进入 `BLOCKED`，不能简单标记成功；\n- 奖励重试只能查找并恢复原礼包实例。\n\n签到、在线奖励、成就和 CDK 都可以继续使用礼包奖励。\n\n## 九、商店联动\n\n商店礼包商品建议单独设计交易记录：\n\n```json\n{\n  \"index\": 5,\n  \"type\": \"package\",\n  \"package\": \"starter\",\n  \"price\": 100\n}\n```\n\n购买事务：\n\n```text\n检查礼包定义\n  ↓\n检查余额\n  ↓\n创建 purchase_id\n  ↓\n扣除货币\n  ↓\n创建礼包实例\n  ↓\n标记购买完成\n```\n\n必须防止：\n\n- 扣钱但没有礼包；\n- 礼包创建成功但扣款失败；\n- 断服后重复购买；\n- 点击按钮重复购买。\n\n商店联动应放在礼包核心稳定后实现。\n\n## 十、安全限制\n\n建议保留并补充：\n\n- 每个玩家未打开礼包数量上限；\n- 管理员单次发放数量上限；\n- 单条数量和礼包总数量上限；\n- 最大礼包定义数和最大条目数；\n- SNBT 大小限制；\n- GUI 点击冷却；\n- 每个实例只能由所有者打开；\n- 已打开礼包不可重复打开；\n- 随机结果只能由服务端生成；\n- 删除和人工结算必须写审计日志；\n- 不允许客户端提交物品内容或随机结果。\n\n## 十一、占位符和命令菜单联动\n\n建议新增：\n\n```text\n%omnitools:packages_pending%\n%omnitools:packages_waiting_inbox%\n%omnitools:packages_opened%\n%omnitools:package_last_opened%\n%omnitools:package_last_item%\n```\n\n命令菜单增加：\n\n```text\nopen_package_list\nopen_reward_inbox\n```\n\n侧边栏可显示：\n\n```text\n未打开礼包：%omnitools:packages_pending%\n待投递物品：%omnitools:packages_waiting_inbox%\n```\n\n## 十二、开发阶段\n\n1. **P0：修复可靠性**\n   - `grant_key` 幂等；\n   - 修复 `APPLYING` 恢复重复创建；\n   - RegistryOps 编解码；\n   - 持久化投递批次；\n   - 增加礼包模块测试。\n\n2. **P1：完善基础体验**\n   - 礼包列表分页；\n   - 预览和确认界面；\n   - 颜色、Lore、占位符；\n   - 奖励箱入口；\n   - 管理员检查、重试和审计。\n\n3. **P1：完善命令和权限**\n   - 指定实例打开；\n   - 批量发放事务；\n   - 补充权限节点；\n   - 增加命令建议和错误提示。\n\n4. **P2：奖励与商店**\n   - 稳定签到、成就、在线奖励和 CDK 联动；\n   - 增加商店礼包商品；\n   - 实现购买事务恢复。\n\n5. **P2：高级玩法**\n   - 权重随机；\n   - 保底机制；\n   - 重复物品转货币；\n   - 限时礼包；\n   - 礼包钥匙；\n   - 每日开启次数；\n   - 赛季礼包。\n\n6. **P3：跨模块玩法**\n   - 任务系统；\n   - 赛季排行榜奖励；\n   - 世界活动礼包；\n   - 公会或团队礼包。\n\n## 十三、验收标准\n\n至少验证：\n\n- 全部模式完整发放所有物品；\n- 随机模式只发放一个条目；\n- 随机结果重启后不改变；\n- 数量超过 64 时正确拆堆；\n- NBT、组件、Lore 和自定义名称保持不变；\n- 背包不足时进入奖励箱；\n- 重复点击不会重复发放；\n- 奖励重试不会重复创建礼包；\n- 配置重载不会改变旧实例；\n- 删除不存在的实例不会误删其他礼包；\n- 商店扣款和礼包创建具备事务恢复；\n- 损坏数据不会静默丢失；\n- 玩家无法打开其他玩家的实例。\n\n总体建议：先把当前礼包模块提升为“可靠的虚拟资产系统”，再加入权重、保底、商店和赛季玩法。最优先处理的是奖励恢复幂等、物品持久化和投递事务，这三项直接关系到玩家物品和经济数据是否会重复或丢失。本轮仅进行了只读分析，没有修改、构建或测试项目。",
+  "prompt": "继续上一次相同请求。请读取当前任务状态，只完成尚未完成的部分，不要重复已经完成的工作。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-28T07:21:40.383Z",
-  "summary": "已完成并验证礼包模块可靠性修复：\n\n- `grantKey = eventId#rewardId` 幂等查询，修复 `APPLYING` 恢复时重复创建礼包。\n- `PackageData` 增加 `findByGrantKey`、`createIfAbsent`，并使用 `RegistryOps` 编解码物品快照。\n- 损坏实例会记录日志、保留原始数据并隔离为 `BLOCKED`。\n- `PackageInstance` 保留兼容构造函数并持久化 `grantKey`。\n- 新增幂等测试：[PackageDataTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/packages/PackageDataTest.java)\n- 校准礼包文档与 Schema，明确当前实现边界及未实现功能。\n\n验证结果：\n\n- 内容校验：通过，无错误或警告。\n- 项目构建：通过，产物为 `modmind-current-project.jar`。\n- 服务端无头测试：通过，服务器就绪后稳定运行 15 秒。\n- `git diff --check`：通过。\n\n当前仍明确未实现持久化 `PackageDeliveryBatch`、确认/预览 GUI、权重随机、商店购买事务和礼包占位符等后续能力。",
-  "finalResponse": "已完成并验证礼包模块可靠性修复：\n\n- `grantKey = eventId#rewardId` 幂等查询，修复 `APPLYING` 恢复时重复创建礼包。\n- `PackageData` 增加 `findByGrantKey`、`createIfAbsent`，并使用 `RegistryOps` 编解码物品快照。\n- 损坏实例会记录日志、保留原始数据并隔离为 `BLOCKED`。\n- `PackageInstance` 保留兼容构造函数并持久化 `grantKey`。\n- 新增幂等测试：[PackageDataTest.java](D:/mod/qiandao/src/test/java/dev/modmind/omnitools/packages/PackageDataTest.java)\n- 校准礼包文档与 Schema，明确当前实现边界及未实现功能。\n\n验证结果：\n\n- 内容校验：通过，无错误或警告。\n- 项目构建：通过，产物为 `modmind-current-project.jar`。\n- 服务端无头测试：通过，服务器就绪后稳定运行 15 秒。\n- `git diff --check`：通过。\n\n当前仍明确未实现持久化 `PackageDeliveryBatch`、确认/预览 GUI、权重随机、商店购买事务和礼包占位符等后续能力。",
+  "createdAt": "2026-08-28T08:31:05.582Z",
+  "summary": "已完成礼包 P1 界面与展示快照收口。\n\n- [礼包列表](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java) 支持 36 槽分页、状态/来源/Description Lore、奖励箱入口。\n- 新增只读[预览界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackagePreviewScreenHandler.java)和[确认界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageConfirmScreenHandler.java)；随机结果仅在确认后由服务端生成。\n- [PackageInstance](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageInstance.java) 持久化描述快照，配置重载不影响旧礼包展示；重载时会一并关闭三个礼包界面。\n- 更新了[礼包模块文档](D:/mod/qiandao/docs/modules/packages.md)与描述快照回归测试。\n\n验证已通过：内容校验无错误，`build` 通过，Fabric 服务端启动后稳定运行 15 秒，`git diff --check` 通过。未回退工作区中已有的其他修改。",
+  "finalResponse": "已完成礼包 P1 界面与展示快照收口。\n\n- [礼包列表](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java) 支持 36 槽分页、状态/来源/Description Lore、奖励箱入口。\n- 新增只读[预览界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackagePreviewScreenHandler.java)和[确认界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageConfirmScreenHandler.java)；随机结果仅在确认后由服务端生成。\n- [PackageInstance](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageInstance.java) 持久化描述快照，配置重载不影响旧礼包展示；重载时会一并关闭三个礼包界面。\n- 更新了[礼包模块文档](D:/mod/qiandao/docs/modules/packages.md)与描述快照回归测试。\n\n验证已通过：内容校验无错误，`build` 通过，Fabric 服务端启动后稳定运行 15 秒，`git diff --check` 通过。未回退工作区中已有的其他修改。",
   "intent": "engineering",
-  "tasks": [],
+  "tasks": [
+    "持久化礼包展示描述快照",
+    "实现礼包分页、预览与确认界面",
+    "更新礼包模块文档和用户提示",
+    "执行构建、内容校验和服务端烟雾测试"
+  ],
   "files": [
     {
-      "path": "docs/idea.md",
+      "path": "build.gradle",
       "purpose": "外部代理修改"
     },
     {
@@ -18,14 +23,6 @@
     },
     {
       "path": "docs/modules/packages.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/reference/rewards.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/schemas/packages.schema.json",
       "purpose": "外部代理修改"
     },
     {
@@ -69,7 +66,23 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "settings.gradle",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/PackageScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "src/main/java/dev/modmind/omnitools/packages/PackageData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java",
       "purpose": "外部代理修改"
     },
     {
@@ -81,19 +94,35 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-28-2.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-08-28-3.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
       "path": "src/test/java/dev/modmind/omnitools/packages/PackageDataTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-28-4.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-28-5.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-28-6.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "run/logs/2026-08-28-7.log.gz",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/PackageConfirmScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/PackagePreviewScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/packages/PackageDeliveryBatchTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -102,7 +131,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-28T03-56-26-503Z",
+  "snapshotId": "2026-08-28T07-35-52-240Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -112,17 +141,21 @@
       "build"
     ],
     "completed": [
+      "plan",
       "build",
       "validate",
       "runtime_test",
-      "implementation"
+      "implementation",
+      "todo_complete"
     ],
     "missing": [],
     "evidence": {
-      "build": "modmind_build_project completed successfully",
+      "plan": "modmind_update_todo published the ordered plan",
+      "build": "modmind_test_matrix passed a build/client target",
       "validate": "modmind_validate_content completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 22 changed managed files"
+      "implementation": "Detected 28 changed managed files",
+      "todo_complete": "All Todo items are completed after the other required stages"
     }
   }
 }

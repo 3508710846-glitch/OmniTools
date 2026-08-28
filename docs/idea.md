@@ -1843,3 +1843,471 @@ open_reward_inbox
 ## Development request 2026/8/28 15:17:15
 
 继续
+
+---
+
+## Development request 2026/8/28 15:35:49
+
+可以。当前礼包模块已经有可用骨架：独立配置、虚拟礼包实例、`all/random_one` 两种模式、数量拆堆、NBT 物品、玩家 GUI、管理员发放命令，以及 `type: "package"` 奖励联动。核心文件包括 [`PackageConfig.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageConfig.java:1)、[`PackageService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java:1) 和 [`PackageScreenHandler.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java:1)。
+
+但它目前仍属于“基础可用版”。最需要优先修复的是：礼包奖励在 `APPLYING` 状态恢复时可能再次创建礼包，存在重复发放风险；[`RewardGrantService.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java:170) 的礼包恢复逻辑必须改为幂等查询，而不是无条件创建。
+
+## 一、目标架构
+
+礼包分为两层：
+
+```text
+PackageDefinition
+    配置中的礼包模板，只负责定义内容
+
+PackageInstance
+    玩家实际拥有的礼包，保存完整快照
+
+PackageDeliveryBatch
+    一次开礼包产生的投递事务，保存每个物品的投递状态
+```
+
+继续使用虚拟礼包，不生成实体物品。这样可以避免礼包被丢弃、复制、伪造或通过容器漏洞转移。
+
+## 二、配置设计
+
+保持当前 `format_version: 1` 兼容，后续扩展时升级为 `2`。
+
+当前稳定配置：
+
+```json
+{
+  "format_version": 1,
+  "settings": {
+    "max_packages_per_player": 256,
+    "max_quantity_per_entry": 2304,
+    "max_total_quantity": 589824,
+    "delivery_policy": "inventory_then_inbox",
+    "random_strategy": "uniform"
+  },
+  "packages": [
+    {
+      "id": "starter",
+      "display": "&a新手礼包",
+      "description": ["&7打开后获得全部新手物资"],
+      "icon": "minecraft:chest",
+      "mode": "all",
+      "version": 1,
+      "items": [
+        {
+          "id": "bread",
+          "item": "minecraft:bread",
+          "count": 1,
+          "quantity": 16
+        },
+        {
+          "id": "named_sword",
+          "nbt": "{id:'minecraft:iron_sword',count:1}",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
+建议字段规则：
+
+- `id`：稳定礼包 ID，不能随意复用。
+- `version`：礼包定义版本，只用于审计和迁移。
+- `mode`：`all` 或 `random_one`。
+- `quantity`：业务数量，可以大于 64，服务端自动拆堆。
+- `item`、`count`、`components` 与 `nbt` 继续二选一。
+- 已发放礼包必须保存物品快照，配置重载不能修改旧礼包。
+- 禁止礼包嵌套礼包，避免递归发放和资源爆炸。
+
+后续 `format_version: 2` 可增加：
+
+```json
+{
+  "random": {
+    "strategy": "weighted",
+    "pity": {
+      "enabled": true,
+      "after": 10,
+      "guaranteed_items": ["rare_item"]
+    }
+  },
+  "open_cooldown_ticks": 20,
+  "expires_after_days": 7
+}
+```
+
+第一版不建议同时实现太多随机规则，先稳定均匀随机，再增加权重和保底。
+
+## 三、实例数据模型
+
+当前 [`PackageInstance`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageInstance.java:1) 还需要补充：
+
+```text
+instance_id
+owner_id
+package_id
+package_version
+display_name
+icon_id
+mode
+item_snapshots
+quantities
+source_event
+source_reward_id
+grant_key
+status
+selected_item_index
+created_at
+opened_at
+```
+
+其中：
+
+```text
+grant_key = source_event + "#" + source_reward_id
+```
+
+礼包奖励必须通过 `grant_key` 去重。
+
+状态建议为：
+
+```text
+PENDING
+OPENING
+DELIVERING
+WAITING_INBOX
+OPENED
+BLOCKED
+EXPIRED
+```
+
+## 四、必须修复的幂等问题
+
+礼包奖励流程应改成：
+
+```text
+奖励账本写入 APPLYING
+        ↓
+根据 grant_key 查找已有礼包实例
+        ↓
+已有实例：直接复用
+没有实例：创建实例
+        ↓
+礼包实例保存成功
+        ↓
+奖励账本写入 GRANTED
+```
+
+服务器在以下时机崩溃时，都不能重复创建：
+
+- 创建礼包后、账本标记前；
+- 随机结果保存后、物品投递前；
+- 背包投递过程中；
+- 奖励重试时。
+
+`PackageData` 应增加：
+
+```java
+findByGrantKey(...)
+createIfAbsent(...)
+```
+
+而不是只使用随机 UUID 创建。
+
+## 五、投递事务设计
+
+当前 [`PackageDeliveryBatch`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java:1) 已存在，但还没有承担完整持久化职责。建议改为持久化事务：
+
+```text
+batch_id
+package_instance_id
+stacks[
+  {
+    stack_id,
+    item_snapshot,
+    quantity,
+    status
+  }
+]
+cursor
+status
+```
+
+每个物品堆状态：
+
+```text
+PENDING
+DELIVERING
+DELIVERED
+WAITING_INBOX
+BLOCKED
+```
+
+投递流程：
+
+```text
+选择礼包
+  ↓
+锁定实例
+  ↓
+random_one：先保存随机结果
+  ↓
+生成拆分后的物品堆
+  ↓
+逐堆投递
+  ↓
+背包不足的堆进入 WAITING_INBOX
+  ↓
+全部完成后标记 OPENED
+```
+
+NBT 编解码必须统一使用带注册表的 `RegistryOps`。当前 [`PackageData.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageData.java:1) 使用裸 `NbtOps`，复杂组件或模组物品可能无法正确恢复，应与 [`ItemStackConfigParser.java`](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ItemStackConfigParser.java:28) 使用同一套 Codec 路径。
+
+损坏存档时不要静默丢弃实例。当前反序列化存在忽略异常的行为，应改为：
+
+- 记录完整日志；
+- 将实例标记为 `BLOCKED`；
+- 保留原始数据；
+- 提供管理员检查和人工处理命令。
+
+## 六、GUI 设计
+
+当前 GUI 只有礼包列表，点击后直接打开，建议拆成三层。
+
+### 礼包列表
+
+- 54 格布局；
+- 支持分页；
+- 显示礼包图标、名称、描述、模式和来源；
+- 显示“待投递”“阻塞”“即将过期”等状态；
+- 增加奖励箱入口；
+- 关闭按钮固定位置。
+
+### 礼包预览
+
+`all` 模式显示全部内容：
+
+```text
+面包 x16
+铁锭 x32
+新手剑 x1
+```
+
+`random_one` 模式显示：
+
+```text
+从以下物品中随机获得一种
+```
+
+预览不能产生随机结果。
+
+### 确认界面
+
+增加：
+
+```text
+确认打开
+取消
+```
+
+随机礼包应在点击确认后由服务端选择并保存结果。
+
+当前礼包名称使用 `Component.literal`，无法正确处理颜色和占位符。应统一调用 `TextTemplateRenderer`，使 `display`、`description` 和 Lore 支持现有文本占位符。
+
+## 七、命令与权限
+
+保留现有命令，并补齐建议：
+
+```text
+/omnitools packages
+/omnitools package open
+/omnitools package open <instance_id>
+/omnitools package preview <instance_id>
+
+/omnitools package give <player> <package_id> [amount]
+/omnitools package inspect <player>
+/omnitools package inspect <player> <instance_id>
+/omnitools package retry <player> <instance_id>
+/omnitools package resolve <player> <instance_id> grant|fail
+/omnitools package remove <player> <instance_id>
+```
+
+新增权限动作：
+
+```text
+package.open       PLAYER
+package.preview    PLAYER
+package.give       ADMIN
+package.inspect    ADMIN
+package.retry      ADMIN
+package.resolve    ADMIN
+package.remove     ADMIN
+```
+
+管理员批量发放不能循环创建后遇到上限才失败，应先预检查容量，再一次性提交，避免只发出一部分。
+
+## 八、奖励模块联动
+
+现有 `RewardType.PACKAGE` 已经接入，配置形式为：
+
+```json
+{
+  "id": "daily_package",
+  "type": "package",
+  "package": "starter"
+}
+```
+
+需要确保以下规则：
+
+- 礼包模块关闭时，奖励配置直接拒绝重载；
+- 奖励账本用 `eventId + rewardId` 保证幂等；
+- 已创建礼包后修改配置，不改变旧礼包；
+- 礼包创建失败时进入 `BLOCKED`，不能简单标记成功；
+- 奖励重试只能查找并恢复原礼包实例。
+
+签到、在线奖励、成就和 CDK 都可以继续使用礼包奖励。
+
+## 九、商店联动
+
+商店礼包商品建议单独设计交易记录：
+
+```json
+{
+  "index": 5,
+  "type": "package",
+  "package": "starter",
+  "price": 100
+}
+```
+
+购买事务：
+
+```text
+检查礼包定义
+  ↓
+检查余额
+  ↓
+创建 purchase_id
+  ↓
+扣除货币
+  ↓
+创建礼包实例
+  ↓
+标记购买完成
+```
+
+必须防止：
+
+- 扣钱但没有礼包；
+- 礼包创建成功但扣款失败；
+- 断服后重复购买；
+- 点击按钮重复购买。
+
+商店联动应放在礼包核心稳定后实现。
+
+## 十、安全限制
+
+建议保留并补充：
+
+- 每个玩家未打开礼包数量上限；
+- 管理员单次发放数量上限；
+- 单条数量和礼包总数量上限；
+- 最大礼包定义数和最大条目数；
+- SNBT 大小限制；
+- GUI 点击冷却；
+- 每个实例只能由所有者打开；
+- 已打开礼包不可重复打开；
+- 随机结果只能由服务端生成；
+- 删除和人工结算必须写审计日志；
+- 不允许客户端提交物品内容或随机结果。
+
+## 十一、占位符和命令菜单联动
+
+建议新增：
+
+```text
+%omnitools:packages_pending%
+%omnitools:packages_waiting_inbox%
+%omnitools:packages_opened%
+%omnitools:package_last_opened%
+%omnitools:package_last_item%
+```
+
+命令菜单增加：
+
+```text
+open_package_list
+open_reward_inbox
+```
+
+侧边栏可显示：
+
+```text
+未打开礼包：%omnitools:packages_pending%
+待投递物品：%omnitools:packages_waiting_inbox%
+```
+
+## 十二、开发阶段
+
+1. **P0：修复可靠性**
+   - `grant_key` 幂等；
+   - 修复 `APPLYING` 恢复重复创建；
+   - RegistryOps 编解码；
+   - 持久化投递批次；
+   - 增加礼包模块测试。
+
+2. **P1：完善基础体验**
+   - 礼包列表分页；
+   - 预览和确认界面；
+   - 颜色、Lore、占位符；
+   - 奖励箱入口；
+   - 管理员检查、重试和审计。
+
+3. **P1：完善命令和权限**
+   - 指定实例打开；
+   - 批量发放事务；
+   - 补充权限节点；
+   - 增加命令建议和错误提示。
+
+4. **P2：奖励与商店**
+   - 稳定签到、成就、在线奖励和 CDK 联动；
+   - 增加商店礼包商品；
+   - 实现购买事务恢复。
+
+5. **P2：高级玩法**
+   - 权重随机；
+   - 保底机制；
+   - 重复物品转货币；
+   - 限时礼包；
+   - 礼包钥匙；
+   - 每日开启次数；
+   - 赛季礼包。
+
+6. **P3：跨模块玩法**
+   - 任务系统；
+   - 赛季排行榜奖励；
+   - 世界活动礼包；
+   - 公会或团队礼包。
+
+## 十三、验收标准
+
+至少验证：
+
+- 全部模式完整发放所有物品；
+- 随机模式只发放一个条目；
+- 随机结果重启后不改变；
+- 数量超过 64 时正确拆堆；
+- NBT、组件、Lore 和自定义名称保持不变；
+- 背包不足时进入奖励箱；
+- 重复点击不会重复发放；
+- 奖励重试不会重复创建礼包；
+- 配置重载不会改变旧实例；
+- 删除不存在的实例不会误删其他礼包；
+- 商店扣款和礼包创建具备事务恢复；
+- 损坏数据不会静默丢失；
+- 玩家无法打开其他玩家的实例。
+
+总体建议：先把当前礼包模块提升为“可靠的虚拟资产系统”，再加入权重、保底、商店和赛季玩法。最优先处理的是奖励恢复幂等、物品持久化和投递事务，这三项直接关系到玩家物品和经济数据是否会重复或丢失。本轮仅进行了只读分析，没有修改、构建或测试项目。
