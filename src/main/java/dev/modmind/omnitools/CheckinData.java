@@ -38,6 +38,7 @@ public final class CheckinData extends SavedData {
     private static final String LAST_KNOWN_NAME_KEY = "last_known_name";
     private static final String BALANCE_KEY = "balance";
     private static final String CURRENCY_REWARD_EVENTS_KEY = "currency_reward_events";
+    private static final String SHOP_PURCHASE_EVENTS_KEY = "shop_purchase_events";
     private static final String MONTHLY_REWARDS_KEY = "monthly_rewards";
     private static final String ONLINE_TIME_DAY_KEY = "online_time_day";
     private static final String ONLINE_TIME_MILLIS_KEY = "online_time_millis";
@@ -346,6 +347,39 @@ public final class CheckinData extends SavedData {
         record.balance -= removed;
         setDirty();
         return removed;
+    }
+
+    /**
+     * Debits one shop transaction exactly once. The transaction id is persisted with the balance,
+     * which lets purchase recovery prove whether the debit happened before creating a package.
+     */
+    public synchronized ShopPurchaseChargeResult chargeShopPurchase(UUID playerId, UUID transactionId,
+                                                                     long amount, String playerName) {
+        requireNonNegative(amount);
+        if (transactionId == null) {
+            throw new IllegalArgumentException("shop transaction id is required");
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        String key = transactionId.toString();
+        if (record.shopPurchaseEvents.contains(key)) {
+            return ShopPurchaseChargeResult.ALREADY_CHARGED;
+        }
+        if (record.balance < amount) {
+            return ShopPurchaseChargeResult.INSUFFICIENT_CURRENCY;
+        }
+        record.balance -= amount;
+        record.shopPurchaseEvents.add(key);
+        setDirty();
+        return ShopPurchaseChargeResult.CHARGED;
+    }
+
+    /** Returns whether the durable balance record proves this shop transaction was charged. */
+    public synchronized boolean hasShopPurchaseCharge(UUID playerId, UUID transactionId) {
+        if (playerId == null || transactionId == null) {
+            return false;
+        }
+        PlayerRecord record = players.get(playerId);
+        return record != null && record.shopPurchaseEvents.contains(transactionId.toString());
     }
 
     public synchronized boolean claimMonthlyReward(UUID playerId, YearMonth month, int days, String playerName) {
@@ -746,6 +780,7 @@ public final class CheckinData extends SavedData {
                 record.lastKnownName = playerTag.getStringOr(LAST_KNOWN_NAME_KEY, "");
                 record.balance = Math.max(0L, playerTag.getLongOr(BALANCE_KEY, 0L));
                 readIds(playerTag.getListOrEmpty(CURRENCY_REWARD_EVENTS_KEY), record.currencyRewardEvents);
+                readIds(playerTag.getListOrEmpty(SHOP_PURCHASE_EVENTS_KEY), record.shopPurchaseEvents);
                 record.makeupCards = Math.max(0L, playerTag.getLongOr(MAKEUP_CARDS_KEY, 0L));
                 readIds(playerTag.getListOrEmpty(MAKEUP_REWARD_EVENTS_KEY), record.makeupCardRewardEvents);
                 for (long day : playerTag.getLongArray(MAKEUP_DAYS_KEY).orElseGet(() -> new long[0])) {
@@ -813,6 +848,7 @@ public final class CheckinData extends SavedData {
             playerTag.putString(LAST_KNOWN_NAME_KEY, record.lastKnownName);
             playerTag.putLong(BALANCE_KEY, record.balance);
             playerTag.put(CURRENCY_REWARD_EVENTS_KEY, writeIds(record.currencyRewardEvents));
+            playerTag.put(SHOP_PURCHASE_EVENTS_KEY, writeIds(record.shopPurchaseEvents));
             playerTag.putLong(MAKEUP_CARDS_KEY, record.makeupCards);
             playerTag.put(MAKEUP_REWARD_EVENTS_KEY, writeIds(record.makeupCardRewardEvents));
             playerTag.putLongArray(MAKEUP_DAYS_KEY, record.makeupDays.stream().mapToLong(Long::longValue).toArray());
@@ -880,6 +916,12 @@ public final class CheckinData extends SavedData {
         OVERFLOW
     }
 
+    public enum ShopPurchaseChargeResult {
+        CHARGED,
+        ALREADY_CHARGED,
+        INSUFFICIENT_CURRENCY
+    }
+
     public enum MakeupCardResult {
         APPLIED,
         ALREADY_APPLIED,
@@ -945,6 +987,7 @@ public final class CheckinData extends SavedData {
         private long lastSignedDay = Long.MIN_VALUE;
         private long balance;
         private final Set<String> currencyRewardEvents = new HashSet<>();
+        private final Set<String> shopPurchaseEvents = new HashSet<>();
         private long makeupCards;
         private final Set<String> makeupCardRewardEvents = new HashSet<>();
         private final Set<Long> makeupDays = new HashSet<>();

@@ -44,6 +44,7 @@
     "checkin.cards.admin": "ADMIN",
     "online.open": "PLAYER",
     "shop.open": "PLAYER",
+    "shop.audit": "ADMIN",
     "title.open": "PLAYER",
     "achievements.open": "PLAYER",
     "storage.open": { "role": "ADMIN", "allow_native_node": true },

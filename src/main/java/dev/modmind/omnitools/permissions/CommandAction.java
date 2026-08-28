@@ -11,6 +11,7 @@ public enum CommandAction {
     CHECKIN_CARDS_ADMIN("checkin.cards.admin", CommandRole.ADMIN),
     ONLINE_OPEN("online.open", CommandRole.PLAYER),
     SHOP_OPEN("shop.open", CommandRole.PLAYER),
+    SHOP_AUDIT("shop.audit", CommandRole.ADMIN),
     TITLE_OPEN("title.open", CommandRole.PLAYER),
     ACHIEVEMENTS_OPEN("achievements.open", CommandRole.PLAYER),
     STORAGE_OPEN("storage.open", CommandRole.ADMIN),

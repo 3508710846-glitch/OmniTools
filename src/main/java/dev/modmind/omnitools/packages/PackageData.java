@@ -1,6 +1,7 @@
 package dev.modmind.omnitools.packages;
 
 import dev.modmind.omnitools.ModMindEntry;
+import dev.modmind.omnitools.ShopPurchaseData;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -126,7 +127,9 @@ public final class PackageData extends SavedData {
                 if (instance.status() != PackageInstance.Status.OPENED || instance.grantedAt() > cutoff) continue;
                 PackageDeliveryBatch batch = deliveryBatches.get(instance.instanceId());
                 if (batch != null && !batch.isComplete()) continue;
-                if (!instance.grantKey().isBlank() && !RewardClaimLedger.isGrantedGrantKey(server, owner, instance.grantKey())) continue;
+                if (!instance.grantKey().isBlank()
+                        && !RewardClaimLedger.isGrantedGrantKey(server, owner, instance.grantKey())
+                        && !ShopPurchaseData.isCompletedGrantKey(server, owner, instance.grantKey())) continue;
                 map.remove(instance.instanceId());
                 deliveryBatches.remove(instance.instanceId());
                 removed++;

@@ -105,9 +105,10 @@ public final class ShopScreenHandler extends ChestMenu {
             return;
         }
 
-        ShopConfig.ShopItem product = config.get(page * PRODUCT_SLOT_COUNT + localIndex);
+        int productIndex = page * PRODUCT_SLOT_COUNT + localIndex;
+        ShopConfig.ShopItem product = config.get(productIndex);
         if (product != null) {
-            purchase(serverPlayer, product);
+            purchase(serverPlayer, productIndex, product);
         }
     }
 
@@ -131,9 +132,13 @@ public final class ShopScreenHandler extends ChestMenu {
         super.broadcastChanges();
     }
 
-    private void purchase(ServerPlayer player, ShopConfig.ShopItem product) {
+    private void purchase(ServerPlayer player, int productIndex, ShopConfig.ShopItem product) {
         if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.SHOP)) {
             player.closeContainer();
+            return;
+        }
+        if (product.type() == ShopConfig.ProductType.PACKAGE) {
+            purchasePackage(player, productIndex, product);
             return;
         }
         CheckinData data = CheckinData.get(player);
@@ -164,6 +169,31 @@ public final class ShopScreenHandler extends ChestMenu {
                 product.stack().getCount(), product.price(), newBalance), true);
         refreshContents(player);
         broadcastChanges();
+    }
+
+    private void purchasePackage(ServerPlayer player, int productIndex, ShopConfig.ShopItem product) {
+        ShopPurchaseService.PurchaseResult result = ModMindEntry.shopPurchaseService()
+                .purchasePackage(player, productIndex, product);
+        if (result.result() == ShopPurchaseService.Result.INSUFFICIENT_CURRENCY) {
+            long balance = CheckinData.get(player).getBalance(player.getUUID());
+            GuiFeedbackService.failure(player);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.shop.insufficient",
+                    product.price(), balance), true);
+            return;
+        }
+        if (result.result() == ShopPurchaseService.Result.COMPLETED && result.transaction() != null) {
+            long balance = CheckinData.get(player).getBalance(player.getUUID());
+            GuiFeedbackService.success(player);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.shop.package_purchased",
+                    result.transaction().packageSnapshot().displayName(), product.price(), balance), true);
+            refreshContents(player);
+            broadcastChanges();
+            return;
+        }
+        if (result.result() != ShopPurchaseService.Result.COOLDOWN) {
+            GuiFeedbackService.failure(player);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.shop.purchase_blocked"), true);
+        }
     }
 
     private void refreshContents(ServerPlayer owner) {
@@ -208,13 +238,31 @@ public final class ShopScreenHandler extends ChestMenu {
 
     private ItemStack displayProduct(ServerPlayer player, ShopConfig.ShopItem product) {
         // Rendering only affects this menu copy; purchases keep the exact configured item stack.
-        ItemStack display = TextTemplateRenderer.renderItemText(player, product.createStack());
+        ItemStack display = product.createDisplayStack();
+        List<Component> lore = new ArrayList<>();
+        if (product.type() == ShopConfig.ProductType.PACKAGE) {
+            var definition = ModMindEntry.configSnapshot().packages().definition(product.packageId()).orElse(null);
+            if (definition != null) {
+                display = new ItemStack(definition.icon());
+                display.set(DataComponents.CUSTOM_NAME, TextTemplateRenderer.render(player, definition.display()));
+                for (String line : definition.description()) {
+                    lore.add(TextTemplateRenderer.render(player, line).copy().withStyle(ChatFormatting.GRAY));
+                }
+            }
+            lore.add(ServerText.translatable("gui.omnitools.shop.package", product.packageId())
+                    .withStyle(ChatFormatting.AQUA));
+        }
+        display = TextTemplateRenderer.renderItemText(player, display);
         boolean affordable = CheckinData.get(player).getBalance(player.getUUID()) >= product.price();
         ItemLore existingLore = display.get(DataComponents.LORE);
-        List<Component> lore = new ArrayList<>(existingLore == null ? List.of() : existingLore.lines());
+        if (existingLore != null) {
+            lore.addAll(0, existingLore.lines());
+        }
         lore.add(ServerText.translatable("gui.omnitools.shop.price", product.price()).withStyle(ChatFormatting.GOLD));
-        lore.add(ServerText.translatable("gui.omnitools.shop.quantity", product.stack().getCount())
-                .withStyle(ChatFormatting.WHITE));
+        if (product.type() == ShopConfig.ProductType.ITEM) {
+            lore.add(ServerText.translatable("gui.omnitools.shop.quantity", product.stack().getCount())
+                    .withStyle(ChatFormatting.WHITE));
+        }
         lore.add(ServerText.translatable(affordable ? "gui.omnitools.shop.affordable"
                 : "gui.omnitools.shop.insufficient").withStyle(affordable ? ChatFormatting.GOLD : ChatFormatting.RED));
         return GuiStatusItem.create(display, display.getHoverName(), affordable

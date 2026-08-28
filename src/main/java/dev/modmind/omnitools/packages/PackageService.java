@@ -43,26 +43,42 @@ public final class PackageService {
         if (server == null || owner == null) {
             throw new IllegalArgumentException("server and owner are required");
         }
+        return createFromSnapshot(server, createSnapshot(owner, packageId, sourceEvent, grantKey));
+    }
+
+    /** Creates an immutable virtual-asset snapshot without granting it to a player yet. */
+    public PackageInstance createSnapshot(UUID owner, String packageId, String sourceEvent, String grantKey) {
+        if (owner == null) {
+            throw new IllegalArgumentException("package owner is required");
+        }
+        PackageConfig config = dev.modmind.omnitools.ModMindEntry.configSnapshot().packages();
+        PackageDefinition definition = config.definition(packageId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown package: " + packageId));
+        return new PackageInstance(UUID.randomUUID(), owner, definition.id(), definition.version(),
+                definition.display(), definition.description(), definition.iconId(), definition.mode(),
+                definition.items().stream().map(PackageItem::prototype).toList(),
+                definition.items().stream().map(PackageItem::quantity).toList(), sourceEvent, grantKey,
+                PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
+    }
+
+    /** Stores an already-durable definition snapshot, preserving its stable grant-key boundary. */
+    public PackageInstance createFromSnapshot(MinecraftServer server, PackageInstance snapshot) {
+        if (server == null || snapshot == null) {
+            throw new IllegalArgumentException("server and package snapshot are required");
+        }
         PackageData data = PackageData.get(server);
-        if (grantKey != null && !grantKey.isBlank()) {
-            Optional<PackageInstance> existing = data.findByGrantKey(owner, grantKey);
+        if (!snapshot.grantKey().isBlank()) {
+            Optional<PackageInstance> existing = data.findByGrantKey(snapshot.ownerId(), snapshot.grantKey());
             if (existing.isPresent()) {
                 return existing.get();
             }
         }
         PackageConfig config = dev.modmind.omnitools.ModMindEntry.configSnapshot().packages();
-        PackageDefinition definition = config.definition(packageId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown package: " + packageId));
-        if (data.list(owner).stream().filter(instance -> instance.status() != PackageInstance.Status.OPENED).count()
+        if (data.list(snapshot.ownerId()).stream().filter(instance -> instance.status() != PackageInstance.Status.OPENED).count()
                 >= config.settings().maxPackagesPerPlayer()) {
             throw new IllegalStateException("Package limit reached");
         }
-        List<ItemStack> snapshot = definition.items().stream().map(PackageItem::prototype).toList();
-        List<Long> quantities = definition.items().stream().map(PackageItem::quantity).toList();
-        PackageInstance instance = new PackageInstance(UUID.randomUUID(), owner, definition.id(), definition.version(),
-                definition.display(), definition.description(), definition.iconId(), definition.mode(), snapshot, quantities, sourceEvent,
-                grantKey, PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
-        return data.createIfAbsent(instance);
+        return data.createIfAbsent(snapshot);
     }
 
     public OpenResult open(ServerPlayer player, UUID instanceId) {

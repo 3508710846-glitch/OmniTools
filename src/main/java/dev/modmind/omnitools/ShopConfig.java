@@ -13,6 +13,7 @@ import dev.modmind.omnitools.config.ConfigFieldReporter;
 import dev.modmind.omnitools.config.ItemStackConfigParser;
 import dev.modmind.omnitools.config.ModuleId;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
 
 import java.io.IOException;
@@ -94,6 +95,10 @@ public final class ShopConfig {
         return products.size();
     }
 
+    public List<ShopItem> products() {
+        return List.copyOf(products.values());
+    }
+
     /** Highest configured position; retained so a visual layout can preserve sparse indexes. */
     public int highestProductIndex() {
         return products.keySet().stream().mapToInt(Integer::intValue).max().orElse(-1);
@@ -113,18 +118,31 @@ public final class ShopConfig {
             }
             JsonObject product = element.getAsJsonObject();
             ConfigFieldReporter.warnUnknown(product, "shop.products[" + entryIndex + "]",
-                    Set.of("index", "item", "count", "components", "nbt", "price"));
+                    Set.of("index", "type", "item", "count", "components", "nbt", "package", "price"));
             int index = nonNegativeInt(product, "index");
             if (products.containsKey(index)) {
                 throw new JsonParseException("Shop slot " + index + " is configured more than once");
             }
             long price = nonNegativeLong(product, "price");
-            ItemStack stack = ItemStackConfigParser.parse(product, registries, "Shop entry " + entryIndex,
-                    Integer.MAX_VALUE);
-            if (stack.isEmpty()) {
-                throw new JsonParseException("Shop entry " + entryIndex + " cannot use an empty item stack");
+            ProductType type = ProductType.parse(optionalString(product, "type"));
+            if (type == ProductType.PACKAGE) {
+                if (product.has("item") || product.has("count") || product.has("components") || product.has("nbt")) {
+                    throw new JsonParseException("Shop package entry " + entryIndex
+                            + " cannot contain item, count, components, or nbt");
+                }
+                products.put(index, new ShopItem(type, new ItemStack(Items.CHEST),
+                        requiredString(product, "package"), price));
+            } else {
+                if (product.has("package")) {
+                    throw new JsonParseException("Shop item entry " + entryIndex + " cannot contain package");
+                }
+                ItemStack stack = ItemStackConfigParser.parse(product, registries, "Shop entry " + entryIndex,
+                        Integer.MAX_VALUE);
+                if (stack.isEmpty()) {
+                    throw new JsonParseException("Shop entry " + entryIndex + " cannot use an empty item stack");
+                }
+                products.put(index, new ShopItem(type, stack, "", price));
             }
-            products.put(index, new ShopItem(stack, price));
         }
         return new ShopConfig(products);
     }
@@ -242,8 +260,53 @@ public final class ShopConfig {
         }
     }
 
-    public record ShopItem(ItemStack stack, long price) {
+    public enum ProductType {
+        ITEM,
+        PACKAGE;
+
+        static ProductType parse(String value) {
+            if (value == null || value.isBlank()) {
+                return ITEM;
+            }
+            try {
+                return valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException("shop product type must be item or package", exception);
+            }
+        }
+    }
+
+    public record ShopItem(ProductType type, ItemStack stack, String packageId, long price) {
+        public ShopItem {
+            type = type == null ? ProductType.ITEM : type;
+            stack = stack == null ? ItemStack.EMPTY : stack.copy();
+            packageId = packageId == null ? "" : packageId.trim().toLowerCase(java.util.Locale.ROOT);
+            if (price < 0L) {
+                throw new IllegalArgumentException("shop price must be non-negative");
+            }
+            if (type == ProductType.ITEM && stack.isEmpty()) {
+                throw new IllegalArgumentException("item shop product cannot be empty");
+            }
+            if (type == ProductType.PACKAGE && !packageId.matches("[a-z0-9_.-]{1,64}")) {
+                throw new IllegalArgumentException("invalid shop package id");
+            }
+        }
+
+        /** Compatibility constructor for integrations using the original item-only product record. */
+        public ShopItem(ItemStack stack, long price) {
+            this(ProductType.ITEM, stack, "", price);
+        }
+
+        @Override
+        public ItemStack stack() {
+            return stack.copy();
+        }
+
         public ItemStack createStack() {
+            return type == ProductType.ITEM ? stack.copy() : ItemStack.EMPTY;
+        }
+
+        public ItemStack createDisplayStack() {
             return stack.copy();
         }
     }

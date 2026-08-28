@@ -56,4 +56,19 @@ class CheckinMakeupDataTest {
         assertEquals(0, data.getMakeupUses(player, YearMonth.of(2024, 10)));
         assertFalse(data.hasSigned(player, today - 1L));
     }
+
+    @Test
+    void shopChargeUsesTheTransactionIdAsAnIdempotencyMarker() {
+        CheckinData data = new CheckinData();
+        UUID player = UUID.randomUUID();
+        UUID transaction = UUID.randomUUID();
+        data.addCurrency(player, 100L, "Tester");
+
+        assertEquals(CheckinData.ShopPurchaseChargeResult.CHARGED,
+                data.chargeShopPurchase(player, transaction, 30L, "Tester"));
+        assertEquals(CheckinData.ShopPurchaseChargeResult.ALREADY_CHARGED,
+                data.chargeShopPurchase(player, transaction, 30L, "Tester"));
+        assertEquals(70L, data.getBalance(player));
+        assertTrue(data.hasShopPurchaseCharge(player, transaction));
+    }
 }

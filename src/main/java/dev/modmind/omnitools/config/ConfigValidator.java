@@ -2,6 +2,7 @@ package dev.modmind.omnitools.config;
 
 import dev.modmind.omnitools.AchievementConfig;
 import dev.modmind.omnitools.CheckinRewardConfig;
+import dev.modmind.omnitools.ShopConfig;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.sidebar.SidebarConfig;
@@ -43,6 +44,7 @@ public final class ConfigValidator {
         if (!snapshot.enabled(ModuleId.PACKAGES) && !snapshot.packages().packages().isEmpty()) {
             throw new IllegalArgumentException("packages definitions require the packages module to be enabled");
         }
+        validateShop(snapshot);
         validateSidebar(snapshot);
         validateLeaderboards(snapshot);
         validateCommandMenus(snapshot);
@@ -104,6 +106,20 @@ public final class ConfigValidator {
                     && snapshot.leaderboards().definition(page.leaderboardId()).isEmpty()) {
                 throw new IllegalArgumentException("sidebar page " + page.id()
                         + " references unknown leaderboard " + page.leaderboardId());
+            }
+        }
+    }
+
+    private static void validateShop(OmniToolsConfigSnapshot snapshot) {
+        for (ShopConfig.ShopItem product : snapshot.shop().products()) {
+            if (product.type() != ShopConfig.ProductType.PACKAGE) {
+                continue;
+            }
+            if (!snapshot.enabled(ModuleId.PACKAGES)) {
+                throw new IllegalArgumentException("shop package product requires packages to be enabled");
+            }
+            if (snapshot.packages().definition(product.packageId()).isEmpty()) {
+                throw new IllegalArgumentException("shop product references unknown package " + product.packageId());
             }
         }
     }

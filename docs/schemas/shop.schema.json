@@ -12,13 +12,29 @@
         "required": ["index", "price"],
         "properties": {
           "index": { "type": "integer", "minimum": 0 },
+          "type": { "enum": ["item", "package"] },
           "price": { "type": "integer", "minimum": 0 },
           "item": { "type": "string" },
           "count": { "type": "integer", "minimum": 1 },
           "components": { "type": ["string", "object"] },
-          "nbt": { "type": "string" }
+          "nbt": { "type": "string" },
+          "package": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" }
         },
-        "anyOf": [{ "required": ["item"] }, { "required": ["nbt"] }],
+        "oneOf": [
+          {
+            "properties": { "type": { "const": "package" } },
+            "required": ["type", "package"]
+          },
+          {
+            "properties": { "type": { "const": "item" } },
+            "required": ["type"],
+            "anyOf": [{ "required": ["item"] }, { "required": ["nbt"] }]
+          },
+          {
+            "not": { "required": ["type"] },
+            "anyOf": [{ "required": ["item"] }, { "required": ["nbt"] }]
+          }
+        ],
         "additionalProperties": false
       }
     }

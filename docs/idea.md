@@ -2355,3 +2355,14 @@ inspect 必须显示礼包来源、grantKey、配置版本、随机结果、每�
 新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。
 使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。
 重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。
+
+---
+
+## Development request 2026/8/28 17:54:22
+
+第三阶段：补商店联动。
+
+商店商品支持 type: "package"。
+新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。
+使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。
+重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。

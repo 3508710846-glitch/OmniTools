@@ -11,6 +11,12 @@
       "index": 1,
       "nbt": "{id:'minecraft:diamond_sword',count:1,components:{}}",
       "price": 500
+    },
+    {
+      "index": 2,
+      "type": "package",
+      "package": "starter",
+      "price": 100
     }
   ]
 }

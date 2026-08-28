@@ -77,6 +77,7 @@ public final class ModMindEntry implements ModInitializer {
     private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
     private static final LeaderboardService LEADERBOARD_SERVICE = new LeaderboardService();
     private static final PackageService PACKAGE_SERVICE = new PackageService();
+    private static final ShopPurchaseService SHOP_PURCHASE_SERVICE = new ShopPurchaseService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
     private static volatile OmniToolsConfigSnapshot configSnapshot = CONFIG_MANAGER.snapshot();
@@ -98,6 +99,7 @@ public final class ModMindEntry implements ModInitializer {
             TitleData.importLegacy(server);
             MODULE_CONTROL.reload(server);
             rewardGrantService().reconcileStartup(server);
+            shopPurchaseService().reconcileStartup(server);
             PlaceholderBootstrap.registerIfAvailable();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -199,7 +201,7 @@ public final class ModMindEntry implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var command = Commands.literal("omnitools")
                     .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
-                            CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
+                            CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.SHOP_AUDIT, CommandAction.TITLE_OPEN,
                             CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
@@ -265,7 +267,7 @@ public final class ModMindEntry implements ModInitializer {
         ModuleCommandRegistrar commands = new ModuleCommandRegistrar();
         commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("checkin")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
-                        CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.TITLE_OPEN,
+                        CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.SHOP_AUDIT, CommandAction.TITLE_OPEN,
                         CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
                         CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                         CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
@@ -415,6 +417,8 @@ public final class ModMindEntry implements ModInitializer {
 
     public static PackageService packageService() { return PACKAGE_SERVICE; }
 
+    public static ShopPurchaseService shopPurchaseService() { return SHOP_PURCHASE_SERVICE; }
+
     /** Applies one already-validated snapshot for both command reloads and module GUI changes. */
     public static void applyRuntimeConfigChange(net.minecraft.server.MinecraftServer server,
                                                 OmniToolsConfigSnapshot previous, OmniToolsConfigSnapshot current) {
@@ -487,11 +491,54 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> shopCommand() {
         return Commands.literal("shop")
-                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SHOP_OPEN)
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.SHOP_OPEN, CommandAction.SHOP_AUDIT)
                         .and(source -> isModuleEnabled(ModuleId.SHOP)))
                 .executes(context -> openShopMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
-                        .executes(context -> openShopMenu(context.getSource().getPlayerOrException())));
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SHOP_OPEN))
+                        .executes(context -> openShopMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("audit")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.SHOP_AUDIT))
+                        .executes(context -> listShopPurchaseAudit(context.getSource()))
+                        .then(Commands.argument("transaction", StringArgumentType.word())
+                                .executes(context -> inspectShopPurchaseAudit(context.getSource(),
+                                        StringArgumentType.getString(context, "transaction")))));
+    }
+
+    private static int listShopPurchaseAudit(CommandSourceStack source) {
+        List<ShopPurchaseData.PurchaseTransaction> transactions = ShopPurchaseData.get(source.getServer()).list();
+        long blocked = transactions.stream().filter(transaction -> transaction.status()
+                == ShopPurchaseData.Status.BLOCKED).count();
+        source.sendSuccess(() -> Component.literal("shop purchases: " + transactions.size() + ", blocked: " + blocked), false);
+        transactions.stream().filter(transaction -> transaction.status() == ShopPurchaseData.Status.BLOCKED)
+                .sorted(java.util.Comparator.comparingLong(ShopPurchaseData.PurchaseTransaction::updatedAt).reversed())
+                .limit(10).forEach(transaction -> source.sendSuccess(() -> Component.literal("blocked "
+                        + transaction.transactionId() + " owner=" + transaction.ownerId() + " package="
+                        + transaction.packageSnapshot().packageId() + " reason=" + transaction.auditReason()), false));
+        return 1;
+    }
+
+    private static int inspectShopPurchaseAudit(CommandSourceStack source, String transactionText) {
+        UUID transactionId;
+        try {
+            transactionId = UUID.fromString(transactionText);
+        } catch (IllegalArgumentException exception) {
+            source.sendFailure(Component.literal("invalid shop transaction UUID"));
+            return 0;
+        }
+        ShopPurchaseData.PurchaseTransaction transaction = ShopPurchaseData.get(source.getServer())
+                .find(transactionId).orElse(null);
+        if (transaction == null) {
+            source.sendFailure(Component.literal("shop transaction not found"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("shop transaction=" + transaction.transactionId()
+                + " status=" + transaction.status() + " owner=" + transaction.ownerId()
+                + " product=" + transaction.productIndex() + " package=" + transaction.packageSnapshot().packageId()
+                + " packageVersion=" + transaction.packageSnapshot().packageVersion() + " price=" + transaction.price()
+                + " grantKey=" + transaction.grantKey() + " createdAt=" + transaction.createdAt()
+                + " updatedAt=" + transaction.updatedAt() + " reason=" + transaction.auditReason()), false);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> cloudStorageCommand(String literal) {

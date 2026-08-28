@@ -1,27 +1,20 @@
 {
-  "prompt": "超大礼包可能卡服。当前允许总数量最高 589824，打开时会预先拆成物品堆，并对每一堆前后同步保存数据；不可堆叠物品或大数量礼包会产生非常多的磁盘写入。\n管理员无法真正处置 BLOCKED 礼包。现有 inspect 仅返回实例总数，remove 会直接删除；没有逐堆审计、确认已发/未发、受控恢复工具。\n/omnitools package give 按玩家、按数量逐个创建。中途达到实例上限或发生异常时，之前创建的礼包不会回滚，属于部分成功。\n已打开礼包只从 GUI 隐藏，数据默认一直保留；长期运行会累积实例和投递批次。\n当前随机仅等权；商店礼包商品及“扣币与创建礼包”的事务恢复尚未实现。\n自动化测试只覆盖少量数据模型状态，未覆盖真实投递、背包满恢复、重启、权限和压力场景。\n交给工作台的实施方案\n\n第一阶段：先补稳定性和数据安全。\n\n将投递批次改为“逻辑条目 + 已投递数量”，不要在一次点击中预生成全部物理物品堆。\n打开礼包只创建投递任务；服务器每 tick 最多投递 delivery_stacks_per_tick 堆，始终在服务端主线程修改背包。\n保留现有 DELIVERING -> BLOCKED 的保守策略：发生不确定中断时绝不自动补发。\n配置增加安全项，并提供 V1 到 V2 迁移：\n\"settings\": {\n  \"max_pending_packages_per_player\": 256,\n  \"max_delivery_stacks_per_package\": 216,\n  \"delivery_stacks_per_tick\": 4,\n  \"history_retention_days\": 90\n}\npackage give 改为“预检全部目标玩家容量和定义，再统一创建”。任何目标不满足条件时整次命令零创建；命令结果输出成功数、失败原因和批次 ID。\n仅自动清理已 OPENED、无未完成投递批次、且奖励账本已确认完成的历史实例；PENDING、WAITING_INBOX、BLOCKED 永不自动删除。\n第二阶段：补管理员恢复和审计能力。\n\n新增管理员权限与命令：\n\n/omnitools package list <player> [status] [page]\n/omnitools package inspect <player> <instance_uuid>\n/omnitools package resolve <player> <instance_uuid> <stack_uuid> delivered confirm\n/omnitools package resolve <player> <instance_uuid> <stack_uuid> pending confirm\n/omnitools package cancel <player> <instance_uuid> confirm\ninspect 必须显示礼包来源、grantKey、配置版本、随机结果、每个堆的数量和状态、时间戳。resolve 只能由管理员明确确认“该堆已发”或“确认未发”；禁止对 BLOCKED 一键重试。所有高风险操作写入独立审计日志。\n\n第三阶段：补商店联动。\n\n商店商品支持 type: \"package\"。\n新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。\n使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。\n重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。",
+  "prompt": "第三阶段：补商店联动。\n\n商店商品支持 type: \"package\"。\n新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。\n使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。\n重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-28T09:46:38.806Z",
-  "summary": "已完成第一、二阶段的核心稳定性改造。\n\n主要变更：\n\n- [PackageConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageConfig.java)\n  - 支持 V1 到 V2 迁移。\n  - 新增 `max_pending_packages_per_player`、`max_delivery_stacks_per_package`、`delivery_stacks_per_tick`、`history_retention_days`。\n  - V1 迁移会保留原完整礼包定义。\n\n- [PackageDeliveryBatch.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java)\n  - 改为逻辑条目加 `quantity/deliveredQuantity`。\n  - 不再一次性预生成全部物理堆。\n  - 每 tick 按配置预算投递，默认最多 4 堆。\n\n- [PackageService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)\n  - 打开礼包只创建持久化投递任务。\n  - 投递始终在服务端 tick 主线程执行。\n  - `DELIVERING` 中断继续采用保守 `BLOCKED` 策略。\n\n- `package give`\n  - 先预检所有目标玩家和容量。\n  - 任一目标失败则整次零创建。\n  - 创建异常会回滚本次已创建实例，并返回批次 UUID。\n\n- 历史清理\n  - 只清理已 `OPENED`、批次完成且奖励账本已确认的旧实例。\n  - `PENDING`、`WAITING_INBOX`、`BLOCKED` 永不自动删除。\n\n- 管理员处置\n  - 新增 `package list`。\n  - `package inspect <player> <instance_uuid>` 显示批次、堆状态、总量、已投递量、随机结果和时间戳。\n  - 新增逐堆 `resolve ... delivered|pending confirm`。\n  - 新增 `cancel ... confirm`。\n  - 高风险操作写入 `config/omnitools/package-audit.log`。\n  - 不提供 BLOCKED 一键重试。\n\n- 同步更新了礼包 Schema、示例配置和权限文档。\n\n验证结果：\n\n- `build` 通过。\n- Fabric 服务端启动并稳定运行 15 秒。\n- 内容校验通过，无错误或警告。\n- `git diff --check` 通过。\n\n商店礼包购买事务尚未实现，仍作为下一阶段工作；真实玩家背包满、重启恢复和压力场景也还需要补充专门的集成测试。",
-  "finalResponse": "已完成第一、二阶段的核心稳定性改造。\n\n主要变更：\n\n- [PackageConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageConfig.java)\n  - 支持 V1 到 V2 迁移。\n  - 新增 `max_pending_packages_per_player`、`max_delivery_stacks_per_package`、`delivery_stacks_per_tick`、`history_retention_days`。\n  - V1 迁移会保留原完整礼包定义。\n\n- [PackageDeliveryBatch.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java)\n  - 改为逻辑条目加 `quantity/deliveredQuantity`。\n  - 不再一次性预生成全部物理堆。\n  - 每 tick 按配置预算投递，默认最多 4 堆。\n\n- [PackageService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)\n  - 打开礼包只创建持久化投递任务。\n  - 投递始终在服务端 tick 主线程执行。\n  - `DELIVERING` 中断继续采用保守 `BLOCKED` 策略。\n\n- `package give`\n  - 先预检所有目标玩家和容量。\n  - 任一目标失败则整次零创建。\n  - 创建异常会回滚本次已创建实例，并返回批次 UUID。\n\n- 历史清理\n  - 只清理已 `OPENED`、批次完成且奖励账本已确认的旧实例。\n  - `PENDING`、`WAITING_INBOX`、`BLOCKED` 永不自动删除。\n\n- 管理员处置\n  - 新增 `package list`。\n  - `package inspect <player> <instance_uuid>` 显示批次、堆状态、总量、已投递量、随机结果和时间戳。\n  - 新增逐堆 `resolve ... delivered|pending confirm`。\n  - 新增 `cancel ... confirm`。\n  - 高风险操作写入 `config/omnitools/package-audit.log`。\n  - 不提供 BLOCKED 一键重试。\n\n- 同步更新了礼包 Schema、示例配置和权限文档。\n\n验证结果：\n\n- `build` 通过。\n- Fabric 服务端启动并稳定运行 15 秒。\n- 内容校验通过，无错误或警告。\n- `git diff --check` 通过。\n\n商店礼包购买事务尚未实现，仍作为下一阶段工作；真实玩家背包满、重启恢复和压力场景也还需要补充专门的集成测试。",
+  "createdAt": "2026-08-28T10:21:50.334Z",
+  "summary": "商店礼包联动已完成。\n\n- `type: \"package\"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)\n- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)\n- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)\n- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。\n- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。\n\n验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。",
+  "finalResponse": "商店礼包联动已完成。\n\n- `type: \"package\"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)\n- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)\n- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)\n- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。\n- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。\n\n验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。",
   "intent": "engineering",
   "tasks": [
-    "增加礼包 V1→V2 配置迁移与投递安全项",
-    "改为逻辑条目、每 tick 限流并保守恢复",
-    "实现 package give 全量预检与零部分成功",
-    "清理满足条件的 OPENED 历史实例",
-    "增加管理员列表、审计和受控处置命令",
-    "实现商店礼包购买事务恢复",
-    "补充测试并执行构建与服务端验证"
+    "支持商店礼包商品并校验跨模块配置",
+    "实现持久化购买事务与幂等扣款",
+    "实现安全恢复、审计日志与管理员查看命令",
+    "完成构建、服务端启动和内容校验"
   ],
   "files": [
     {
-      "path": "docs/examples/config-platform/packages.jsonc",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/modules/packages.md",
+      "path": "docs/examples/config-platform/shop.jsonc",
       "purpose": "外部代理修改"
     },
     {
@@ -29,7 +22,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/schemas/packages.schema.json",
+      "path": "docs/schemas/shop.schema.json",
       "purpose": "外部代理修改"
     },
     {
@@ -101,19 +94,27 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "src/main/java/dev/modmind/omnitools/CheckinData.java",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/packages/PackageConfig.java",
+      "path": "src/main/java/dev/modmind/omnitools/ShopConfig.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
       "purpose": "外部代理修改"
     },
     {
       "path": "src/main/java/dev/modmind/omnitools/packages/PackageData.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java",
       "purpose": "外部代理修改"
     },
     {
@@ -125,19 +126,31 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/reward/RewardClaimLedger.java",
+      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/packages/PackageDeliveryBatchTest.java",
+      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-08-28-1.log.gz",
+      "path": "src/test/java/dev/modmind/omnitools/CheckinMakeupDataTest.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/packages/PackageAuditLog.java",
+      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseAuditLog.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseService.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/ShopPurchaseDataTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -146,7 +159,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-28T09-18-06-635Z",
+  "snapshotId": "2026-08-28T09-54-25-113Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -156,19 +169,21 @@
       "build"
     ],
     "completed": [
-      "plan",
       "build",
       "runtime_test",
       "validate",
-      "implementation"
+      "plan",
+      "implementation",
+      "todo_complete"
     ],
     "missing": [],
     "evidence": {
-      "plan": "modmind_update_todo published the ordered plan",
       "build": "modmind_test_matrix passed a build/client target",
       "runtime_test": "modmind_test_matrix passed runtime targets",
       "validate": "modmind_validate_content completed successfully",
-      "implementation": "Detected 31 changed managed files"
+      "plan": "modmind_update_todo published the ordered plan",
+      "implementation": "Detected 35 changed managed files",
+      "todo_complete": "All Todo items are completed after the other required stages"
     }
   }
 }

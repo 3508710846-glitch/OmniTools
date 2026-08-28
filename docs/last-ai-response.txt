@@ -1,46 +1,9 @@
-已完成第一、二阶段的核心稳定性改造。
+商店礼包联动已完成。
 
-主要变更：
+- `type: "package"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)
+- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)
+- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)
+- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。
+- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。
 
-- [PackageConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageConfig.java)
-  - 支持 V1 到 V2 迁移。
-  - 新增 `max_pending_packages_per_player`、`max_delivery_stacks_per_package`、`delivery_stacks_per_tick`、`history_retention_days`。
-  - V1 迁移会保留原完整礼包定义。
-
-- [PackageDeliveryBatch.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageDeliveryBatch.java)
-  - 改为逻辑条目加 `quantity/deliveredQuantity`。
-  - 不再一次性预生成全部物理堆。
-  - 每 tick 按配置预算投递，默认最多 4 堆。
-
-- [PackageService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)
-  - 打开礼包只创建持久化投递任务。
-  - 投递始终在服务端 tick 主线程执行。
-  - `DELIVERING` 中断继续采用保守 `BLOCKED` 策略。
-
-- `package give`
-  - 先预检所有目标玩家和容量。
-  - 任一目标失败则整次零创建。
-  - 创建异常会回滚本次已创建实例，并返回批次 UUID。
-
-- 历史清理
-  - 只清理已 `OPENED`、批次完成且奖励账本已确认的旧实例。
-  - `PENDING`、`WAITING_INBOX`、`BLOCKED` 永不自动删除。
-
-- 管理员处置
-  - 新增 `package list`。
-  - `package inspect <player> <instance_uuid>` 显示批次、堆状态、总量、已投递量、随机结果和时间戳。
-  - 新增逐堆 `resolve ... delivered|pending confirm`。
-  - 新增 `cancel ... confirm`。
-  - 高风险操作写入 `config/omnitools/package-audit.log`。
-  - 不提供 BLOCKED 一键重试。
-
-- 同步更新了礼包 Schema、示例配置和权限文档。
-
-验证结果：
-
-- `build` 通过。
-- Fabric 服务端启动并稳定运行 15 秒。
-- 内容校验通过，无错误或警告。
-- `git diff --check` 通过。
-
-商店礼包购买事务尚未实现，仍作为下一阶段工作；真实玩家背包满、重启恢复和压力场景也还需要补充专门的集成测试。
+验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。
