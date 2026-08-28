@@ -28,25 +28,35 @@ import java.util.Set;
  * JSON values so each module retains its existing strict parser and safety bounds.</p>
  */
 public final class CommonConfig {
+    /** Format version for common conditions and texts. Reward libraries version independently. */
     public static final int CURRENT_FORMAT_VERSION = 1;
+    public static final int CURRENT_REWARD_FORMAT_VERSION = 2;
     public static final int MAX_REFERENCE_DEPTH = 4;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]{1,64}");
 
     private final Map<String, JsonObject> rewardTemplates;
+    private final RewardCatalog rewardCatalog;
     private final Map<String, JsonObject> conditionTemplates;
     private final Map<String, String> texts;
 
     public CommonConfig(Map<String, JsonObject> rewardTemplates,
                         Map<String, JsonObject> conditionTemplates,
                         Map<String, String> texts) {
+        this(rewardTemplates, conditionTemplates, texts, RewardCatalog.empty());
+    }
+
+    public CommonConfig(Map<String, JsonObject> rewardTemplates,
+                        Map<String, JsonObject> conditionTemplates,
+                        Map<String, String> texts, RewardCatalog rewardCatalog) {
         this.rewardTemplates = copyObjects(rewardTemplates);
         this.conditionTemplates = copyObjects(conditionTemplates);
         this.texts = Map.copyOf(texts == null ? Map.of() : texts);
+        this.rewardCatalog = rewardCatalog == null ? RewardCatalog.empty() : rewardCatalog;
     }
 
     public static CommonConfig empty() {
-        return new CommonConfig(Map.of(), Map.of(), Map.of());
+        return new CommonConfig(Map.of(), Map.of(), Map.of(), RewardCatalog.empty());
     }
 
     public static CommonConfig load(HolderLookup.Provider registries) {
@@ -55,8 +65,9 @@ public final class CommonConfig {
             JsonObject rewards = readOrCreate(ConfigPaths.commonRewards(), defaultRewards());
             JsonObject conditions = readOrCreate(ConfigPaths.commonConditions(), defaultConditions());
             JsonObject texts = readOrCreate(ConfigPaths.commonTexts(), defaultTexts());
-            return new CommonConfig(parseTemplates(rewards, "rewards"),
-                    parseTemplates(conditions, "conditions"), parseTexts(texts));
+            RewardLibrary rewardLibrary = parseRewardLibrary(rewards, registries);
+            return new CommonConfig(rewardLibrary.templates(), parseTemplates(conditions, "conditions"),
+                    parseTexts(texts), rewardLibrary.catalog());
         } catch (IOException | RuntimeException exception) {
             throw new IllegalStateException("Invalid common configuration", exception);
         }
@@ -64,6 +75,10 @@ public final class CommonConfig {
 
     public Map<String, JsonObject> rewardTemplates() {
         return rewardTemplates;
+    }
+
+    public RewardCatalog rewardCatalog() {
+        return rewardCatalog;
     }
 
     public Map<String, JsonObject> conditionTemplates() {
@@ -130,12 +145,35 @@ public final class CommonConfig {
         return result;
     }
 
+    /** Expands legacy reward templates while loading a V2 catalog definition. */
+    static JsonElement expandRewardTemplates(JsonElement element, Map<String, JsonObject> templates, String context) {
+        return expandValue(element, templates == null ? Map.of() : templates, context, 0, "reward");
+    }
+
     private static Map<String, JsonObject> parseTemplates(JsonObject root, String kind) {
         ConfigFieldReporter.warnUnknown(root, "common." + kind, Set.of("format_version", "templates"));
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION);
         if (version != CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("common." + kind + ".format_version must be " + CURRENT_FORMAT_VERSION);
         }
+        return parseTemplateEntries(root, kind);
+    }
+
+    private static RewardLibrary parseRewardLibrary(JsonObject root, HolderLookup.Provider registries) {
+        int version = integer(root, "format_version", 1);
+        if (version == 1) {
+            return new RewardLibrary(parseTemplates(root, "rewards"), RewardCatalog.empty());
+        }
+        if (version != CURRENT_REWARD_FORMAT_VERSION) {
+            throw new JsonParseException("common.rewards.format_version must be 1 or "
+                    + CURRENT_REWARD_FORMAT_VERSION);
+        }
+        ConfigFieldReporter.warnUnknown(root, "common.rewards", Set.of("format_version", "templates", "rewards", "sets"));
+        Map<String, JsonObject> templates = parseTemplateEntries(root, "rewards");
+        return new RewardLibrary(templates, RewardCatalog.parse(root, registries, templates));
+    }
+
+    private static Map<String, JsonObject> parseTemplateEntries(JsonObject root, String kind) {
         JsonElement value = root.get("templates");
         if (value == null) {
             return Map.of();
@@ -225,8 +263,9 @@ public final class CommonConfig {
 
     private static JsonObject defaultRewards() {
         JsonObject root = new JsonObject();
-        root.addProperty("format_version", CURRENT_FORMAT_VERSION);
-        root.add("templates", new JsonObject());
+        root.addProperty("format_version", CURRENT_REWARD_FORMAT_VERSION);
+        root.add("rewards", new JsonObject());
+        root.add("sets", new JsonObject());
         return root;
     }
 
@@ -242,5 +281,8 @@ public final class CommonConfig {
         root.addProperty("format_version", CURRENT_FORMAT_VERSION);
         root.add("texts", new JsonObject());
         return root;
+    }
+
+    private record RewardLibrary(Map<String, JsonObject> templates, RewardCatalog catalog) {
     }
 }

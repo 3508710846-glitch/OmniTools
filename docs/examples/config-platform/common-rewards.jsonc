@@ -1,15 +1,27 @@
 {
-  "format_version": 1,
-  "templates": {
-    "welcome_currency": {
+  "format_version": 2,
+  "rewards": {
+    "coins_100": {
       "type": "currency",
       "amount": 100
     },
-    "weekend_title": {
+    "starter_package": {
+      "type": "package",
+      "package": "starter"
+    },
+    "geologist_7d": {
       "type": "title",
-      "title": "architect",
+      "title": "geologist",
       "duration": { "mode": "active_days", "days": 7 },
       "renewal": "extend"
+    }
+  },
+  "sets": {
+    "daily_basic": {
+      "rewards": ["coins_100"]
+    },
+    "mine_stone_1000": {
+      "rewards": [{ "set": "daily_basic" }, "geologist_7d", "starter_package"]
     }
   }
 }

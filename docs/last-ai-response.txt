@@ -1,9 +1,5 @@
-商店礼包联动已完成。
+奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ "reward" }` / `{ "set" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。
 
-- `type: "package"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)
-- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)
-- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)
-- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。
-- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。
+保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。
 
-验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。
+验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。

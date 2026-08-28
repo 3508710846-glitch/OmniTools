@@ -2366,3 +2366,82 @@ inspect 必须显示礼包来源、grantKey、配置版本、随机结果、每�
 新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。
 使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。
 重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。
+
+---
+
+## Development request 2026/8/28 18:29:53
+
+可以，而且建议做成“奖励库”，不建议新增一个可关闭的独立玩法模块。
+
+当前项目已有合适基础：`common/rewards.json` 已支持单条奖励模板，签到、在线奖励、成就、CDK 都经由同一 `RewardDefinition` 和奖励账本发放。但现在仍需在各模块保留奖励数组与本地 `id`，现有公共配置也只有两个简单模板，尚未实现“定义一套奖励组合，多个模块直接调用”。见 [CommonConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/CommonConfig.java:78)、[RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java:71)。
+
+**建议方案**
+
+将 `config/omnitools/common/rewards.json` 从“模板文件”升级为“奖励库”。它不放入 `modules` 总开关，因为签到、成就等模块都依赖它，关闭会导致引用失效。
+
+```json
+{
+  "format_version": 2,
+  "rewards": {
+    "coins_100": {
+      "type": "currency",
+      "amount": 100
+    },
+    "starter_package": {
+      "type": "package",
+      "package": "starter"
+    },
+    "geologist_7d": {
+      "type": "title",
+      "title": "geologist",
+      "duration": { "mode": "active_days", "days": 7 },
+      "renewal": "extend"
+    }
+  },
+  "sets": {
+    "daily_basic": {
+      "rewards": ["coins_100"]
+    },
+    "mine_stone_1000": {
+      "rewards": ["coins_100", "geologist_7d", "starter_package"]
+    }
+  }
+}
+```
+
+各业务模块只引用奖励或奖励组，不再重复写货币、物品、称号、指令、礼包的具体内容：
+
+```json
+{
+  "id": "mine_stone_1000",
+  "condition": { "...": "..." },
+  "rewards": [
+    { "set": "mine_stone_1000" }
+  ]
+}
+```
+
+也允许组合：
+
+```json
+"rewards": [
+  { "set": "daily_basic" },
+  { "reward": "starter_package" }
+]
+```
+
+实现要求：
+
+- 新增不可变 `RewardCatalog`，由 `CommonConfig` 加载 `rewards` 和 `sets`。
+- 奖励库键名同时作为稳定的奖励 `id`，解析时自动补入 `id`，调用处不得覆盖奖励类型、数量、NBT、指令等内容。
+- `{ "reward": "..." }` 解析为一个奖励；`{ "set": "..." }` 递归展开为多个奖励。
+- 支持集合嵌套，但必须检测未知引用、循环引用、最大深度、同一事件展开后重复奖励 ID。
+- 保留 V1 的 `templates`、`template`、`$ref`，保证旧配置继续可用；V2 是推荐写法。
+- 在完整 `/omnitools reload` 时先加载奖励库，再加载签到、在线奖励、成就、CDK，最后沿用现有跨模块校验。称号、礼包、补签卡、命令安全规则仍由现有 [ConfigValidator.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java:162) 校验。
+- 不修改 `RewardGrantService` 和奖励账本语义。最终仍是已解析的 `RewardDefinition`，因此幂等、防重复、物品/NBT 快照、礼包创建逻辑保持不变。
+
+关键规则：奖励 ID 必须视为永久业务 ID。已上线的 `coins_100` 不要改成物品或改作其他用途；需要调整语义时新增 `coins_200_v2`，再修改奖励组。否则已有奖励账本可能将“旧奖励已发”误判为“新奖励已发”。
+
+工作台验收应覆盖：四个模块都能引用同一奖励组；奖励组组合与重复 ID 被正确处理；循环/未知引用阻止整次重载；V1 模板与旧的内联 `rewards` 数组仍可使用；奖励库中的称号、礼包、命令仍触发现有安全校验。
+
+这样能真正做到“奖励只定义一次，业务模块只选择奖励组”，且不会重造现有统一发奖与幂等机制。

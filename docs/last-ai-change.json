@@ -1,28 +1,31 @@
 {
-  "prompt": "第三阶段：补商店联动。\n\n商店商品支持 type: \"package\"。\n新建持久化购买事务：PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED。\n使用稳定键 shop:<transactionId>#<rewardId> 创建礼包，扣币也使用同一事务 ID 幂等。\n重启后只能继续已证明安全的步骤；扣币或发包结果不确定时进入管理员审计，不能自动退款或重发。",
+  "prompt": "可以，而且建议做成“奖励库”，不建议新增一个可关闭的独立玩法模块。\n\n当前项目已有合适基础：`common/rewards.json` 已支持单条奖励模板，签到、在线奖励、成就、CDK 都经由同一 `RewardDefinition` 和奖励账本发放。但现在仍需在各模块保留奖励数组与本地 `id`，现有公共配置也只有两个简单模板，尚未实现“定义一套奖励组合，多个模块直接调用”。见 [CommonConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/CommonConfig.java:78)、[RewardDefinition.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java:71)。\n\n**建议方案**\n\n将 `config/omnitools/common/rewards.json` 从“模板文件”升级为“奖励库”。它不放入 `modules` 总开关，因为签到、成就等模块都依赖它，关闭会导致引用失效。\n\n```json\n{\n  \"format_version\": 2,\n  \"rewards\": {\n    \"coins_100\": {\n      \"type\": \"currency\",\n      \"amount\": 100\n    },\n    \"starter_package\": {\n      \"type\": \"package\",\n      \"package\": \"starter\"\n    },\n    \"geologist_7d\": {\n      \"type\": \"title\",\n      \"title\": \"geologist\",\n      \"duration\": { \"mode\": \"active_days\", \"days\": 7 },\n      \"renewal\": \"extend\"\n    }\n  },\n  \"sets\": {\n    \"daily_basic\": {\n      \"rewards\": [\"coins_100\"]\n    },\n    \"mine_stone_1000\": {\n      \"rewards\": [\"coins_100\", \"geologist_7d\", \"starter_package\"]\n    }\n  }\n}\n```\n\n各业务模块只引用奖励或奖励组，不再重复写货币、物品、称号、指令、礼包的具体内容：\n\n```json\n{\n  \"id\": \"mine_stone_1000\",\n  \"condition\": { \"...\": \"...\" },\n  \"rewards\": [\n    { \"set\": \"mine_stone_1000\" }\n  ]\n}\n```\n\n也允许组合：\n\n```json\n\"rewards\": [\n  { \"set\": \"daily_basic\" },\n  { \"reward\": \"starter_package\" }\n]\n```\n\n实现要求：\n\n- 新增不可变 `RewardCatalog`，由 `CommonConfig` 加载 `rewards` 和 `sets`。\n- 奖励库键名同时作为稳定的奖励 `id`，解析时自动补入 `id`，调用处不得覆盖奖励类型、数量、NBT、指令等内容。\n- `{ \"reward\": \"...\" }` 解析为一个奖励；`{ \"set\": \"...\" }` 递归展开为多个奖励。\n- 支持集合嵌套，但必须检测未知引用、循环引用、最大深度、同一事件展开后重复奖励 ID。\n- 保留 V1 的 `templates`、`template`、`$ref`，保证旧配置继续可用；V2 是推荐写法。\n- 在完整 `/omnitools reload` 时先加载奖励库，再加载签到、在线奖励、成就、CDK，最后沿用现有跨模块校验。称号、礼包、补签卡、命令安全规则仍由现有 [ConfigValidator.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigValidator.java:162) 校验。\n- 不修改 `RewardGrantService` 和奖励账本语义。最终仍是已解析的 `RewardDefinition`，因此幂等、防重复、物品/NBT 快照、礼包创建逻辑保持不变。\n\n关键规则：奖励 ID 必须视为永久业务 ID。已上线的 `coins_100` 不要改成物品或改作其他用途；需要调整语义时新增 `coins_200_v2`，再修改奖励组。否则已有奖励账本可能将“旧奖励已发”误判为“新奖励已发”。\n\n工作台验收应覆盖：四个模块都能引用同一奖励组；奖励组组合与重复 ID 被正确处理；循环/未知引用阻止整次重载；V1 模板与旧的内联 `rewards` 数组仍可使用；奖励库中的称号、礼包、命令仍触发现有安全校验。\n\n这样能真正做到“奖励只定义一次，业务模块只选择奖励组”，且不会重造现有统一发奖与幂等机制。",
   "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
   "backend": "quota",
-  "createdAt": "2026-08-28T10:21:50.334Z",
-  "summary": "商店礼包联动已完成。\n\n- `type: \"package\"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)\n- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)\n- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)\n- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。\n- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。\n\n验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。",
-  "finalResponse": "商店礼包联动已完成。\n\n- `type: \"package\"` 商品已支持，且会校验礼包模块已启用、礼包 ID 存在，并拒绝与物品字段混写。[ShopConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopConfig.java:120)\n- 新增持久化购买状态机 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，购买记录保存完整礼包快照；稳定键为 `shop:<transactionId>#package`。[ShopPurchaseData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseData.java:29)\n- 扣币通过交易 UUID 在余额 SavedData 中幂等记录，重启恢复只依据已落盘标记继续；不确定结果会转为 `BLOCKED`，不自动退款或重复发包。[ShopPurchaseService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java:18)\n- 新增 `shop.audit` 管理员权限及命令：`/omnitools shop audit [transaction_uuid]`。审计日志写入 `config/omnitools/shop-purchase-audit.log`。\n- 普通物品商品维持原购买行为；礼包实例历史清理也会确认对应商店交易已完成。\n\n验证通过：受管构建、`build + server` 测试矩阵、内容校验、`git diff --check`。发布预检通过；仅提示项目尚未填写更新日志。",
+  "createdAt": "2026-08-28T10:51:13.818Z",
+  "summary": "奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ \"reward\" }` / `{ \"set\" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。\n\n保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。\n\n验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。",
+  "finalResponse": "奖励库已完成：V2 支持稳定 `rewards`、可嵌套 `sets` 及 `{ \"reward\" }` / `{ \"set\" }` 引用；未知、循环、超深度和展开后的重复 ID 会拒绝完整重载。[RewardCatalog.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java:25) 保持目录不可变，目录键强制作为奖励 ID，调用处不能覆盖奖励定义。\n\n保留 V1 `templates`、`template`、`$ref`，且 V2 可安全复用旧模板。[CdkConfig.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java:277) 也已接入目录解析并将展开结果纳入活动指纹。文档、Schema 与测试已同步更新。\n\n验证通过：受管构建、单元测试、隔离服务端启动、内容校验、`git diff --check` 和发布预检；发布预检仅保留“未填写更新日志”警告。",
   "intent": "engineering",
   "tasks": [
-    "支持商店礼包商品并校验跨模块配置",
-    "实现持久化购买事务与幂等扣款",
-    "实现安全恢复、审计日志与管理员查看命令",
-    "完成构建、服务端启动和内容校验"
+    "完成奖励库解析与旧配置兼容",
+    "补齐并验证奖励库测试",
+    "执行构建、运行与内容校验"
   ],
   "files": [
     {
-      "path": "docs/examples/config-platform/shop.jsonc",
+      "path": "docs/config-platform.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/permissions.md",
+      "path": "docs/examples/config-platform/README.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/schemas/shop.schema.json",
+      "path": "docs/examples/config-platform/common-rewards.jsonc",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "docs/schemas/common-rewards.schema.json",
       "purpose": "外部代理修改"
     },
     {
@@ -94,63 +97,23 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/CheckinData.java",
+      "path": "src/main/java/dev/modmind/omnitools/cdk/CdkConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "path": "src/main/java/dev/modmind/omnitools/config/CommonConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/ShopConfig.java",
+      "path": "src/main/java/dev/modmind/omnitools/reward/RewardDefinition.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/ShopScreenHandler.java",
+      "path": "src/main/java/dev/modmind/omnitools/config/RewardCatalog.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/packages/PackageData.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/packages/PackageService.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/permissions/CommandAction.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/test/java/dev/modmind/omnitools/CheckinMakeupDataTest.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseAuditLog.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseData.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/ShopPurchaseService.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/test/java/dev/modmind/omnitools/ShopPurchaseDataTest.java",
+      "path": "src/test/java/dev/modmind/omnitools/config/RewardCatalogTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -159,7 +122,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-28T09-54-25-113Z",
+  "snapshotId": "2026-08-28T10-29-55-975Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -170,19 +133,19 @@
     ],
     "completed": [
       "build",
+      "plan",
       "runtime_test",
       "validate",
-      "plan",
       "implementation",
       "todo_complete"
     ],
     "missing": [],
     "evidence": {
       "build": "modmind_test_matrix passed a build/client target",
+      "plan": "modmind_update_todo published the ordered plan",
       "runtime_test": "modmind_test_matrix passed runtime targets",
       "validate": "modmind_validate_content completed successfully",
-      "plan": "modmind_update_todo published the ordered plan",
-      "implementation": "Detected 35 changed managed files",
+      "implementation": "Detected 26 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

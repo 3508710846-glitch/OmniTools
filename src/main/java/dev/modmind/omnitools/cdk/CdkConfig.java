@@ -277,13 +277,19 @@ public record CdkConfig(Security security, List<Campaign> campaigns, Map<String,
             JsonElement expandedRewards = (common == null ? CommonConfig.empty() : common)
                     .expandRewards(object.get("rewards"), context + ".rewards");
             List<RewardDefinition> rewards = RewardDefinition.parseArray(expandedRewards, context + ".rewards",
-                    registries, CommonConfig.empty());
+                    registries, common);
             if (rewards.isEmpty()) {
                 throw new JsonParseException(context + ".rewards must not be empty");
             }
             String codeHash = CdkConfig.hashCode(normalizeCode(code));
+            CommonConfig resolvedCommon = common == null ? CommonConfig.empty() : common;
+            String rewardFingerprint = expandedRewards.toString();
+            if (resolvedCommon.rewardCatalog().containsReference(expandedRewards)) {
+                rewardFingerprint += "|resolved=" + rewards.stream().map(RewardDefinition::fingerprintMaterial)
+                        .collect(java.util.stream.Collectors.joining(";"));
+            }
             String fingerprint = CdkConfig.hashCode(id + "|" + codeHash + "|" + (starts == null ? "" : starts)
-                    + "|" + (expires == null ? "" : expires) + "|" + maxUses + "|" + expandedRewards);
+                    + "|" + (expires == null ? "" : expires) + "|" + maxUses + "|" + rewardFingerprint);
             try {
                 return new Campaign(id, codeHash, starts, expires, maxUses, rewards, fingerprint);
             } catch (IllegalArgumentException exception) {

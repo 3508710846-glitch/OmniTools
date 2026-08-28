@@ -62,6 +62,13 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         return itemStack.copy();
     }
 
+    /** Stable material for configuration fingerprints; item components remain part of the identity. */
+    public String fingerprintMaterial() {
+        return id + "|" + type.serializedName() + "|" + amount + "|" + itemStack + "|" + titleId + "|"
+                + titleGrant.mode().serializedName() + "|" + titleGrant.activeTicks() + "|"
+                + titleGrant.renewalPolicy().serializedName() + "|" + command + "|" + packageId;
+    }
+
     public static List<RewardDefinition> parseArray(JsonElement element, String context,
                                                      HolderLookup.Provider registries) {
         return parseArray(element, context, registries, CommonConfig.empty());
@@ -70,7 +77,8 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
     /** Parses rewards after expanding optional common reward templates. */
     public static List<RewardDefinition> parseArray(JsonElement element, String context,
                                                      HolderLookup.Provider registries, CommonConfig common) {
-        element = (common == null ? CommonConfig.empty() : common).expandRewards(element, context);
+        CommonConfig resolvedCommon = common == null ? CommonConfig.empty() : common;
+        element = resolvedCommon.expandRewards(element, context);
         if (element == null || !element.isJsonArray()) {
             throw new JsonParseException(context + " must be an array");
         }
@@ -83,19 +91,40 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
             if (!entry.isJsonObject()) {
                 throw new JsonParseException(context + "[" + index + "] must be an object");
             }
-            RewardDefinition definition = parse(entry.getAsJsonObject(), context + "[" + index + "]", registries);
-            if (!ids.add(definition.id())) {
-                throw new JsonParseException(context + " has duplicate reward id " + definition.id());
+            List<RewardDefinition> expanded = resolvedCommon.rewardCatalog()
+                    .expandReference(entry.getAsJsonObject(), context + "[" + index + "]");
+            if (expanded.isEmpty()) {
+                RewardDefinition definition = parse(entry.getAsJsonObject(), context + "[" + index + "]", registries);
+                expanded = List.of(definition);
             }
-            if (definition.type() == RewardType.ITEM) {
-                totalItems += definition.createItemStack().getCount();
-                if (totalItems > MAX_EVENT_ITEM_COUNT) {
-                    throw new JsonParseException(context + " exceeds " + MAX_EVENT_ITEM_COUNT + " item rewards");
+            for (RewardDefinition definition : expanded) {
+                if (!ids.add(definition.id())) {
+                    throw new JsonParseException(context + " has duplicate reward id " + definition.id());
                 }
+                if (definition.type() == RewardType.ITEM) {
+                    totalItems += definition.createItemStack().getCount();
+                    if (totalItems > MAX_EVENT_ITEM_COUNT) {
+                        throw new JsonParseException(context + " exceeds " + MAX_EVENT_ITEM_COUNT + " item rewards");
+                    }
+                }
+                definitions.add(definition);
             }
-            definitions.add(definition);
         }
         return List.copyOf(definitions);
+    }
+
+    /** Parses one reward-library definition after injecting its stable catalog key as the reward id. */
+    public static RewardDefinition parseCatalogDefinition(String id, JsonObject source, String context,
+                                                          HolderLookup.Provider registries) {
+        if (source == null) {
+            throw new JsonParseException(context + " must be an object");
+        }
+        if (source.has("id")) {
+            throw new JsonParseException(context + ".id is assigned by the reward catalog key");
+        }
+        JsonObject object = source.deepCopy();
+        object.addProperty("id", id);
+        return parse(object, context, registries);
     }
 
     public static RewardDefinition currency(String id, long amount) {

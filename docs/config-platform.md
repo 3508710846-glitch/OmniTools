@@ -15,9 +15,22 @@ config/omnitools/
   <module>/config.json
 ```
 
-`config.json` 是唯一控制模块开关、时区、语言、集成与命令安全的文件。`common` 中仅保存数据模板，不能执行命令，也不能覆盖账本、权限、NBT、文本长度、条件深度或物品数量限制。
+`config.json` 是唯一控制模块开关、时区、语言、集成与命令安全的文件。`common/rewards.json` 是共享奖励库，`conditions.json` 和 `texts.json` 分别保存条件与文本模板。它们都不能绕过账本、权限、NBT、文本长度、条件深度或物品数量限制。
 
-## 模板引用
+## 奖励库和模板引用
+
+`common/rewards.json` 的推荐格式为 V2：`rewards` 中的键是稳定奖励 ID，`sets` 将已有奖励组合为可复用奖励组。签到、在线奖励、成就和 CDK 的 `rewards` 数组均可引用一个奖励或奖励组：
+
+```json
+[
+  { "set": "daily_basic" },
+  { "reward": "starter_package" }
+]
+```
+
+集合可以嵌套；未知引用、循环引用、超过 16 层嵌套，以及展开后的重复奖励 ID 都会拒绝整次重载。引用只能包含 `reward` 或 `set`，不能在调用处覆盖奖励类型、数量、物品 NBT 或指令。奖励 ID 是账本业务键，已上线 ID 不得改作不同含义；需要调整语义时新增 ID，再修改奖励组。
+
+V1 的 `templates`、`template` 与 `$ref` 仍受支持。模板引用保留调用处字段覆盖的旧行为：
 
 在奖励或成就条件对象中使用 `template`（或 `$ref`）引用公共模板。模块条目中的字段会覆盖模板字段：
 
@@ -57,7 +70,7 @@ config/omnitools/
 | 排行榜 | `leaderboards.jsonc` | `leaderboards.schema.json` |
 | 礼包 | `packages.jsonc` | `packages.schema.json` |
 
-公共 Schema 为 `common-rewards.schema.json`、`common-conditions.schema.json` 和 `common-texts.schema.json`。模板引用仅可用于奖励列表和成就条件，不能让命令执行、权限绕过或持久化数据规则变为可配置项。
+公共 Schema 为 `common-rewards.schema.json`、`common-conditions.schema.json` 和 `common-texts.schema.json`。奖励库引用仅可用于签到、在线奖励、成就和 CDK 的奖励列表；条件模板仅可用于成就条件。两者都不能让命令执行、权限绕过或持久化数据规则变为可配置项。
 
 平台会警告未知字段；格式错误和不安全引用会阻止重载。对不兼容修改必须新建 `format_version` 并提供迁移步骤；不得静默重解释既有奖励 ID 或账本事件。
 

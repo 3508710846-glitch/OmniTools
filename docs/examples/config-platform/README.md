@@ -5,7 +5,7 @@
 | 教学文件 | 目标路径 | 格式版本 | 前置条件 | 重载命令 |
 | --- | --- | --- | --- | --- |
 | `root-config.jsonc` | `config/omnitools/config.json` | 4 | 无 | `/omnitools reload` |
-| `common-rewards.jsonc` | `config/omnitools/common/rewards.json` | 1 | 无 | `/omnitools reload` |
+| `common-rewards.jsonc` | `config/omnitools/common/rewards.json` | 2 | 无 | `/omnitools reload` |
 | `common-conditions.jsonc` | `config/omnitools/common/conditions.json` | 1 | 无 | `/omnitools reload` |
 | `common-texts.jsonc` | `config/omnitools/common/texts.json` | 1 | 无 | `/omnitools reload` |
 | `daily-checkin.jsonc` | `config/omnitools/daily_checkin/config.json` | 3 | `daily_checkin` | `/omnitools reload daily_checkin` |

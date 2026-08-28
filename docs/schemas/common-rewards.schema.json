@@ -1,17 +1,64 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "OmniTools common reward templates",
+  "title": "OmniTools common reward library",
   "type": "object",
-  "required": ["format_version", "templates"],
-  "properties": {
-    "format_version": { "const": 1 },
-    "templates": {
-      "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/reward" }
+  "oneOf": [
+    {
+      "required": ["format_version", "templates"],
+      "properties": {
+        "format_version": { "const": 1 },
+        "templates": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/reward" }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "required": ["format_version", "rewards", "sets"],
+      "properties": {
+        "format_version": { "const": 2 },
+        "templates": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/reward" }
+        },
+        "rewards": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/reward" }
+        },
+        "sets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["rewards"],
+            "properties": {
+              "rewards": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "oneOf": [
+                    { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+                    { "$ref": "#/$defs/catalog_reference" }
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
-  },
+  ],
   "$defs": {
-    "rewards": { "type": "array", "items": { "$ref": "#/$defs/reward" } },
+    "rewards": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/reward" }, { "$ref": "#/$defs/catalog_reference" }] } },
+    "catalog_reference": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["reward"], "properties": { "reward": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" } }, "additionalProperties": false },
+        { "required": ["set"], "properties": { "set": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" } }, "additionalProperties": false }
+      ]
+    },
     "reward": {
       "type": "object",
       "properties": {
@@ -24,6 +71,5 @@
       },
       "additionalProperties": true
     }
-  },
-  "additionalProperties": false
+  }
 }
