@@ -41,8 +41,14 @@ public final class GuiTextService {
 
     /** Keeps a status/action footer visible after truncating a compact player-facing card. */
     public static List<Component> cardLore(List<Component> details, Component footer) {
-        List<Component> lines = new ArrayList<>(MAX_CARD_LORE_LINES);
-        int detailLimit = Math.max(0, Math.min(MAX_CARD_LORE_LINES, MAX_LORE_LINES) - 1);
+        return cardLore(details, footer, MAX_CARD_LORE_LINES);
+    }
+
+    /** Keeps a status/action footer visible with a caller-selected card height. */
+    public static List<Component> cardLore(List<Component> details, Component footer, int maximumLines) {
+        int cardLimit = Math.max(1, Math.min(MAX_LORE_LINES, maximumLines));
+        List<Component> lines = new ArrayList<>(cardLimit);
+        int detailLimit = Math.max(0, cardLimit - 1);
         if (details != null) {
             for (Component detail : details) {
                 if (detail != null && lines.size() == detailLimit) {
@@ -56,7 +62,7 @@ public final class GuiTextService {
         if (footer != null) {
             lines.add(footer);
         }
-        return compactLore(lines, MAX_CARD_LORE_LINES);
+        return compactLore(lines, cardLimit);
     }
 
     public static Component page(int current, int total, int count) {

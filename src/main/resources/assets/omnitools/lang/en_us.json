@@ -215,6 +215,7 @@
   "gui.omnitools.title.effects_off": "Title effects: Off",
   "gui.omnitools.title.effects_hint": "Click to toggle effects (title display remains)",
   "gui.omnitools.title.no_effects": "This title has no configured effects",
+  "gui.omnitools.title.hidden_effects": "%d more effect(s) not shown",
   "gui.omnitools.title.page": "Page %d/%d",
   "message.omnitools.title.equipped": "Equipped title: %s",
   "message.omnitools.title.unequipped": "Unequipped your current title.",

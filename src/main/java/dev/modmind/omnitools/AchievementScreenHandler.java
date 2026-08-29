@@ -49,6 +49,8 @@ public final class AchievementScreenHandler extends ChestMenu {
     private static final int MAX_NAMED_TARGETS = 4;
     private static final int MAX_VISIBLE_EACH_TARGETS = 2;
     private static final int MAX_CONDITION_LORE_LINES = 4;
+    private static final int MAX_ACHIEVEMENT_LORE_LINES = 10;
+    private static final int MAX_PREVIEW_EFFECTS = 3;
     private final SimpleContainer achievementContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -244,7 +246,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         appendPendingRewardReason(achievement, lore);
         return GuiStatusItem.create(new ItemStack(achievement.icon()),
                 TextTemplateRenderer.render(owner, achievement.display()), visualState,
-                GuiTextService.cardLore(lore, ServerText.translatable(stateTranslationKey(state)).withStyle(color)));
+                GuiTextService.cardLore(lore, ServerText.translatable(stateTranslationKey(state)).withStyle(color),
+                        MAX_ACHIEVEMENT_LORE_LINES), MAX_ACHIEVEMENT_LORE_LINES);
     }
 
     private ItemStack profileItem(int totalAchievements) {
@@ -417,9 +420,17 @@ public final class AchievementScreenHandler extends ChestMenu {
                         .append(ServerText.translatable("gui.omnitools.title.no_effects"))
                         .withStyle(ChatFormatting.DARK_GRAY));
             }
-            for (TitleEffectConfig.EffectDefinition effect : effects) {
+            int visibleEffects = Math.min(MAX_PREVIEW_EFFECTS, effects.size());
+            for (int index = 0; index < visibleEffects; index++) {
+                TitleEffectConfig.EffectDefinition effect = effects.get(index);
                 String display = effect.display().isBlank() ? effect.name() : effect.display();
                 lore.add(Component.literal("  ").append(TextTemplateRenderer.render(owner, display)));
+            }
+            if (effects.size() > visibleEffects) {
+                lore.add(Component.literal("  ")
+                        .append(ServerText.translatable("gui.omnitools.title.hidden_effects",
+                                effects.size() - visibleEffects))
+                        .withStyle(ChatFormatting.DARK_GRAY));
             }
         }
     }

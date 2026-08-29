@@ -3221,3 +3221,46 @@ selectedTitle.effects()
 - 配置失败时保留上一份有效快照。
 
 这个设计的核心是：奖励仍然只依赖称号 ID，但称号的展示、效果应用和成就预览都从同一个称号对象读取，避免两个配置文件不同步。
+
+---
+
+## Development request 2026/8/29 16:28:47
+
+是的，当前成就卡片有明确的行数限制，这正是称号属性预览未显示的主要原因。
+
+[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java) 将卡片 Lore 限制为 **6 行总计**，其中最后一行固定保留给状态提示（“可领取”“已领取”等），因此实际内容最多只有 **5 行**。而 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java) 的排列顺序是：
+
+```text
+成就描述
+进度/条件
+货币奖励
+称号奖励名称
+称号 tooltip
+称号效果 display
+状态提示
+```
+
+你的单个急迫称号通常已经是第 6 条详细内容，会在放入 Lore 前被截掉。
+
+此外 [GuiStatusItem.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiStatusItem.java) 也再次硬编码按 `6` 行截断，所以只改 `GuiTextService` 不够。
+
+建议仅放宽成就界面，不影响其他菜单：
+
+1. 在 `GuiTextService` 增加带最大行数参数的 `cardLore` 方法，例如允许成就页 10 行。
+2. 在 `GuiStatusItem.create` 增加 `maximumLoreLines` 参数的重载，默认仍保持 6 行。
+3. 在 `AchievementScreenHandler.achievementItem` 调用新重载，传入 `10`。
+4. 其他界面继续用原来的默认 6 行。
+
+效果是：
+
+```text
+成就描述
+完成进度
+奖励：500 金币
+奖励称号：[矿工大师 I]
+佩戴效果：
+✔ 急迫 I（+20% 挖掘速度）
+可领取
+```
+
+不建议直接把全局 `6` 改成很大数，因为称号、商店、签到等所有 GUI 卡片都会一起变长。成就界面最好单独使用 `8` 至 `10` 行；若称号可能配置多个效果，再限制最多显示 3 项，并追加 `还有 N 项效果`，避免 Lore 过长。

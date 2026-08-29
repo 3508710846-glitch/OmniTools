@@ -1,61 +1,39 @@
 {
-  "prompt": "可以，建议采用“单文件、内嵌效果、兼容旧格式”的完整方案。\n\n当前实现中：\n\n- `TitleConfig` 只保存称号和效果 ID；\n- `TitleEffectConfig` 保存效果详情；\n- `TitleEffectService` 根据 ID 应用效果；\n- `AchievementScreenHandler` 根据 ID 查找效果预览；\n- `ConfigValidator` 负责检查称号引用的效果是否存在。\n\n相关代码见 [TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java) 和 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)。\n\n**一、最终配置格式**\n\n继续使用：\n\n```text\nconfig/omnitools/titles/config.json\n```\n\n升级为 `format_version: 2`：\n\n```json\n{\n  \"format_version\": 2,\n  \"nameplate_mode\": \"scoreboard_team\",\n  \"team_conflict_policy\": \"omnitools_priority\",\n  \"titles\": [\n    {\n      \"id\": \"title_mine_1\",\n      \"display\": \"§6[§r矿工大师 I§6] §r\",\n      \"rarity\": \"legendary\",\n      \"tooltip\": [],\n      \"effects\": [\n        {\n          \"id\": \"haste_1\",\n          \"name\": \"急迫 I\",\n          \"type\": \"POTION\",\n          \"effect\": \"minecraft:haste\",\n          \"amplifier\": 0,\n          \"duration\": -1,\n          \"display\": \"§a✔ 急迫 I（+20% 挖掘速度）\"\n        }\n      ]\n    },\n    {\n      \"id\": \"plain_title\",\n      \"display\": \"§7[普通称号]§r \",\n      \"rarity\": \"common\",\n      \"tooltip\": [],\n      \"effects\": []\n    }\n  ]\n}\n```\n\n无效果称号统一使用：\n\n```json\n\"effects\": []\n```\n\n不建议使用空字符串：\n\n```json\n\"effects\": \"\"\n```\n\n因为效果本质上是数组，且一个称号可以拥有多个效果。\n\n**二、字段规则**\n\n每个效果对象支持当前已有的四类效果：\n\n- `POTION`：`effect`、`amplifier`、`duration`\n- `ATTRIBUTE`：`attribute`、`operation`、`amount`\n- `PARTICLE`：`particle`、`frequency`\n- `PERMISSION`：`permission`\n\n通用字段：\n\n```json\n{\n  \"id\": \"haste_1\",\n  \"name\": \"急迫 I\",\n  \"type\": \"POTION\",\n  \"display\": \"§a✔ 急迫 I\"\n}\n```\n\n建议保留 `id`，用于日志、报错和调试。效果 ID 只需在同一个称号内唯一。\n\n`display` 用于成就页面和称号页面的预览；如果省略，可以回退使用 `name`。\n\n**三、成就奖励不变**\n\n成就仍然只引用称号 ID：\n\n```json\n{\n  \"id\": \"ach_mine_1_title\",\n  \"type\": \"title\",\n  \"title\": \"title_mine_1\"\n}\n```\n\n玩家数据也不需要迁移，因为 `TitleData` 保存的是称号 ID、佩戴状态和有效期，不保存效果定义。\n\n**四、运行时调整**\n\n最终结构中，`TitleEffectService` 不再执行：\n\n```java\ntitleEffectConfig().definition(effectId)\n```\n\n而是直接遍历：\n\n```java\nselectedTitle.effects()\n```\n\n然后应用每个内嵌效果。\n\n`modules.title_effects.enabled` 建议保留，作为全局效果开关：\n\n- `titles` 关闭：不能使用称号；\n- `title_effects` 关闭：称号仍可领取和佩戴，但不施加效果；\n- 称号自身 `\"effects\": []`：该称号没有效果。\n\n**五、界面显示规则**\n\n建议新增一个统一的称号预览渲染方法，供两个界面共用：\n\n- 称号页面：显示称号说明和效果；\n- 成就页面：显示奖励称号、`tooltip` 和每个效果的 `display`；\n- 成就未领取或已领取状态都显示预览；\n- 无效果时显示“无佩戴效果”；\n- 不再要求用户把效果说明重复写入 `tooltip`。\n\n成就页面最终效果类似：\n\n```text\n奖励称号：[矿工大师 I]\n佩戴效果：\n  ✔ 急迫 I（+20% 挖掘速度）\n```\n\n这里仅表示预览，不会因为查看成就就给玩家施加急迫效果。\n\n**六、兼容与迁移**\n\n建议分两个版本处理：\n\n第一阶段：\n\n- 同时支持旧版 `format_version: 1`；\n- 旧版仍从 `title_effects/config.json` 读取效果；\n- 新版从 `titles/config.json` 读取内嵌效果；\n- 新版存在时优先使用新版；\n- 两种格式同时存在时输出警告，不自动混合。\n\n第二阶段：\n\n- 启动时检测旧版两个文件；\n- 自动生成带时间戳的备份；\n- 将旧称号和旧效果合并写入新版文件；\n- 原文件放入 `config/omnitools/legacy/`；\n- 在 `manifest.json` 中记录迁移来源。\n\n现有 [ConfigMigration.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java) 已经采用备份和归档策略，可以沿用。\n\n**七、需要修改的代码范围**\n\n主要包括：\n\n- `TitleConfig`：支持 v2 内嵌效果；\n- `TitleEffectConfig`：作为旧版兼容层，最终可移除；\n- `OmniToolsConfigSnapshot`：最终不再需要独立的 `titleEffects`；\n- `OmniToolsConfigManager`：调整模块加载和快照；\n- `ConfigValidator`：改为校验内嵌效果；\n- `TitleEffectService`：直接应用称号效果；\n- `TitleScreenHandler`：显示内嵌效果；\n- `AchievementScreenHandler`：显示奖励效果预览；\n- `titles.schema.json`：新增 v2 结构；\n- 配置文档和示例。\n\n**八、测试验收**\n\n至少覆盖：\n\n- 一个称号包含一个效果；\n- 一个称号包含多个效果；\n- `\"effects\": []` 正常加载；\n- 四种效果类型都能解析和应用；\n- 无效 Minecraft ID 被拒绝；\n- `duration: 0` 被拒绝；\n- 重复效果 ID 被拒绝；\n- 成就页面显示称号和效果预览；\n- 称号页面显示相同效果；\n- 关闭 `title_effects` 后不施加效果；\n- 旧版配置可以正常加载或迁移；\n- 配置失败时保留上一份有效快照。\n\n这个设计的核心是：奖励仍然只依赖称号 ID，但称号的展示、效果应用和成就预览都从同一个称号对象读取，避免两个配置文件不同步。",
+  "prompt": "是的，当前成就卡片有明确的行数限制，这正是称号属性预览未显示的主要原因。\n\n[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java) 将卡片 Lore 限制为 **6 行总计**，其中最后一行固定保留给状态提示（“可领取”“已领取”等），因此实际内容最多只有 **5 行**。而 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java) 的排列顺序是：\n\n```text\n成就描述\n进度/条件\n货币奖励\n称号奖励名称\n称号 tooltip\n称号效果 display\n状态提示\n```\n\n你的单个急迫称号通常已经是第 6 条详细内容，会在放入 Lore 前被截掉。\n\n此外 [GuiStatusItem.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiStatusItem.java) 也再次硬编码按 `6` 行截断，所以只改 `GuiTextService` 不够。\n\n建议仅放宽成就界面，不影响其他菜单：\n\n1. 在 `GuiTextService` 增加带最大行数参数的 `cardLore` 方法，例如允许成就页 10 行。\n2. 在 `GuiStatusItem.create` 增加 `maximumLoreLines` 参数的重载，默认仍保持 6 行。\n3. 在 `AchievementScreenHandler.achievementItem` 调用新重载，传入 `10`。\n4. 其他界面继续用原来的默认 6 行。\n\n效果是：\n\n```text\n成就描述\n完成进度\n奖励：500 金币\n奖励称号：[矿工大师 I]\n佩戴效果：\n✔ 急迫 I（+20% 挖掘速度）\n可领取\n```\n\n不建议直接把全局 `6` 改成很大数，因为称号、商店、签到等所有 GUI 卡片都会一起变长。成就界面最好单独使用 `8` 至 `10` 行；若称号可能配置多个效果，再限制最多显示 3 项，并追加 `还有 N 项效果`，避免 Lore 过长。",
   "sessionId": "01a04b65-7844-7b20-a670-efa4c6d6d36d",
   "backend": "quota",
-  "createdAt": "2026-08-29T06:36:56.783Z",
-  "summary": "已完成“单文件内嵌效果 + v1 兼容”第一阶段实现：\n\n- `TitleConfig` 支持 `format_version: 2`，效果对象内嵌于 `titles[].effects`，`[]` 明确表示无效果。\n- v1 的效果 ID 仍从旧 `title_effects/config.json` 解析；v2 不会回退或混用旧效果。\n- `TitleEffectService`、称号 GUI、成就奖励预览统一读取同一称号效果快照。\n- `ConfigValidator` 增加内嵌效果校验。\n- 更新 schema、示例、文档和解析测试。\n\n核心文件：[TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:95)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:146)、[TitleScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleScreenHandler.java:205)、[titles.schema.json](D:/mod/qiandao/docs/schemas/titles.schema.json:1)。\n\n验证结果：内容校验通过，受管 Gradle 构建及测试通过并生成 JAR。受管客户端烟测尝试因环境进程启动返回 `spawn UNKNOWN`，未进入模组运行阶段。已有 v1 文件保持兼容加载，本轮未自动改写或归档用户配置。",
-  "finalResponse": "已完成“单文件内嵌效果 + v1 兼容”第一阶段实现：\n\n- `TitleConfig` 支持 `format_version: 2`，效果对象内嵌于 `titles[].effects`，`[]` 明确表示无效果。\n- v1 的效果 ID 仍从旧 `title_effects/config.json` 解析；v2 不会回退或混用旧效果。\n- `TitleEffectService`、称号 GUI、成就奖励预览统一读取同一称号效果快照。\n- `ConfigValidator` 增加内嵌效果校验。\n- 更新 schema、示例、文档和解析测试。\n\n核心文件：[TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:95)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:146)、[TitleScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleScreenHandler.java:205)、[titles.schema.json](D:/mod/qiandao/docs/schemas/titles.schema.json:1)。\n\n验证结果：内容校验通过，受管 Gradle 构建及测试通过并生成 JAR。受管客户端烟测尝试因环境进程启动返回 `spawn UNKNOWN`，未进入模组运行阶段。已有 v1 文件保持兼容加载，本轮未自动改写或归档用户配置。",
+  "createdAt": "2026-08-29T08:36:40.494Z",
+  "summary": "已完成成就卡片的专用 Lore 扩展：\n\n- `GuiTextService.cardLore` 新增最大行数重载，默认仍为 6 行。\n- `GuiStatusItem.create` 新增 `maximumLoreLines` 重载，默认仍为 6 行。\n- 成就卡片改用最多 10 行，状态提示仍固定保留在最后。\n- 称号效果预览最多显示 3 项，超出时显示“还有 N 个效果未显示”。\n- 其他菜单未改变，继续使用 6 行限制。\n- 新增 `GuiTextServiceTest` 覆盖默认 6 行和成就 10 行行为。\n\n验证已通过：内容校验成功，受管构建及全部测试成功。",
+  "finalResponse": "已完成成就卡片的专用 Lore 扩展：\n\n- `GuiTextService.cardLore` 新增最大行数重载，默认仍为 6 行。\n- `GuiStatusItem.create` 新增 `maximumLoreLines` 重载，默认仍为 6 行。\n- 成就卡片改用最多 10 行，状态提示仍固定保留在最后。\n- 称号效果预览最多显示 3 项，超出时显示“还有 N 个效果未显示”。\n- 其他菜单未改变，继续使用 6 行限制。\n- 新增 `GuiTextServiceTest` 覆盖默认 6 行和成就 10 行行为。\n\n验证已通过：内容校验成功，受管构建及全部测试成功。",
   "intent": "engineering",
   "tasks": [
-    "核对称号配置、快照、效果服务和 GUI 链路",
-    "实现 v2 内嵌效果与 v1 兼容解析",
-    "切换效果应用和两个界面预览到统一称号对象",
-    "更新 schema、示例和配置文档",
-    "补充测试并执行受管校验与构建"
+    "核对 GUI 行数限制和调用链",
+    "增加成就专用 Lore 行数和效果摘要限制",
+    "执行内容校验与受管构建"
   ],
   "files": [
-    {
-      "path": "docs/examples/config-platform/README.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/examples/config-platform/titles.jsonc",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/schemas/titles.schema.json",
-      "purpose": "外部代理修改"
-    },
     {
       "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/TitleConfig.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiStatusItem.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/TitleEffectConfig.java",
+      "path": "src/main/java/dev/modmind/omnitools/GuiTextService.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/TitleEffectService.java",
+      "path": "src/main/resources/assets/omnitools/lang/en_us.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/TitleScreenHandler.java",
+      "path": "src/main/resources/assets/omnitools/lang/zh_cn.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "docs/title-effects-v2.md",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/test/java/dev/modmind/omnitools/TitleEffectConfigTest.java",
+      "path": "src/test/java/dev/modmind/omnitools/GuiTextServiceTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -63,7 +41,7 @@
     "已使用 ModMind 托管构建"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-29T05-50-22-878Z",
+  "snapshotId": "2026-08-29T08-28-52-794Z",
   "buildVerified": true,
   "runtimeVerified": false,
   "workflow": {
@@ -73,8 +51,6 @@
       "build"
     ],
     "completed": [
-      "project_info",
-      "intent",
       "plan",
       "validate",
       "build",
@@ -83,12 +59,10 @@
     ],
     "missing": [],
     "evidence": {
-      "project_info": "modmind_project_info returned active project metadata",
-      "intent": "modmind_set_intent recorded task intent",
       "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
-      "implementation": "Detected 11 changed managed files",
+      "implementation": "Detected 6 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

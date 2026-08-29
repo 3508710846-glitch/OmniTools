@@ -215,6 +215,7 @@
   "gui.omnitools.title.effects_off": "\u79f0\u53f7\u6548\u679c\uff1a\u5df2\u5173\u95ed",
   "gui.omnitools.title.effects_hint": "\u70b9\u51fb\u5207\u6362\u79f0\u53f7\u6548\u679c\uff08\u79f0\u53f7\u4ecd\u7136\u663e\u793a\uff09",
   "gui.omnitools.title.no_effects": "\u8be5\u79f0\u53f7\u6ca1\u6709\u914d\u7f6e\u6548\u679c",
+  "gui.omnitools.title.hidden_effects": "\u8fd8\u6709 %d \u4e2a\u6548\u679c\u672a\u663e\u793a",
   "gui.omnitools.title.page": "\u7b2c%d/%d\u9875",
   "message.omnitools.title.equipped": "\u5df2\u4f69\u6234\u79f0\u53f7\uff1a%s",
   "message.omnitools.title.unequipped": "\u5df2\u5378\u4e0b\u5f53\u524d\u79f0\u53f7\u3002",

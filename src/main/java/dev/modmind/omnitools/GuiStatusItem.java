@@ -14,13 +14,18 @@ public final class GuiStatusItem {
     }
 
     public static ItemStack create(ItemStack icon, Component name, State state, List<Component> lore) {
+        return create(icon, name, state, lore, 6);
+    }
+
+    public static ItemStack create(ItemStack icon, Component name, State state, List<Component> lore,
+                                   int maximumLoreLines) {
         if (icon == null || icon.isEmpty()) {
             throw new IllegalArgumentException("A status item requires a non-empty icon");
         }
         State resolvedState = state == null ? State.INACTIVE : state;
         ItemStack stack = icon.copy();
         stack.set(DataComponents.CUSTOM_NAME, name.copy().withStyle(resolvedState.color(), ChatFormatting.BOLD));
-        List<Component> compactLore = GuiTextService.compactLore(lore, 6);
+        List<Component> compactLore = GuiTextService.compactLore(lore, maximumLoreLines);
         if (!compactLore.isEmpty()) {
             stack.set(DataComponents.LORE, new ItemLore(compactLore));
         }
