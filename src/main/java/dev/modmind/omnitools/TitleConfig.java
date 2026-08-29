@@ -38,7 +38,6 @@ public final class TitleConfig {
     private static final int MAX_TOOLTIP_LINE_LENGTH = 256;
     private static final Pattern TITLE_ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.TITLES);
 
     private final Map<String, TitleDefinition> titles;
     private final NameplateMode nameplateMode;
@@ -52,20 +51,21 @@ public final class TitleConfig {
     }
 
     public static TitleConfig load() {
-        if (!Files.exists(FILE)) {
+        Path file = path();
+        if (!Files.exists(file)) {
             TitleConfig defaults = defaults();
             writeDefinitions(defaults);
             return defaults;
         }
 
-        try (Reader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             JsonElement root = GSON.fromJson(reader, JsonElement.class);
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("Root value must be an object");
             }
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
-            System.err.println("[omnitools] Could not load " + FILE + ": " + exception.getMessage()
+            System.err.println("[omnitools] Could not load " + file + ": " + exception.getMessage()
                     + ". The configuration snapshot will not be replaced.");
             throw new IllegalStateException("Invalid title configuration", exception);
         }
@@ -76,7 +76,7 @@ public final class TitleConfig {
     }
 
     public static Path path() {
-        return FILE;
+        return ConfigPaths.moduleConfig(ModuleId.TITLES);
     }
 
     public synchronized Collection<TitleDefinition> definitions() {
@@ -85,6 +85,28 @@ public final class TitleConfig {
 
     public synchronized Optional<TitleDefinition> definition(String id) {
         return Optional.ofNullable(titles.get(normalizeId(id)));
+    }
+
+    public synchronized boolean hasInlineEffects() {
+        return titles.values().stream().anyMatch(TitleDefinition::inlineEffectsConfigured);
+    }
+
+    /** Resolves the effects for a title, preferring its v2 embedded snapshot over v1 ids. */
+    public synchronized List<TitleEffectConfig.EffectDefinition> effectsFor(TitleDefinition title,
+                                                                              TitleEffectConfig legacyEffects) {
+        if (title == null) {
+            return List.of();
+        }
+        if (title.inlineEffectsConfigured()) {
+            return title.embeddedEffects();
+        }
+        if (legacyEffects == null || title.effects().isEmpty()) {
+            return List.of();
+        }
+        return title.effects().stream()
+                .map(legacyEffects::definition)
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     public NameplateMode nameplateMode() {
@@ -195,11 +217,11 @@ public final class TitleConfig {
         return data() != null && data().clearSelection(playerId, playerName);
     }
 
-    private static TitleConfig parse(JsonObject root) {
+    static TitleConfig parse(JsonObject root) {
         ConfigFieldReporter.warnUnknown(root, "titles",
                 Set.of("format_version", "nameplate_mode", "team_conflict_policy", "titles"));
         int version = integer(root, "format_version", 1);
-        if (version < 1 || version > 1) {
+        if (version < 1 || version > 2) {
             throw new JsonParseException("Unsupported title format_version: " + version);
         }
         NameplateMode nameplateMode = NameplateMode.parse(optionalString(root, "nameplate_mode"));
@@ -228,9 +250,12 @@ public final class TitleConfig {
                         + MAX_TITLE_DISPLAY_LENGTH + " characters");
             }
             TitleRarity rarity = TitleRarity.parse(requiredString(titleObject, "rarity"));
-            List<String> effects = parseEffectIds(titleObject, id);
+            List<String> effects = version == 1 ? parseEffectIds(titleObject, id) : List.of();
+            List<TitleEffectConfig.EffectDefinition> embeddedEffects = version == 2
+                    ? parseEmbeddedEffects(titleObject, id) : List.of();
             List<String> tooltip = parseStringArray(titleObject, "tooltip", id);
-            titleDefinitions.put(id, new TitleDefinition(id, display, rarity, effects, tooltip));
+            titleDefinitions.put(id, new TitleDefinition(id, display, rarity, effects, tooltip,
+                    embeddedEffects, version == 2));
         }
 
         return new TitleConfig(titleDefinitions, nameplateMode, teamConflictPolicy);
@@ -239,11 +264,12 @@ public final class TitleConfig {
     private static TitleConfig defaults() {
         Map<String, TitleDefinition> definitions = new LinkedHashMap<>();
         definitions.put("geologist", new TitleDefinition("geologist", "\u00a77[\u00a7r\u5730\u8d28\u5b66\u5bb6\u00a77] \u00a7r", TitleRarity.COMMON,
-                List.of("health_2"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7c\u2665 \u751f\u547d\u4e0a\u9650 +4")));
+                List.of(), List.of(), List.of(TitleEffectConfig.builtIn("health_2")), true));
         definitions.put("architect", new TitleDefinition("architect", "\u00a7b[\u00a7r\u5efa\u7b51\u5e08\u00a7b] \u00a7r", TitleRarity.RARE,
-                List.of("speed_1"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u79fb\u52a8\u901f\u5ea6\u63d0\u5347")));
+                List.of(), List.of(), List.of(TitleEffectConfig.builtIn("speed_1")), true));
         definitions.put("legend", new TitleDefinition("legend", "\u00a76[\u00a7r\u4f20\u8bf4\u00a76] \u00a7r", TitleRarity.LEGENDARY,
-                List.of("resistance_1", "night_vision"), List.of("\u00a77\u4f69\u6234\u6548\u679c\uff1a", "\u00a7a\u2714 \u6297\u6027\u63d0\u5347 I", "\u00a7a\u2714 \u6c38\u4e45\u591c\u89c6")));
+                List.of(), List.of(), List.of(TitleEffectConfig.builtIn("resistance_1"),
+                        TitleEffectConfig.builtIn("night_vision")), true));
         return new TitleConfig(definitions, NameplateMode.SCOREBOARD_TEAM, TeamConflictPolicy.OMNITOOLS_PRIORITY);
     }
 
@@ -257,10 +283,12 @@ public final class TitleConfig {
     }
 
     private static void writeDefinitions(TitleConfig config) {
+        Path file = path();
         try {
-            Files.createDirectories(FILE.getParent());
+            Files.createDirectories(file.getParent());
             JsonObject root = new JsonObject();
-            root.addProperty("format_version", 1);
+            root.addProperty("format_version", config.titles.values().stream()
+                    .anyMatch(TitleDefinition::inlineEffectsConfigured) ? 2 : 1);
             root.addProperty("nameplate_mode", config.nameplateMode.serializedName());
             root.addProperty("team_conflict_policy", config.teamConflictPolicy.serializedName());
             JsonArray definitions = new JsonArray();
@@ -270,7 +298,11 @@ public final class TitleConfig {
                 titleObject.addProperty("display", title.display());
                 titleObject.addProperty("rarity", title.rarity().serializedName());
                 JsonArray effects = new JsonArray();
-                title.effects().forEach(effects::add);
+                if (title.inlineEffectsConfigured()) {
+                    title.embeddedEffects().forEach(effect -> effects.add(TitleEffectConfig.toJson(effect)));
+                } else {
+                    title.effects().forEach(effects::add);
+                }
                 titleObject.add("effects", effects);
                 JsonArray tooltip = new JsonArray();
                 title.tooltip().forEach(tooltip::add);
@@ -278,11 +310,11 @@ public final class TitleConfig {
                 definitions.add(titleObject);
             }
             root.add("titles", definitions);
-            try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
+            try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
         } catch (IOException exception) {
-            System.err.println("[omnitools] Could not save " + FILE + ": " + exception.getMessage());
+            System.err.println("[omnitools] Could not save " + file + ": " + exception.getMessage());
         }
     }
 
@@ -342,6 +374,29 @@ public final class TitleConfig {
         return List.copyOf(ids);
     }
 
+    private static List<TitleEffectConfig.EffectDefinition> parseEmbeddedEffects(JsonObject object, String titleId) {
+        JsonElement element = object.get("effects");
+        if (element == null || !element.isJsonArray()) {
+            throw new JsonParseException("effects for " + titleId + " must be an array in format_version 2");
+        }
+        List<TitleEffectConfig.EffectDefinition> effects = new ArrayList<>();
+        Set<String> ids = new LinkedHashSet<>();
+        for (int index = 0; index < element.getAsJsonArray().size(); index++) {
+            JsonElement value = element.getAsJsonArray().get(index);
+            if (!value.isJsonObject()) {
+                throw new JsonParseException("effects for " + titleId + " must contain objects in format_version 2");
+            }
+            TitleEffectConfig.EffectDefinition effect = TitleEffectConfig.parseInlineDefinition(
+                    value.getAsJsonObject(), "titles." + titleId + ".effects[" + index + "]");
+            if (!ids.add(effect.id())) {
+                throw new JsonParseException("Effect id " + effect.id()
+                        + " is configured more than once on title " + titleId);
+            }
+            effects.add(effect);
+        }
+        return List.copyOf(effects);
+    }
+
     private static String requiredString(JsonObject object, String key) {
         String value = optionalString(object, key);
         if (value == null || value.isBlank()) {
@@ -381,10 +436,20 @@ public final class TitleConfig {
     }
 
     public record TitleDefinition(String id, String display, TitleRarity rarity, List<String> effects,
-                                  List<String> tooltip) {
+                                  List<String> tooltip, List<TitleEffectConfig.EffectDefinition> embeddedEffects,
+                                  boolean inlineEffectsConfigured) {
+        public TitleDefinition(String id, String display, TitleRarity rarity, List<String> effects,
+                               List<String> tooltip) {
+            this(id, display, rarity, effects, tooltip, List.of(), false);
+        }
+
         public TitleDefinition {
             effects = effects == null ? List.of() : List.copyOf(effects);
             tooltip = tooltip == null ? List.of() : List.copyOf(tooltip);
+            embeddedEffects = embeddedEffects == null ? List.of() : List.copyOf(embeddedEffects);
+            if (inlineEffectsConfigured && !effects.isEmpty()) {
+                throw new IllegalArgumentException("A title cannot mix legacy effect ids with embedded effects: " + id);
+            }
         }
 
         public Component displayComponent() {

@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "nameplate_mode": "scoreboard_team",
   "team_conflict_policy": "omnitools_priority",
   "titles": [
@@ -7,8 +7,18 @@
       "id": "architect",
       "display": "&b[&rArchitect&b] &r",
       "rarity": "rare",
-      "effects": ["speed_1"],
-      "tooltip": ["A timed reward title can use this definition."]
+      "effects": [
+        {
+          "id": "speed_1",
+          "name": "Speed I",
+          "type": "POTION",
+          "effect": "minecraft:speed",
+          "amplifier": 0,
+          "duration": -1,
+          "display": "&aSpeed +20%"
+        }
+      ],
+      "tooltip": []
     }
   ]
 }

@@ -201,10 +201,13 @@ public final class TitleScreenHandler extends ChestMenu {
             lore.add(entitlementComponent(title.id()));
             if (!title.tooltip().isEmpty()) {
                 lore.addAll(title.tooltip().stream().map(text -> TextTemplateRenderer.render(owner, text)).toList());
-            } else if (title.effects().isEmpty()) {
+            }
+            List<TitleEffectConfig.EffectDefinition> effects = config.effectsFor(title,
+                    ModMindEntry.titleEffectConfig());
+            if (effects.isEmpty()) {
                 lore.add(ServerText.translatable("gui.omnitools.title.no_effects").withStyle(ChatFormatting.DARK_GRAY));
             } else {
-                lore.addAll(title.effects().stream().map(this::effectComponent).toList());
+                lore.addAll(effects.stream().map(this::effectComponent).toList());
             }
             GuiStatusItem.State visualState = selected ? GuiStatusItem.State.ACTIONABLE
                     : temporary ? GuiStatusItem.State.TEMPORARY : GuiStatusItem.State.OWNED;
@@ -308,8 +311,13 @@ public final class TitleScreenHandler extends ChestMenu {
                 enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY, lore, false);
         if (!selectedId.isEmpty()) {
             config.definition(selectedId).ifPresent(title -> {
-                for (String effectId : title.effects()) {
-                    lore.add(effectComponent(effectId));
+                List<TitleEffectConfig.EffectDefinition> effects = config.effectsFor(title,
+                        ModMindEntry.titleEffectConfig());
+                if (effects.isEmpty()) {
+                    lore.add(ServerText.translatable("gui.omnitools.title.no_effects").withStyle(ChatFormatting.DARK_GRAY));
+                }
+                for (TitleEffectConfig.EffectDefinition effect : effects) {
+                    lore.add(effectComponent(effect));
                 }
                 item.set(DataComponents.LORE, new ItemLore(lore));
             });
@@ -317,10 +325,8 @@ public final class TitleScreenHandler extends ChestMenu {
         return item;
     }
 
-    private Component effectComponent(String effectId) {
-        return ModMindEntry.titleEffectConfig().definition(effectId)
-                .<Component>map(effect -> TextTemplateRenderer.render(owner, effect.display()))
-                .orElse(Component.literal(effectId).withStyle(ChatFormatting.RED));
+    private Component effectComponent(TitleEffectConfig.EffectDefinition effect) {
+        return TextTemplateRenderer.render(owner, effect.display().isBlank() ? effect.name() : effect.display());
     }
 
 }

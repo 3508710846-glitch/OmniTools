@@ -1,17 +1,11 @@
-已完成本轮同步与验证：
+已完成“单文件内嵌效果 + v1 兼容”第一阶段实现：
 
-- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。
-- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。
-- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。
-- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。
-- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。
+- `TitleConfig` 支持 `format_version: 2`，效果对象内嵌于 `titles[].effects`，`[]` 明确表示无效果。
+- v1 的效果 ID 仍从旧 `title_effects/config.json` 解析；v2 不会回退或混用旧效果。
+- `TitleEffectService`、称号 GUI、成就奖励预览统一读取同一称号效果快照。
+- `ConfigValidator` 增加内嵌效果校验。
+- 更新 schema、示例、文档和解析测试。
 
-验证结果：
+核心文件：[TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:95)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:146)、[TitleScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleScreenHandler.java:205)、[titles.schema.json](D:/mod/qiandao/docs/schemas/titles.schema.json:1)。
 
-- 受管 build：通过，JAR 823.4 KB。
-- 受管 server smoke：通过，服务端稳定运行 15 秒。
-- 内容校验：通过，无错误或警告。
-- 所有新增/修改文档中的 JSON 代码块均解析通过。
-- 相对 Markdown 链接均存在，`git diff --check` 通过。
-
-当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。
+验证结果：内容校验通过，受管 Gradle 构建及测试通过并生成 JAR。受管客户端烟测尝试因环境进程启动返回 `spawn UNKNOWN`，未进入模组运行阶段。已有 v1 文件保持兼容加载，本轮未自动改写或归档用户配置。

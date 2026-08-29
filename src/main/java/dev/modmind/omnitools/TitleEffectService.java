@@ -142,8 +142,9 @@ public final class TitleEffectService {
 
     private static void apply(ServerPlayer player, TitleConfig.TitleDefinition title) {
         AppliedEffects applied = new AppliedEffects();
-        for (String effectId : title.effects()) {
-            ModMindEntry.titleEffectConfig().definition(effectId).ifPresent(definition -> apply(player, definition, applied));
+        for (TitleEffectConfig.EffectDefinition definition : ModMindEntry.titleConfig()
+                .effectsFor(title, ModMindEntry.titleEffectConfig())) {
+            apply(player, definition, applied);
         }
         if (!applied.isEmpty()) {
             APPLIED.put(player.getUUID(), applied);

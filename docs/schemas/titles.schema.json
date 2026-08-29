@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["format_version", "titles"],
   "properties": {
-    "format_version": { "const": 1 },
+    "format_version": { "enum": [1, 2] },
     "nameplate_mode": { "enum": ["scoreboard_team", "disabled"] },
     "team_conflict_policy": { "enum": ["omnitools_priority", "preserve_external_team"] },
     "titles": {
@@ -15,13 +15,43 @@
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
           "display": { "type": "string", "maxLength": 128 },
-          "rarity": { "enum": ["common", "rare", "epic", "legendary"] },
-          "effects": { "type": "array", "items": { "type": "string" } },
+          "rarity": { "enum": ["common", "rare", "legendary"] },
+          "effects": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+                { "$ref": "#/$defs/embedded_effect" }
+              ]
+            }
+          },
           "tooltip": { "type": "array", "items": { "type": "string", "maxLength": 256 } }
         },
         "additionalProperties": false
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "embedded_effect": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "name": { "type": "string", "maxLength": 128 },
+        "type": { "enum": ["POTION", "ATTRIBUTE", "PARTICLE", "PERMISSION"] },
+        "effect": { "type": "string" },
+        "amplifier": { "type": "integer", "minimum": 0 },
+        "duration": { "type": "integer", "minimum": -1 },
+        "attribute": { "type": "string" },
+        "operation": { "type": "string" },
+        "amount": { "type": "number" },
+        "particle": { "type": "string" },
+        "frequency": { "type": "integer", "minimum": 1 },
+        "permission": { "type": "string" },
+        "display": { "type": "string", "maxLength": 256 }
+      },
+      "additionalProperties": false
+    }
+  }
 }

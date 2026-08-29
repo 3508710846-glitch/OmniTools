@@ -2650,3 +2650,574 @@ package
 - P1：增加投递队列、同步保存耗时与阻塞事务数量的日志/监控，并做压力测试。
 - P1：完善商店异常交易的管理员处理命令和审计闭环。
 - P2：确认稳定性后，再扩展礼包、排行榜和跨模块玩法。
+
+---
+
+## Development request 2026/8/28 22:20:10
+
+问题出在显示层，不是统计计算层：
+
+- `StatisticTargetResolver` 会把 `"*"` 展开成全部方块，最多 2048 个目标。
+- 展开后 `AchievementScreenHandler` 只知道“有很多目标”，于是调用 `joinTargetNames()` 把名称全部拼接。
+- `StatCondition.progress()` 实际已经正确计算了总数，所以可以直接显示 `0/10000`。
+
+建议采用“数量阈值 + 聚合摘要”：
+
+```text
+1 个目标：挖掘石头：0/10000
+少量目标：石头、深板岩合计：0/32
+大量目标：全部方块合计：0/10000
+```
+
+具体可在 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 中处理：
+
+```java
+if (stat.match() == TargetMatch.SUM) {
+    int count = stat.requirements().size();
+
+    if (count > 8) {
+        lore.add(prefix.copy().append(ServerText.translatable(
+                "gui.omnitools.achievement.condition.stat_sum_compact",
+                count, progress.current(), stat.atLeast()))
+                .withStyle(color));
+    } else {
+        // 保留现在的名称列表显示
+    }
+}
+```
+
+中文文案可以是：
+
+```json
+"gui.omnitools.achievement.condition.stat_sum_compact": "目标合计（%d 项）：%d/%d"
+```
+
+对于方块通配符，最好显示成：
+
+```text
+所有方块合计：0/10000
+```
+
+如果未来希望让配置作者自行控制，可以扩展类似字段：
+
+```json
+"display": {
+  "mode": "aggregate",
+  "label": "所有方块"
+}
+```
+
+不过这个字段当前尚未被解析，不能直接加入现有配置。仅修改 `target_groups`、标签或把 `*` 换成其他通配写法无法解决，因为它们最终都会被展开成多个目标。`SumCondition` 在 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 也应采用同样的摘要逻辑。
+
+本次仅读取项目，未修改文件、构建或测试。
+
+---
+
+## Development request 2026/8/28 22:29:13
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:33:49
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:36:51
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:39:28
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:40:14
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:44:06
+
+当前问题的根源是：目标在加载时已经被 `*`、标签或目标组展开成很多实体，之后界面用 `joinTargetNames()` 拼成一条长文本；而 [GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:20) 又会把每行截断到 80 个字符，导致末尾的 `0/10000` 被截掉。
+
+建议把多目标显示统一改成 `TargetSummaryFormatter`，不要直接拼接全部名称。
+
+| 条件 | 推荐显示 |
+|---|---|
+| `sum`，1 个目标 | `挖掘石头：0/10000` |
+| `sum`，2~4 个目标 | `石头、深板岩合计：0/32` |
+| `sum`，超过 4 个目标 | `目标合计（2048 项）：0/10000` |
+| `each` | `已完成目标：2/8`，下面只列未完成的前 3~4 个 |
+| `any` | `任一目标达标：0/1（候选 2048 项）` |
+| 通配符/标签 | 若保留原始表达式，显示“全部方块”“矿石标签”等语义名称 |
+
+核心规则是“进度永远放前面”，例如：
+
+```text
+进度：0/10000
+范围：全部方块（2048 项）
+```
+
+实现时需要同时处理：
+
+- [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280) 的 `StatCondition` 分支。
+- 同文件 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:312) 的 `SumCondition` 分支。
+- `joinTargetNames()` 改为最多显示少量名称，并追加“还有 N 项”。
+- `each` 只优先显示未完成目标，避免前面的已完成目标占满 Lore。
+- 统一限制成就卡片最多 4~5 行详情，为底部状态行预留空间。
+
+建议新增文案键：
+
+```json
+"gui.omnitools.achievement.condition.aggregate": "目标合计（%d 项）：%d/%d",
+"gui.omnitools.achievement.condition.each_progress": "已完成目标：%d/%d",
+"gui.omnitools.achievement.condition.hidden_targets": "还有 %d 个目标未显示"
+```
+
+如果希望显示“全部方块”“原木标签”这类语义名称，需要在 [StatisticTargetResolver.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/achievement/StatisticTargetResolver.java) 展开目标时保留原始表达式；否则只能显示通用的“目标合计（N 项）”。
+
+这样既保留小规模成就的可读性，也能保证通配符、多方块、多物品成就始终看得到准确进度。本次仅读取项目，未修改文件或运行测试。
+
+---
+
+## Development request 2026/8/28 22:50:14
+
+我在测试中发现，成就涉及多种方块、物品时，显示的不是进度0/10000，而是将涉及方块的名字全部列举出来，非常影响观感而且不能查看进度，下面是我的配置文件的一部分：{
+			"id": "ach_mine_2",
+			"display": "矿工大师 II",
+			"description": "达成矿工大师里程碑：II 阶段",
+			"icon": "minecraft:iron_pickaxe",
+			"requirements": {
+				"match": "sum",
+				"at_least": 10000,
+				"stat": "block_mined",
+				"type": "stat",
+				"targets": [
+					"*"
+				]
+			},
+			"rewards": [{
+					"id": "ach_mine_2_coins",
+					"type": "currency",
+					"amount": 500
+				},
+				{
+					"id": "ach_mine_2_title",
+					"type": "title",
+					"title": "title_mine_2"
+				}
+			]
+		},
+
+---
+
+## Development request 2026/8/29 10:42:00
+
+继续
+
+---
+
+## Development request 2026/8/29 13:50:10
+
+可以，建议采用“单文件、内嵌效果、兼容旧格式”的完整方案。
+
+当前实现中：
+
+- `TitleConfig` 只保存称号和效果 ID；
+- `TitleEffectConfig` 保存效果详情；
+- `TitleEffectService` 根据 ID 应用效果；
+- `AchievementScreenHandler` 根据 ID 查找效果预览；
+- `ConfigValidator` 负责检查称号引用的效果是否存在。
+
+相关代码见 [TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java) 和 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)。
+
+**一、最终配置格式**
+
+继续使用：
+
+```text
+config/omnitools/titles/config.json
+```
+
+升级为 `format_version: 2`：
+
+```json
+{
+  "format_version": 2,
+  "nameplate_mode": "scoreboard_team",
+  "team_conflict_policy": "omnitools_priority",
+  "titles": [
+    {
+      "id": "title_mine_1",
+      "display": "§6[§r矿工大师 I§6] §r",
+      "rarity": "legendary",
+      "tooltip": [],
+      "effects": [
+        {
+          "id": "haste_1",
+          "name": "急迫 I",
+          "type": "POTION",
+          "effect": "minecraft:haste",
+          "amplifier": 0,
+          "duration": -1,
+          "display": "§a✔ 急迫 I（+20% 挖掘速度）"
+        }
+      ]
+    },
+    {
+      "id": "plain_title",
+      "display": "§7[普通称号]§r ",
+      "rarity": "common",
+      "tooltip": [],
+      "effects": []
+    }
+  ]
+}
+```
+
+无效果称号统一使用：
+
+```json
+"effects": []
+```
+
+不建议使用空字符串：
+
+```json
+"effects": ""
+```
+
+因为效果本质上是数组，且一个称号可以拥有多个效果。
+
+**二、字段规则**
+
+每个效果对象支持当前已有的四类效果：
+
+- `POTION`：`effect`、`amplifier`、`duration`
+- `ATTRIBUTE`：`attribute`、`operation`、`amount`
+- `PARTICLE`：`particle`、`frequency`
+- `PERMISSION`：`permission`
+
+通用字段：
+
+```json
+{
+  "id": "haste_1",
+  "name": "急迫 I",
+  "type": "POTION",
+  "display": "§a✔ 急迫 I"
+}
+```
+
+建议保留 `id`，用于日志、报错和调试。效果 ID 只需在同一个称号内唯一。
+
+`display` 用于成就页面和称号页面的预览；如果省略，可以回退使用 `name`。
+
+**三、成就奖励不变**
+
+成就仍然只引用称号 ID：
+
+```json
+{
+  "id": "ach_mine_1_title",
+  "type": "title",
+  "title": "title_mine_1"
+}
+```
+
+玩家数据也不需要迁移，因为 `TitleData` 保存的是称号 ID、佩戴状态和有效期，不保存效果定义。
+
+**四、运行时调整**
+
+最终结构中，`TitleEffectService` 不再执行：
+
+```java
+titleEffectConfig().definition(effectId)
+```
+
+而是直接遍历：
+
+```java
+selectedTitle.effects()
+```
+
+然后应用每个内嵌效果。
+
+`modules.title_effects.enabled` 建议保留，作为全局效果开关：
+
+- `titles` 关闭：不能使用称号；
+- `title_effects` 关闭：称号仍可领取和佩戴，但不施加效果；
+- 称号自身 `"effects": []`：该称号没有效果。
+
+**五、界面显示规则**
+
+建议新增一个统一的称号预览渲染方法，供两个界面共用：
+
+- 称号页面：显示称号说明和效果；
+- 成就页面：显示奖励称号、`tooltip` 和每个效果的 `display`；
+- 成就未领取或已领取状态都显示预览；
+- 无效果时显示“无佩戴效果”；
+- 不再要求用户把效果说明重复写入 `tooltip`。
+
+成就页面最终效果类似：
+
+```text
+奖励称号：[矿工大师 I]
+佩戴效果：
+  ✔ 急迫 I（+20% 挖掘速度）
+```
+
+这里仅表示预览，不会因为查看成就就给玩家施加急迫效果。
+
+**六、兼容与迁移**
+
+建议分两个版本处理：
+
+第一阶段：
+
+- 同时支持旧版 `format_version: 1`；
+- 旧版仍从 `title_effects/config.json` 读取效果；
+- 新版从 `titles/config.json` 读取内嵌效果；
+- 新版存在时优先使用新版；
+- 两种格式同时存在时输出警告，不自动混合。
+
+第二阶段：
+
+- 启动时检测旧版两个文件；
+- 自动生成带时间戳的备份；
+- 将旧称号和旧效果合并写入新版文件；
+- 原文件放入 `config/omnitools/legacy/`；
+- 在 `manifest.json` 中记录迁移来源。
+
+现有 [ConfigMigration.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java) 已经采用备份和归档策略，可以沿用。
+
+**七、需要修改的代码范围**
+
+主要包括：
+
+- `TitleConfig`：支持 v2 内嵌效果；
+- `TitleEffectConfig`：作为旧版兼容层，最终可移除；
+- `OmniToolsConfigSnapshot`：最终不再需要独立的 `titleEffects`；
+- `OmniToolsConfigManager`：调整模块加载和快照；
+- `ConfigValidator`：改为校验内嵌效果；
+- `TitleEffectService`：直接应用称号效果；
+- `TitleScreenHandler`：显示内嵌效果；
+- `AchievementScreenHandler`：显示奖励效果预览；
+- `titles.schema.json`：新增 v2 结构；
+- 配置文档和示例。
+
+**八、测试验收**
+
+至少覆盖：
+
+- 一个称号包含一个效果；
+- 一个称号包含多个效果；
+- `"effects": []` 正常加载；
+- 四种效果类型都能解析和应用；
+- 无效 Minecraft ID 被拒绝；
+- `duration: 0` 被拒绝；
+- 重复效果 ID 被拒绝；
+- 成就页面显示称号和效果预览；
+- 称号页面显示相同效果；
+- 关闭 `title_effects` 后不施加效果；
+- 旧版配置可以正常加载或迁移；
+- 配置失败时保留上一份有效快照。
+
+这个设计的核心是：奖励仍然只依赖称号 ID，但称号的展示、效果应用和成就预览都从同一个称号对象读取，避免两个配置文件不同步。

@@ -1,110 +1,71 @@
 {
-  "prompt": "当前项目已从“单一签到模组”发展为较完整的纯服务端运营框架，功能覆盖面很高；下一阶段的重点不应继续堆叠玩法，而应优先补齐文档、事务恢复验证和性能边界。\n\n**已实现**\n\n- 平台层：模块总开关、单模块重载、统一权限、配置候选快照校验后原子发布，加载失败会保留旧配置。[配置管理](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java)\n- 核心玩法：签到与补签、在线奖励、CDK、货币商店、称号、成就、云存储、命令菜单、侧边栏、排行榜、礼包。\n- 成就：支持原版统计及 `stat / sum / all / any / not` 条件树，并包含调度预算。\n- 统一奖励：签到、在线奖励、成就、CDK 可复用货币、物品、称号、指令、补签卡、礼包等奖励；奖励库 V2 支持命名奖励集、嵌套引用和循环检测。[奖励库](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/RewardCatalog.java) [发奖服务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/reward/RewardGrantService.java)\n- 礼包：已支持 V2 配置、全量/随机领取、按 tick 分批投递、待领取记录、历史清理、损坏数据隔离、审计日志与管理员 `inspect/resolve/cancel` 处理。[礼包服务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)\n- 商店购买礼包：已有持久化事务链 `PREPARED -> CHARGED -> PACKAGE_CREATED -> COMPLETED`，服务器启动时会尝试恢复可证明安全的中断状态。[购买事务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ShopPurchaseService.java)\n\n**主要缺口**\n\n| 类型 | 现状 | 影响 |\n|---|---|---|\n| 文档同步 | 礼包、奖励库、商店事务的文档仍混有“未实现”和旧 V1 配置描述 | 服主可能按过期字段配置，无法正确运维 |\n| 端到端验证 | 现有测试侧重解析与数据模型，缺少真实服务器中断恢复流程 | 无法证明扣款、发礼包、重启恢复不会造成重复或遗漏 |\n| 性能验证 | 礼包和商店关键节点仍会同步落盘 | 高并发、不可堆叠物品或慢磁盘时可能拖慢 TPS |\n| 运维闭环 | 礼包已有人工处置命令；商店阻塞事务的“继续、退款、结案”流程仍需确认或补齐 | 管理员遇到异常交易时处理成本高 |\n| 可选依赖兼容 | Placeholder API 使用反射降级，但尚应验证安装、缺失、禁用三种场景 | 侧边栏和文本渲染可能出现版本兼容问题 |\n\n另外，当前运行配置中 `packages`、`leaderboards`、`permissions` 处于关闭状态，因此这些模块虽已有源码，实际服内路径仍未被当前配置验证。\n\n**最高优先级风险**\n\n1. **文档与代码事实不一致**。这是当前最直接的用户风险，尤其是 [礼包文档](D:/mod/qiandao/docs/modules/packages.md)、[奖励参考](D:/mod/qiandao/docs/reference/rewards.md) 与实际 V2 实现互相矛盾。\n2. **跨持久化事务缺少故障演练**。重点覆盖“扣币后崩溃”“创建礼包后崩溃”“背包满分批投递”“重启后恢复”“管理员 resolve/cancel”。\n3. **同步保存的主线程压力未知**。礼包已经有每 tick 限额，但需要在大量待发物品和多人同时购买时测量实际 MSPT。\n\n**建议顺序**\n\n- P0：以源码为唯一事实源，重写并统一奖励、礼包、商店事务文档与示例配置。\n- P0：补真实服务器集成测试/烟雾测试，覆盖交易中断与恢复。\n- P1：增加投递队列、同步保存耗时与阻塞事务数量的日志/监控，并做压力测试。\n- P1：完善商店异常交易的管理员处理命令和审计闭环。\n- P2：确认稳定性后，再扩展礼包、排行榜和跨模块玩法。",
-  "sessionId": "01a0243b-d8d5-7fc3-9b17-4bd4e122a7f9",
+  "prompt": "可以，建议采用“单文件、内嵌效果、兼容旧格式”的完整方案。\n\n当前实现中：\n\n- `TitleConfig` 只保存称号和效果 ID；\n- `TitleEffectConfig` 保存效果详情；\n- `TitleEffectService` 根据 ID 应用效果；\n- `AchievementScreenHandler` 根据 ID 查找效果预览；\n- `ConfigValidator` 负责检查称号引用的效果是否存在。\n\n相关代码见 [TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java) 和 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java)。\n\n**一、最终配置格式**\n\n继续使用：\n\n```text\nconfig/omnitools/titles/config.json\n```\n\n升级为 `format_version: 2`：\n\n```json\n{\n  \"format_version\": 2,\n  \"nameplate_mode\": \"scoreboard_team\",\n  \"team_conflict_policy\": \"omnitools_priority\",\n  \"titles\": [\n    {\n      \"id\": \"title_mine_1\",\n      \"display\": \"§6[§r矿工大师 I§6] §r\",\n      \"rarity\": \"legendary\",\n      \"tooltip\": [],\n      \"effects\": [\n        {\n          \"id\": \"haste_1\",\n          \"name\": \"急迫 I\",\n          \"type\": \"POTION\",\n          \"effect\": \"minecraft:haste\",\n          \"amplifier\": 0,\n          \"duration\": -1,\n          \"display\": \"§a✔ 急迫 I（+20% 挖掘速度）\"\n        }\n      ]\n    },\n    {\n      \"id\": \"plain_title\",\n      \"display\": \"§7[普通称号]§r \",\n      \"rarity\": \"common\",\n      \"tooltip\": [],\n      \"effects\": []\n    }\n  ]\n}\n```\n\n无效果称号统一使用：\n\n```json\n\"effects\": []\n```\n\n不建议使用空字符串：\n\n```json\n\"effects\": \"\"\n```\n\n因为效果本质上是数组，且一个称号可以拥有多个效果。\n\n**二、字段规则**\n\n每个效果对象支持当前已有的四类效果：\n\n- `POTION`：`effect`、`amplifier`、`duration`\n- `ATTRIBUTE`：`attribute`、`operation`、`amount`\n- `PARTICLE`：`particle`、`frequency`\n- `PERMISSION`：`permission`\n\n通用字段：\n\n```json\n{\n  \"id\": \"haste_1\",\n  \"name\": \"急迫 I\",\n  \"type\": \"POTION\",\n  \"display\": \"§a✔ 急迫 I\"\n}\n```\n\n建议保留 `id`，用于日志、报错和调试。效果 ID 只需在同一个称号内唯一。\n\n`display` 用于成就页面和称号页面的预览；如果省略，可以回退使用 `name`。\n\n**三、成就奖励不变**\n\n成就仍然只引用称号 ID：\n\n```json\n{\n  \"id\": \"ach_mine_1_title\",\n  \"type\": \"title\",\n  \"title\": \"title_mine_1\"\n}\n```\n\n玩家数据也不需要迁移，因为 `TitleData` 保存的是称号 ID、佩戴状态和有效期，不保存效果定义。\n\n**四、运行时调整**\n\n最终结构中，`TitleEffectService` 不再执行：\n\n```java\ntitleEffectConfig().definition(effectId)\n```\n\n而是直接遍历：\n\n```java\nselectedTitle.effects()\n```\n\n然后应用每个内嵌效果。\n\n`modules.title_effects.enabled` 建议保留，作为全局效果开关：\n\n- `titles` 关闭：不能使用称号；\n- `title_effects` 关闭：称号仍可领取和佩戴，但不施加效果；\n- 称号自身 `\"effects\": []`：该称号没有效果。\n\n**五、界面显示规则**\n\n建议新增一个统一的称号预览渲染方法，供两个界面共用：\n\n- 称号页面：显示称号说明和效果；\n- 成就页面：显示奖励称号、`tooltip` 和每个效果的 `display`；\n- 成就未领取或已领取状态都显示预览；\n- 无效果时显示“无佩戴效果”；\n- 不再要求用户把效果说明重复写入 `tooltip`。\n\n成就页面最终效果类似：\n\n```text\n奖励称号：[矿工大师 I]\n佩戴效果：\n  ✔ 急迫 I（+20% 挖掘速度）\n```\n\n这里仅表示预览，不会因为查看成就就给玩家施加急迫效果。\n\n**六、兼容与迁移**\n\n建议分两个版本处理：\n\n第一阶段：\n\n- 同时支持旧版 `format_version: 1`；\n- 旧版仍从 `title_effects/config.json` 读取效果；\n- 新版从 `titles/config.json` 读取内嵌效果；\n- 新版存在时优先使用新版；\n- 两种格式同时存在时输出警告，不自动混合。\n\n第二阶段：\n\n- 启动时检测旧版两个文件；\n- 自动生成带时间戳的备份；\n- 将旧称号和旧效果合并写入新版文件；\n- 原文件放入 `config/omnitools/legacy/`；\n- 在 `manifest.json` 中记录迁移来源。\n\n现有 [ConfigMigration.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigMigration.java) 已经采用备份和归档策略，可以沿用。\n\n**七、需要修改的代码范围**\n\n主要包括：\n\n- `TitleConfig`：支持 v2 内嵌效果；\n- `TitleEffectConfig`：作为旧版兼容层，最终可移除；\n- `OmniToolsConfigSnapshot`：最终不再需要独立的 `titleEffects`；\n- `OmniToolsConfigManager`：调整模块加载和快照；\n- `ConfigValidator`：改为校验内嵌效果；\n- `TitleEffectService`：直接应用称号效果；\n- `TitleScreenHandler`：显示内嵌效果；\n- `AchievementScreenHandler`：显示奖励效果预览；\n- `titles.schema.json`：新增 v2 结构；\n- 配置文档和示例。\n\n**八、测试验收**\n\n至少覆盖：\n\n- 一个称号包含一个效果；\n- 一个称号包含多个效果；\n- `\"effects\": []` 正常加载；\n- 四种效果类型都能解析和应用；\n- 无效 Minecraft ID 被拒绝；\n- `duration: 0` 被拒绝；\n- 重复效果 ID 被拒绝；\n- 成就页面显示称号和效果预览；\n- 称号页面显示相同效果；\n- 关闭 `title_effects` 后不施加效果；\n- 旧版配置可以正常加载或迁移；\n- 配置失败时保留上一份有效快照。\n\n这个设计的核心是：奖励仍然只依赖称号 ID，但称号的展示、效果应用和成就预览都从同一个称号对象读取，避免两个配置文件不同步。",
+  "sessionId": "01a04b65-7844-7b20-a670-efa4c6d6d36d",
   "backend": "quota",
-  "createdAt": "2026-08-28T11:53:16.178Z",
-  "summary": "已完成本轮同步与验证：\n\n- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。\n- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。\n- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。\n- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。\n- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。\n\n验证结果：\n\n- 受管 build：通过，JAR 823.4 KB。\n- 受管 server smoke：通过，服务端稳定运行 15 秒。\n- 内容校验：通过，无错误或警告。\n- 所有新增/修改文档中的 JSON 代码块均解析通过。\n- 相对 Markdown 链接均存在，`git diff --check` 通过。\n\n当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。",
-  "finalResponse": "已完成本轮同步与验证：\n\n- 重写 [礼包文档](D:/mod/qiandao/docs/modules/packages.md:1)：V2 配置、逻辑投递、分批恢复、`BLOCKED` 处置、批量发放回滚、历史清理和审计命令。\n- 重写 [奖励参考](D:/mod/qiandao/docs/reference/rewards.md:1)：奖励库 V2、集合嵌套/循环检测、V1 模板兼容、奖励类型和幂等语义。\n- 重写 [商店文档](D:/mod/qiandao/docs/modules/shop-and-currency.md:1)：礼包商品、购买事务状态机、稳定键、启动恢复和 `BLOCKED` 审计。\n- 更新 [汇总手册](D:/mod/qiandao/docs/omnitools-handbook.md:1)，移除过期的“奖励库/商店礼包未实现”描述。\n- `package remove` 成功删除后现在写入 `package-audit.log`：[ModMindEntry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModMindEntry.java:772)。\n\n验证结果：\n\n- 受管 build：通过，JAR 823.4 KB。\n- 受管 server smoke：通过，服务端稳定运行 15 秒。\n- 内容校验：通过，无错误或警告。\n- 所有新增/修改文档中的 JSON 代码块均解析通过。\n- 相对 Markdown 链接均存在，`git diff --check` 通过。\n\n当前仍未完成真实“扣币/创建礼包中断后重启”的故障注入测试，以及礼包高并发 MSPT 压力测试；现有验证仍以数据模型测试和服务端启动烟雾测试为主。",
+  "createdAt": "2026-08-29T06:36:56.783Z",
+  "summary": "已完成“单文件内嵌效果 + v1 兼容”第一阶段实现：\n\n- `TitleConfig` 支持 `format_version: 2`，效果对象内嵌于 `titles[].effects`，`[]` 明确表示无效果。\n- v1 的效果 ID 仍从旧 `title_effects/config.json` 解析；v2 不会回退或混用旧效果。\n- `TitleEffectService`、称号 GUI、成就奖励预览统一读取同一称号效果快照。\n- `ConfigValidator` 增加内嵌效果校验。\n- 更新 schema、示例、文档和解析测试。\n\n核心文件：[TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:95)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:146)、[TitleScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleScreenHandler.java:205)、[titles.schema.json](D:/mod/qiandao/docs/schemas/titles.schema.json:1)。\n\n验证结果：内容校验通过，受管 Gradle 构建及测试通过并生成 JAR。受管客户端烟测尝试因环境进程启动返回 `spawn UNKNOWN`，未进入模组运行阶段。已有 v1 文件保持兼容加载，本轮未自动改写或归档用户配置。",
+  "finalResponse": "已完成“单文件内嵌效果 + v1 兼容”第一阶段实现：\n\n- `TitleConfig` 支持 `format_version: 2`，效果对象内嵌于 `titles[].effects`，`[]` 明确表示无效果。\n- v1 的效果 ID 仍从旧 `title_effects/config.json` 解析；v2 不会回退或混用旧效果。\n- `TitleEffectService`、称号 GUI、成就奖励预览统一读取同一称号效果快照。\n- `ConfigValidator` 增加内嵌效果校验。\n- 更新 schema、示例、文档和解析测试。\n\n核心文件：[TitleConfig.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleConfig.java:95)、[TitleEffectService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleEffectService.java:146)、[TitleScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/TitleScreenHandler.java:205)、[titles.schema.json](D:/mod/qiandao/docs/schemas/titles.schema.json:1)。\n\n验证结果：内容校验通过，受管 Gradle 构建及测试通过并生成 JAR。受管客户端烟测尝试因环境进程启动返回 `spawn UNKNOWN`，未进入模组运行阶段。已有 v1 文件保持兼容加载，本轮未自动改写或归档用户配置。",
   "intent": "engineering",
-  "tasks": [],
+  "tasks": [
+    "核对称号配置、快照、效果服务和 GUI 链路",
+    "实现 v2 内嵌效果与 v1 兼容解析",
+    "切换效果应用和两个界面预览到统一称号对象",
+    "更新 schema、示例和配置文档",
+    "补充测试并执行受管校验与构建"
+  ],
   "files": [
     {
-      "path": "docs/modules/packages.md",
+      "path": "docs/examples/config-platform/README.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/modules/shop-and-currency.md",
+      "path": "docs/examples/config-platform/titles.jsonc",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/omnitools-handbook.md",
+      "path": "docs/schemas/titles.schema.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "docs/reference/rewards.md",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-1.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/TitleConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-2.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/TitleEffectConfig.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-3.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/TitleEffectService.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-4.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/TitleScreenHandler.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-5.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigValidator.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-6.log.gz",
+      "path": "docs/title-effects-v2.md",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-08-28-7.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug-1.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug-2.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug-3.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug-4.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug-5.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/debug.log",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/latest.log",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/server.properties",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/world/level.dat",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/world/level.dat_old",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
+      "path": "src/test/java/dev/modmind/omnitools/TitleEffectConfigTest.java",
       "purpose": "外部代理修改"
     }
   ],
   "tests": [
-    "已使用 ModMind 托管构建",
-    "已使用 ModMind Minecraft 测试"
+    "已使用 ModMind 托管构建"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-28T11-31-11-753Z",
+  "snapshotId": "2026-08-29T05-50-22-878Z",
   "buildVerified": true,
-  "runtimeVerified": true,
+  "runtimeVerified": false,
   "workflow": {
     "required": [
       "implementation",
@@ -112,17 +73,23 @@
       "build"
     ],
     "completed": [
+      "project_info",
+      "intent",
+      "plan",
       "validate",
       "build",
-      "runtime_test",
-      "implementation"
+      "implementation",
+      "todo_complete"
     ],
     "missing": [],
     "evidence": {
+      "project_info": "modmind_project_info returned active project metadata",
+      "intent": "modmind_set_intent recorded task intent",
+      "plan": "modmind_update_todo published the ordered plan",
       "validate": "modmind_validate_content completed successfully",
-      "build": "modmind_test_matrix passed a build/client target",
-      "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 22 changed managed files"
+      "build": "modmind_build_project completed successfully",
+      "implementation": "Detected 11 changed managed files",
+      "todo_complete": "All Todo items are completed after the other required stages"
     }
   }
 }

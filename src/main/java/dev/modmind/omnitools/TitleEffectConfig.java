@@ -30,7 +30,6 @@ public final class TitleEffectConfig {
     public static final String FILE_NAME = "omnitools-title-effects.json";
     private static final Pattern EFFECT_ID = Pattern.compile("[a-z0-9_.-]{1,64}");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = ConfigPaths.moduleConfig(ModuleId.TITLE_EFFECTS);
 
     private final Map<String, EffectDefinition> effects;
 
@@ -39,20 +38,21 @@ public final class TitleEffectConfig {
     }
 
     public static TitleEffectConfig load() {
-        if (!Files.exists(FILE)) {
+        Path file = path();
+        if (!Files.exists(file)) {
             TitleEffectConfig defaults = defaults();
             defaults.save();
             return defaults;
         }
 
-        try (Reader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             JsonElement root = GSON.fromJson(reader, JsonElement.class);
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("Root value must be an object");
             }
             return parse(root.getAsJsonObject());
         } catch (IOException | JsonParseException | IllegalArgumentException exception) {
-            System.err.println("[omnitools] Could not load " + FILE + ": " + exception.getMessage()
+            System.err.println("[omnitools] Could not load " + file + ": " + exception.getMessage()
                     + ". The configuration snapshot will not be replaced.");
             throw new IllegalStateException("Invalid title effect configuration", exception);
         }
@@ -63,7 +63,7 @@ public final class TitleEffectConfig {
     }
 
     public static Path path() {
-        return FILE;
+        return ConfigPaths.moduleConfig(ModuleId.TITLE_EFFECTS);
     }
 
     public synchronized List<EffectDefinition> definitions() {
@@ -72,6 +72,10 @@ public final class TitleEffectConfig {
 
     public synchronized Optional<EffectDefinition> definition(String id) {
         return Optional.ofNullable(effects.get(normalizeId(id)));
+    }
+
+    static EffectDefinition builtIn(String id) {
+        return defaults().definition(id).orElseThrow(() -> new IllegalArgumentException("Unknown built-in effect: " + id));
     }
 
     private static TitleEffectConfig parse(JsonObject root) {
@@ -110,6 +114,17 @@ public final class TitleEffectConfig {
         return new TitleEffectConfig(result);
     }
 
+    static EffectDefinition parseInlineDefinition(JsonObject object, String context) {
+        String id = normalizeId(requiredString(object, "id"));
+        if (!EFFECT_ID.matcher(id).matches()) {
+            throw new JsonParseException("Effect id " + id + " in " + context + " must match " + EFFECT_ID.pattern());
+        }
+        ConfigFieldReporter.warnUnknown(object, context,
+                Set.of("id", "name", "type", "effect", "amplifier", "duration", "attribute", "operation",
+                        "amount", "particle", "frequency", "permission", "display"));
+        return parseDefinition(id, object);
+    }
+
     private static EffectDefinition parseDefinition(String id, JsonObject object) {
         String name = optionalString(object, "name", id);
         EffectType type = EffectType.parse(requiredString(object, "type"));
@@ -123,6 +138,9 @@ public final class TitleEffectConfig {
         int frequency = optionalInt(object, "frequency", 10);
         String permission = optionalString(object, "permission", "");
         String display = optionalString(object, "display", name);
+        if (display.isBlank()) {
+            display = name;
+        }
 
         switch (type) {
             case POTION -> {
@@ -167,6 +185,32 @@ public final class TitleEffectConfig {
                 particle, frequency, permission, display);
     }
 
+    static JsonObject toJson(EffectDefinition definition) {
+        JsonObject object = new JsonObject();
+        object.addProperty("id", definition.id());
+        object.addProperty("name", definition.name());
+        object.addProperty("type", definition.type().name());
+        switch (definition.type()) {
+            case POTION -> {
+                object.addProperty("effect", definition.effect());
+                object.addProperty("amplifier", definition.amplifier());
+                object.addProperty("duration", definition.duration());
+            }
+            case ATTRIBUTE -> {
+                object.addProperty("attribute", definition.attribute());
+                object.addProperty("operation", definition.operation().serializedName());
+                object.addProperty("amount", definition.amount());
+            }
+            case PARTICLE -> {
+                object.addProperty("particle", definition.particle());
+                object.addProperty("frequency", definition.frequency());
+            }
+            case PERMISSION -> object.addProperty("permission", definition.permission());
+        }
+        object.addProperty("display", definition.display());
+        return object;
+    }
+
     private static TitleEffectConfig defaults() {
         Map<String, EffectDefinition> defaults = new LinkedHashMap<>();
         defaults.put("speed_1", potion("speed_1", "\u901f\u5ea6 I", "minecraft:speed", 0,
@@ -194,8 +238,9 @@ public final class TitleEffectConfig {
     }
 
     private synchronized void save() {
+        Path file = path();
         try {
-            Files.createDirectories(FILE.getParent());
+            Files.createDirectories(file.getParent());
             JsonObject root = new JsonObject();
             root.addProperty("format_version", 1);
             for (EffectDefinition definition : effects.values()) {
@@ -219,11 +264,11 @@ public final class TitleEffectConfig {
                 object.addProperty("display", definition.display());
                 root.add(definition.id(), object);
             }
-            try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
+            try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
         } catch (IOException exception) {
-            System.err.println("[omnitools] Could not save " + FILE + ": " + exception.getMessage());
+            System.err.println("[omnitools] Could not save " + file + ": " + exception.getMessage());
         }
     }
 

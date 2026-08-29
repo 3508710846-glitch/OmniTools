@@ -67,13 +67,13 @@ public final class ConfigValidator {
         Set<String> effects = new HashSet<>();
         for (TitleEffectConfig.EffectDefinition definition : snapshot.titleEffects().definitions()) {
             effects.add(definition.id());
-            if (definition.type() == TitleEffectConfig.EffectType.PERMISSION
-                    && !isAllowedPermission(definition.permission())) {
-                throw new IllegalArgumentException("title effect permission is not allowed: " + definition.permission());
-            }
+            validateTitleEffect(definition, "legacy title effect " + definition.id());
         }
-        if (snapshot.enabled(ModuleId.TITLE_EFFECTS)) {
-            for (TitleConfig.TitleDefinition title : snapshot.titles().definitions()) {
+        for (TitleConfig.TitleDefinition title : snapshot.titles().definitions()) {
+            for (TitleEffectConfig.EffectDefinition definition : title.embeddedEffects()) {
+                validateTitleEffect(definition, "title " + title.id() + " effect " + definition.id());
+            }
+            if (snapshot.enabled(ModuleId.TITLE_EFFECTS) && !title.inlineEffectsConfigured()) {
                 for (String effectId : title.effects()) {
                     if (!effects.contains(effectId)) {
                         throw new IllegalArgumentException("title " + title.id()
@@ -277,6 +277,13 @@ public final class ConfigValidator {
         }
         String permission = value.trim().toLowerCase(java.util.Locale.ROOT);
         return permission.equals("omnitools:cloud_storage") || permission.startsWith("omnitools:command.");
+    }
+
+    private static void validateTitleEffect(TitleEffectConfig.EffectDefinition definition, String context) {
+        if (definition.type() == TitleEffectConfig.EffectType.PERMISSION
+                && !isAllowedPermission(definition.permission())) {
+            throw new IllegalArgumentException(context + " permission is not allowed: " + definition.permission());
+        }
     }
 
     private static boolean containsPositiveStatistic(AchievementCondition condition) {

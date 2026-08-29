@@ -11,7 +11,7 @@
 | `daily-checkin.jsonc` | `config/omnitools/daily_checkin/config.json` | 3 | `daily_checkin` | `/omnitools reload daily_checkin` |
 | `online-reward.jsonc` | `config/omnitools/online_reward/config.json` | 1 | `online_reward` | `/omnitools reload online_reward` |
 | `shop.jsonc` | `config/omnitools/shop/config.json` | 1 | `shop` | `/omnitools reload shop` |
-| `titles.jsonc` | `config/omnitools/titles/config.json` | 1 | `titles` | `/omnitools reload titles` |
+| `titles.jsonc` | `config/omnitools/titles/config.json` | 2 (v1 compatible) | `titles` | `/omnitools reload titles` |
 | `title-effects.jsonc` | `config/omnitools/title_effects/config.json` | 1 | `title_effects` 与 `titles` | `/omnitools reload title_effects` |
 | `achievement.jsonc` | `config/omnitools/achievements/config.json` | 2 | `achievements` | `/omnitools reload achievements` |
 | `cdk.jsonc` | `config/omnitools/cdk/config.json` | 1 | `cdk` | `/omnitools reload cdk` |

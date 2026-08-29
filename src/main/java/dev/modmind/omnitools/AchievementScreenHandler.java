@@ -46,6 +46,9 @@ public final class AchievementScreenHandler extends ChestMenu {
     public static final int HEADER_PROFILE_SLOT = GuiSlots.HEADER_LEFT_54;
     public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
     public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
+    private static final int MAX_NAMED_TARGETS = 4;
+    private static final int MAX_VISIBLE_EACH_TARGETS = 2;
+    private static final int MAX_CONDITION_LORE_LINES = 4;
     private final SimpleContainer achievementContainer;
     private final UUID ownerId;
     private final ServerPlayer owner;
@@ -234,7 +237,9 @@ public final class AchievementScreenHandler extends ChestMenu {
         ChatFormatting color = visualState.color();
         List<Component> lore = new ArrayList<>();
         lore.add(TextTemplateRenderer.render(owner, achievement.description()).copy().withStyle(ChatFormatting.GRAY));
-        appendConditionLore(achievement.condition(), progress, lore, color, 0);
+        List<Component> conditionLore = new ArrayList<>();
+        appendConditionLore(achievement.condition(), progress, conditionLore, color, 0);
+        lore.addAll(conditionLore.stream().limit(MAX_CONDITION_LORE_LINES).toList());
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
         return GuiStatusItem.create(new ItemStack(achievement.icon()),
@@ -288,23 +293,19 @@ public final class AchievementScreenHandler extends ChestMenu {
                     lore.add(prefix.copy().append(statLine(stat.requirements().get(0), progress.current(),
                             stat.atLeast())).withStyle(color));
                 } else {
-                    lore.add(prefix.copy().append(ServerText.translatable(
-                            "gui.omnitools.achievement.condition.stat_sum",
-                            joinTargetNames(stat.requirements()), progress.current(), stat.atLeast()))
-                            .withStyle(color));
+                    lore.add(prefix.copy().append(sumProgressLine(stat.requirements(), progress.current(),
+                            stat.atLeast(), "gui.omnitools.achievement.condition.stat_sum")).withStyle(color));
                 }
             } else {
-                lore.add(prefix.copy().append(ServerText.translatable(
-                        stat.match() == TargetMatch.EACH
-                                ? "gui.omnitools.achievement.match.each"
-                                : "gui.omnitools.achievement.match.any",
-                        progress.current(), progress.target())).withStyle(color));
-                for (int index = 0; index < stat.requirements().size(); index++) {
-                    ConditionProgress child = index < progress.children().size()
-                            ? progress.children().get(index) : ConditionProgress.leaf(0, stat.atLeast(), false);
-                    lore.add(Component.literal("  ".repeat(Math.max(0, indent + 1)))
-                            .append(statLine(stat.requirements().get(index), child.current(), stat.atLeast()))
-                            .withStyle(color));
+                if (stat.match() == TargetMatch.EACH) {
+                    lore.add(prefix.copy().append(ServerText.translatable(
+                            "gui.omnitools.achievement.condition.each_progress",
+                            progress.current(), progress.target())).withStyle(color));
+                    appendIncompleteStatTargets(stat, progress, lore, color, indent + 1);
+                } else {
+                    lore.add(prefix.copy().append(ServerText.translatable(
+                            "gui.omnitools.achievement.condition.any_progress",
+                            progress.current(), progress.target(), stat.requirements().size())).withStyle(color));
                 }
             }
             return;
@@ -315,9 +316,8 @@ public final class AchievementScreenHandler extends ChestMenu {
                         sum.progressDivisor(), sum.progressUnit())).withStyle(color));
                 return;
             }
-            lore.add(prefix.copy().append(ServerText.translatable(
-                    "gui.omnitools.achievement.condition.sum", joinTargetNames(sum.requirements()),
-                    progress.current(), sum.atLeast())).withStyle(color));
+            lore.add(prefix.copy().append(sumProgressLine(sum.requirements(), progress.current(), sum.atLeast(),
+                    "gui.omnitools.achievement.condition.sum")).withStyle(color));
             return;
         }
         if (condition instanceof AllCondition all) {
@@ -410,11 +410,16 @@ public final class AchievementScreenHandler extends ChestMenu {
                         .append(TextTemplateRenderer.render(owner, tooltip))
                         .withStyle(ChatFormatting.GRAY));
             }
-            for (String effectId : definition.effects()) {
-                ModMindEntry.titleEffectConfig().definition(effectId)
-                        .map(TitleEffectConfig.EffectDefinition::display)
-                        .map(text -> TextTemplateRenderer.render(owner, text))
-                        .ifPresent(effect -> lore.add(Component.literal("  ").append(effect)));
+            List<TitleEffectConfig.EffectDefinition> effects = ModMindEntry.titleConfig()
+                    .effectsFor(definition, ModMindEntry.titleEffectConfig());
+            if (effects.isEmpty()) {
+                lore.add(Component.literal("  ")
+                        .append(ServerText.translatable("gui.omnitools.title.no_effects"))
+                        .withStyle(ChatFormatting.DARK_GRAY));
+            }
+            for (TitleEffectConfig.EffectDefinition effect : effects) {
+                String display = effect.display().isBlank() ? effect.name() : effect.display();
+                lore.add(Component.literal("  ").append(TextTemplateRenderer.render(owner, display)));
             }
         }
     }
@@ -468,13 +473,55 @@ public final class AchievementScreenHandler extends ChestMenu {
         return ServerText.translatable(requirement.type().translationKey(), targetName(requirement), current, target);
     }
 
+    private Component sumProgressLine(List<AchievementConfig.Requirement> requirements, long current, long target,
+                                      String namedTargetsTranslationKey) {
+        if (requirements.size() > MAX_NAMED_TARGETS) {
+            return ServerText.translatable("gui.omnitools.achievement.condition.aggregate",
+                    requirements.size(), current, target);
+        }
+        return ServerText.translatable(namedTargetsTranslationKey, joinTargetNames(requirements), current, target);
+    }
+
+    private void appendIncompleteStatTargets(StatCondition stat, ConditionProgress progress, List<Component> lore,
+                                             ChatFormatting color, int indent) {
+        List<Integer> incomplete = new ArrayList<>();
+        for (int index = 0; index < stat.requirements().size(); index++) {
+            ConditionProgress child = index < progress.children().size()
+                    ? progress.children().get(index) : ConditionProgress.leaf(0, stat.atLeast(), false);
+            if (!child.completed()) {
+                incomplete.add(index);
+            }
+        }
+        int visible = Math.min(MAX_VISIBLE_EACH_TARGETS, incomplete.size());
+        for (int displayed = 0; displayed < visible; displayed++) {
+            int index = incomplete.get(displayed);
+            ConditionProgress child = index < progress.children().size()
+                    ? progress.children().get(index) : ConditionProgress.leaf(0, stat.atLeast(), false);
+            lore.add(Component.literal("  ".repeat(Math.max(0, indent)))
+                    .append(statLine(stat.requirements().get(index), child.current(), stat.atLeast()))
+                    .withStyle(color));
+        }
+        int hidden = incomplete.size() - visible;
+        if (hidden > 0) {
+            lore.add(Component.literal("  ".repeat(Math.max(0, indent)))
+                    .append(ServerText.translatable("gui.omnitools.achievement.condition.hidden_targets", hidden))
+                    .withStyle(color));
+        }
+    }
+
     private Component joinTargetNames(List<AchievementConfig.Requirement> requirements) {
         MutableComponent joined = Component.empty();
-        for (int index = 0; index < requirements.size(); index++) {
+        int visible = Math.min(MAX_NAMED_TARGETS, requirements.size());
+        for (int index = 0; index < visible; index++) {
             if (index > 0) {
                 joined.append(ServerText.translatable("gui.omnitools.achievement.target.separator"));
             }
             joined.append(targetName(requirements.get(index)));
+        }
+        int hidden = requirements.size() - visible;
+        if (hidden > 0) {
+            joined.append(ServerText.translatable("gui.omnitools.achievement.target.separator"));
+            joined.append(ServerText.translatable("gui.omnitools.achievement.condition.hidden_targets", hidden));
         }
         return joined;
     }
