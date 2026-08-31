@@ -1,15 +1,16 @@
 {
-  "prompt": "是的，当前成就卡片有明确的行数限制，这正是称号属性预览未显示的主要原因。\n\n[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java) 将卡片 Lore 限制为 **6 行总计**，其中最后一行固定保留给状态提示（“可领取”“已领取”等），因此实际内容最多只有 **5 行**。而 [AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java) 的排列顺序是：\n\n```text\n成就描述\n进度/条件\n货币奖励\n称号奖励名称\n称号 tooltip\n称号效果 display\n状态提示\n```\n\n你的单个急迫称号通常已经是第 6 条详细内容，会在放入 Lore 前被截掉。\n\n此外 [GuiStatusItem.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiStatusItem.java) 也再次硬编码按 `6` 行截断，所以只改 `GuiTextService` 不够。\n\n建议仅放宽成就界面，不影响其他菜单：\n\n1. 在 `GuiTextService` 增加带最大行数参数的 `cardLore` 方法，例如允许成就页 10 行。\n2. 在 `GuiStatusItem.create` 增加 `maximumLoreLines` 参数的重载，默认仍保持 6 行。\n3. 在 `AchievementScreenHandler.achievementItem` 调用新重载，传入 `10`。\n4. 其他界面继续用原来的默认 6 行。\n\n效果是：\n\n```text\n成就描述\n完成进度\n奖励：500 金币\n奖励称号：[矿工大师 I]\n佩戴效果：\n✔ 急迫 I（+20% 挖掘速度）\n可领取\n```\n\n不建议直接把全局 `6` 改成很大数，因为称号、商店、签到等所有 GUI 卡片都会一起变长。成就界面最好单独使用 `8` 至 `10` 行；若称号可能配置多个效果，再限制最多显示 3 项，并追加 `还有 N 项效果`，避免 Lore 过长。",
-  "sessionId": "01a04b65-7844-7b20-a670-efa4c6d6d36d",
+  "prompt": "建议把“成就是否完成”和“奖励是否领取”拆成两个独立状态，并在成就卡片上直接可见。\n\n核心状态：\n\n| 完成进度 | 奖励状态 | 卡片表现 |\n|---|---|---|\n| 未完成 | 未领取 | 灰色图标，显示 `进行中 35/100` |\n| 已完成 | 可领取 | 金色/绿色图标，显示 `已完成，点击领取` |\n| 已完成 | 已领取 | 绿色图标或打勾，显示 `已领取` |\n| 不可用/前置未完成 | 未领取 | 深灰锁定图标，显示 `完成前置成就后解锁` |\n\n推荐的界面方案是“总览 + 单卡状态标识”。\n\n在成就菜单顶部增加统计栏：\n\n```text\n成就进度：18 / 60\n可领取奖励：3\n当前分类：工程\n```\n\n每张成就卡片固定使用最后两行展示状态，避免被描述和奖励 Lore 挤掉：\n\n```text\n[工业先驱]\n建造 100 台自动化机器\n进度：72 / 100\n■■■■■■■□□□ 72%\n状态：进行中\n```\n\n完成但未领取：\n\n```text\n[工业先驱]\n建造 100 台自动化机器\n进度：100 / 100\n状态：已完成\n点击领取奖励\n```\n\n已领取：\n\n```text\n[工业先驱] ✓\n建造 100 台自动化机器\n进度：100 / 100\n状态：奖励已领取\n```\n\n实现时，不要仅靠物品名称或 Lore 推断状态。成就卡片渲染时统一计算：\n\n```java\nboolean completed = achievementService.isCompleted(player, achievement);\nboolean claimed = rewardLedger.hasClaimed(player, achievement.id());\n```\n\n随后得到状态枚举：\n\n```java\nenum AchievementDisplayState {\n    LOCKED,\n    IN_PROGRESS,\n    CLAIMABLE,\n    CLAIMED\n}\n```\n\n这个枚举应成为 `AchievementScreenHandler` 的唯一 UI 状态来源，同时决定：\n\n- 图标材质：锁定用 `BARRIER` 或灰色染色玻璃，进行中用普通图标，可领取用 `LIME_DYE`/发光效果，已领取用 `GREEN_DYE` 或勾选图标；\n- 物品名称前缀：`[进行中]`、`[可领取]`、`[已领取]`；\n- 固定状态 Lore；\n- 左键行为：领取、查看详情或提示未完成；\n- 分类页的可领取数量徽标。\n\n再增加两个玩家操作入口：\n\n- `只看可领取`：过滤出 `CLAIMABLE`，解决玩家漏领奖励的问题。\n- `查看已完成`：默认显示全部，但允许只看完成项，便于回顾进度。\n\n优先级上，建议先完成以下最小版本：\n\n1. 增加 `AchievementDisplayState`。\n2. 成就卡片固定显示 `进度 + 状态` 两行。\n3. `CLAIMABLE` 卡片增加附魔光效或亮绿色名称。\n4. 顶部显示“已完成/总数、可领取数”。\n5. 增加“仅看可领取”的筛选按钮。\n\n这套方案不需要改变成就配置或奖励数据结构，只改成就状态计算与 GUI 渲染，却能立刻解决“玩家看不出是否完成”的问题。",
+  "sessionId": "01a056ba-ca90-75d1-b577-2adb3af96e41",
   "backend": "quota",
-  "createdAt": "2026-08-29T08:36:40.494Z",
-  "summary": "已完成成就卡片的专用 Lore 扩展：\n\n- `GuiTextService.cardLore` 新增最大行数重载，默认仍为 6 行。\n- `GuiStatusItem.create` 新增 `maximumLoreLines` 重载，默认仍为 6 行。\n- 成就卡片改用最多 10 行，状态提示仍固定保留在最后。\n- 称号效果预览最多显示 3 项，超出时显示“还有 N 个效果未显示”。\n- 其他菜单未改变，继续使用 6 行限制。\n- 新增 `GuiTextServiceTest` 覆盖默认 6 行和成就 10 行行为。\n\n验证已通过：内容校验成功，受管构建及全部测试成功。",
-  "finalResponse": "已完成成就卡片的专用 Lore 扩展：\n\n- `GuiTextService.cardLore` 新增最大行数重载，默认仍为 6 行。\n- `GuiStatusItem.create` 新增 `maximumLoreLines` 重载，默认仍为 6 行。\n- 成就卡片改用最多 10 行，状态提示仍固定保留在最后。\n- 称号效果预览最多显示 3 项，超出时显示“还有 N 个效果未显示”。\n- 其他菜单未改变，继续使用 6 行限制。\n- 新增 `GuiTextServiceTest` 覆盖默认 6 行和成就 10 行行为。\n\n验证已通过：内容校验成功，受管构建及全部测试成功。",
+  "createdAt": "2026-08-31T07:58:11.533Z",
+  "summary": "已完成成就菜单状态改造：\n\n- 新增 [AchievementDisplayState.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementDisplayState.java:4)，并由服务快照明确提供“已完成/已领取”事实：[AchievementService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:208)。\n- 卡片固定保留“进度 + 状态”两行；可领取项亮绿并带附魔光效，已领取和进行中均有明确前缀与点击反馈：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280)。\n- 顶部显示完成进度、可领取奖励数和当前筛选；增加“查看已完成”与“只看可领取”按钮：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:217)。\n- Lore 支持多个固定尾行，避免状态被奖励说明挤掉：[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:53)。中英文文案已补齐。\n\n当前配置没有前置成就字段，因此 `LOCKED` 状态已预留但不会误锁现有成就。\n\n验证：ModMind 内容校验通过，受管 Gradle 构建成功并产出 JAR；新增状态与 Lore 保留测试。隔离 Minecraft 冒烟测试尝试两次，但受管工具卡在 JDK 下载并于 300 秒超时，未获得运行时启动证据。",
+  "finalResponse": "已完成成就菜单状态改造：\n\n- 新增 [AchievementDisplayState.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementDisplayState.java:4)，并由服务快照明确提供“已完成/已领取”事实：[AchievementService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:208)。\n- 卡片固定保留“进度 + 状态”两行；可领取项亮绿并带附魔光效，已领取和进行中均有明确前缀与点击反馈：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280)。\n- 顶部显示完成进度、可领取奖励数和当前筛选；增加“查看已完成”与“只看可领取”按钮：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:217)。\n- Lore 支持多个固定尾行，避免状态被奖励说明挤掉：[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:53)。中英文文案已补齐。\n\n当前配置没有前置成就字段，因此 `LOCKED` 状态已预留但不会误锁现有成就。\n\n验证：ModMind 内容校验通过，受管 Gradle 构建成功并产出 JAR；新增状态与 Lore 保留测试。隔离 Minecraft 冒烟测试尝试两次，但受管工具卡在 JDK 下载并于 300 秒超时，未获得运行时启动证据。",
   "intent": "engineering",
   "tasks": [
-    "核对 GUI 行数限制和调用链",
-    "增加成就专用 Lore 行数和效果摘要限制",
-    "执行内容校验与受管构建"
+    "梳理现有成就、奖励与成就菜单实现",
+    "实现统一显示状态、卡片渲染与点击行为",
+    "增加顶部统计和可领取筛选",
+    "内容与构建已验证；运行时测试受受管 JDK 下载超时限制"
   ],
   "files": [
     {
@@ -17,7 +18,7 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/GuiStatusItem.java",
+      "path": "src/main/java/dev/modmind/omnitools/AchievementService.java",
       "purpose": "外部代理修改"
     },
     {
@@ -33,7 +34,15 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/GuiTextServiceTest.java",
+      "path": "src/test/java/dev/modmind/omnitools/GuiLayoutTest.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/AchievementDisplayState.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/test/java/dev/modmind/omnitools/AchievementDisplayStateTest.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -41,7 +50,7 @@
     "已使用 ModMind 托管构建"
   ],
   "warnings": [],
-  "snapshotId": "2026-08-29T08-28-52-794Z",
+  "snapshotId": "2026-08-31T07-31-12-184Z",
   "buildVerified": true,
   "runtimeVerified": false,
   "workflow": {
@@ -51,18 +60,22 @@
       "build"
     ],
     "completed": [
+      "project_info",
+      "intent",
       "plan",
+      "implementation",
       "validate",
       "build",
-      "implementation",
       "todo_complete"
     ],
     "missing": [],
     "evidence": {
+      "project_info": "modmind_project_info returned active project metadata",
+      "intent": "modmind_set_intent recorded task intent",
       "plan": "modmind_update_todo published the ordered plan",
+      "implementation": "Applied 2 project edit(s)",
       "validate": "modmind_validate_content completed successfully",
       "build": "modmind_build_project completed successfully",
-      "implementation": "Detected 6 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

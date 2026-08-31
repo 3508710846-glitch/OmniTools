@@ -46,6 +46,8 @@ public final class AchievementScreenHandler extends ChestMenu {
     public static final int HEADER_PROFILE_SLOT = GuiSlots.HEADER_LEFT_54;
     public static final int HEADER_TITLE_SLOT = GuiSlots.HEADER_CENTER_54;
     public static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
+    public static final int COMPLETED_FILTER_SLOT = GuiSlots.FIRST_ACTION_SLOT_54 + 1;
+    public static final int CLAIMABLE_FILTER_SLOT = GuiSlots.FIRST_ACTION_SLOT_54 + 2;
     private static final int MAX_NAMED_TARGETS = 4;
     private static final int MAX_VISIBLE_EACH_TARGETS = 2;
     private static final int MAX_CONDITION_LORE_LINES = 4;
@@ -55,6 +57,7 @@ public final class AchievementScreenHandler extends ChestMenu {
     private final UUID ownerId;
     private final ServerPlayer owner;
     private final AchievementService service;
+    private AchievementFilter filter = AchievementFilter.ALL;
     private int page;
     private long lastRefreshTick = Long.MIN_VALUE;
     private int lastConfigRevision = Integer.MIN_VALUE;
@@ -104,9 +107,25 @@ public final class AchievementScreenHandler extends ChestMenu {
         }
 
         List<AchievementConfig.AchievementDefinition> achievements = service.config().achievements();
-        int pageCount = pageCount(achievements.size());
+        AchievementService.MenuSnapshot menuSnapshot = service.menuSnapshot(serverPlayer);
+        List<AchievementConfig.AchievementDefinition> visibleAchievements = filteredAchievements(menuSnapshot, achievements);
+        int pageCount = pageCount(visibleAchievements.size());
         if (slotId == CLOSE_SLOT) {
             serverPlayer.closeContainer();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
+        if (slotId == COMPLETED_FILTER_SLOT) {
+            filter = filter == AchievementFilter.COMPLETED ? AchievementFilter.ALL : AchievementFilter.COMPLETED;
+            page = 0;
+            refreshContents();
+            GuiFeedbackService.click(serverPlayer);
+            return;
+        }
+        if (slotId == CLAIMABLE_FILTER_SLOT) {
+            filter = filter == AchievementFilter.CLAIMABLE ? AchievementFilter.ALL : AchievementFilter.CLAIMABLE;
+            page = 0;
+            refreshContents();
             GuiFeedbackService.click(serverPlayer);
             return;
         }
@@ -128,10 +147,15 @@ public final class AchievementScreenHandler extends ChestMenu {
         }
 
         int achievementIndex = page * ACHIEVEMENT_SLOTS + localIndex;
-        if (achievementIndex >= achievements.size()) {
+        if (achievementIndex >= visibleAchievements.size()) {
             return;
         }
-        AchievementConfig.AchievementDefinition achievement = achievements.get(achievementIndex);
+        AchievementConfig.AchievementDefinition achievement = visibleAchievements.get(achievementIndex);
+        AchievementDisplayState displayState = displayState(menuSnapshot.evaluation(achievement.id()));
+        if (!displayState.isClaimable()) {
+            showNonClaimableFeedback(serverPlayer, displayState);
+            return;
+        }
         AchievementService.ClaimResult result = service.claim(serverPlayer, achievement.id());
         switch (result.status()) {
             case CLAIMED -> {
@@ -194,7 +218,10 @@ public final class AchievementScreenHandler extends ChestMenu {
         AchievementService.MenuSnapshot menuSnapshot = service.menuSnapshot(owner);
         AchievementConfig config = service.config();
         List<AchievementConfig.AchievementDefinition> achievements = config.achievements();
-        int pageCount = pageCount(achievements.size());
+        List<AchievementConfig.AchievementDefinition> visibleAchievements = filteredAchievements(menuSnapshot, achievements);
+        int completedCount = completedCount(menuSnapshot, achievements);
+        int claimableCount = claimableCount(menuSnapshot, achievements);
+        int pageCount = pageCount(visibleAchievements.size());
         page = Math.max(0, Math.min(page, pageCount - 1));
 
         GuiTheme.clear(achievementContainer);
@@ -204,18 +231,36 @@ public final class AchievementScreenHandler extends ChestMenu {
                     ServerText.translatable("gui.omnitools.achievement.empty_title").withStyle(ChatFormatting.GRAY),
                     List.of(ServerText.translatable("gui.omnitools.achievement.empty_hint")
                             .withStyle(ChatFormatting.DARK_GRAY))));
+        } else if (visibleAchievements.isEmpty()) {
+            achievementContainer.setItem(22, GuiTheme.named(Items.HOPPER,
+                    ServerText.translatable("gui.omnitools.achievement.filter_empty_title")
+                            .withStyle(ChatFormatting.GRAY),
+                    List.of(ServerText.translatable("gui.omnitools.achievement.filter_empty_hint")
+                            .withStyle(ChatFormatting.DARK_GRAY))));
         }
 
-        achievementContainer.setItem(HEADER_PROFILE_SLOT, profileItem(achievements.size()));
+        achievementContainer.setItem(HEADER_PROFILE_SLOT, profileItem(completedCount, achievements.size(),
+                service.claimedCount(owner)));
         achievementContainer.setItem(HEADER_TITLE_SLOT, GuiTheme.status(Items.NETHER_STAR,
                 ServerText.translatable("gui.omnitools.achievement.title"), ChatFormatting.AQUA,
-                List.of(ServerText.translatable("gui.omnitools.achievement.total", achievements.size())
-                        .withStyle(ChatFormatting.GRAY)), false));
+                List.of(
+                        ServerText.translatable("gui.omnitools.achievement.overview", completedCount,
+                                achievements.size()).withStyle(ChatFormatting.AQUA),
+                        ServerText.translatable("gui.omnitools.achievement.claimable_count", claimableCount)
+                                .withStyle(ChatFormatting.GREEN),
+                        ServerText.translatable("gui.omnitools.achievement.filter_current",
+                                ServerText.translatable(filter.translationKey())).withStyle(ChatFormatting.GRAY)
+                ), false));
         achievementContainer.setItem(CLOSE_SLOT, GuiNavigationService.close());
+        achievementContainer.setItem(COMPLETED_FILTER_SLOT, filterButton(Items.BOOK, AchievementFilter.COMPLETED,
+                "gui.omnitools.achievement.filter_completed", "gui.omnitools.achievement.filter_completed_hint"));
+        achievementContainer.setItem(CLAIMABLE_FILTER_SLOT, filterButton(Items.LIME_DYE, AchievementFilter.CLAIMABLE,
+                "gui.omnitools.achievement.filter_claimable", "gui.omnitools.achievement.filter_claimable_hint"));
 
         int firstAchievement = page * ACHIEVEMENT_SLOTS;
-        for (int index = 0; index < ACHIEVEMENT_SLOTS && firstAchievement + index < achievements.size(); index++) {
-            AchievementConfig.AchievementDefinition achievement = achievements.get(firstAchievement + index);
+        for (int index = 0; index < ACHIEVEMENT_SLOTS && firstAchievement + index < visibleAchievements.size();
+             index++) {
+            AchievementConfig.AchievementDefinition achievement = visibleAchievements.get(firstAchievement + index);
             AchievementService.Evaluation evaluation = menuSnapshot.evaluation(achievement.id());
             achievementContainer.setItem(GuiSlots.contentSlot54(index), achievementItem(achievement, evaluation));
         }
@@ -223,7 +268,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         if (page > 0) {
             achievementContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
         }
-        achievementContainer.setItem(PROFILE_SLOT, GuiNavigationService.page(page + 1, pageCount, achievements.size()));
+        achievementContainer.setItem(PROFILE_SLOT, GuiNavigationService.page(page + 1, pageCount,
+                visibleAchievements.size()));
         if (page + 1 < pageCount) {
             achievementContainer.setItem(NEXT_PAGE_SLOT, GuiNavigationService.next());
         }
@@ -233,9 +279,9 @@ public final class AchievementScreenHandler extends ChestMenu {
 
     private ItemStack achievementItem(AchievementConfig.AchievementDefinition achievement,
                                       AchievementService.Evaluation evaluation) {
+        AchievementDisplayState displayState = displayState(evaluation);
         ConditionProgress progress = evaluation.progress();
-        AchievementService.State state = evaluation.state();
-        GuiStatusItem.State visualState = visualState(state, progress);
+        GuiStatusItem.State visualState = visualState(displayState);
         ChatFormatting color = visualState.color();
         List<Component> lore = new ArrayList<>();
         lore.add(TextTemplateRenderer.render(owner, achievement.description()).copy().withStyle(ChatFormatting.GRAY));
@@ -244,42 +290,97 @@ public final class AchievementScreenHandler extends ChestMenu {
         lore.addAll(conditionLore.stream().limit(MAX_CONDITION_LORE_LINES).toList());
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
-        return GuiStatusItem.create(new ItemStack(achievement.icon()),
-                TextTemplateRenderer.render(owner, achievement.display()), visualState,
-                GuiTextService.cardLore(lore, ServerText.translatable(stateTranslationKey(state)).withStyle(color),
+        return GuiStatusItem.create(displayIcon(achievement, displayState), achievementName(achievement, displayState),
+                visualState, GuiTextService.cardLore(lore, statusLines(displayState, progress, color),
                         MAX_ACHIEVEMENT_LORE_LINES), MAX_ACHIEVEMENT_LORE_LINES);
     }
 
-    private ItemStack profileItem(int totalAchievements) {
+    private ItemStack profileItem(int completedCount, int totalAchievements, int claimedCount) {
         ItemStack profile = new ItemStack(Items.PLAYER_HEAD);
         profile.set(DataComponents.PROFILE, ResolvableProfile.createResolved(owner.getGameProfile()));
         profile.set(DataComponents.CUSTOM_NAME, ServerText.translatable("gui.omnitools.achievement.profile")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
         profile.set(DataComponents.LORE, new ItemLore(List.of(
-                ServerText.translatable("gui.omnitools.achievement.completed", service.unlockedCount(owner))
+                ServerText.translatable("gui.omnitools.achievement.overview", completedCount, totalAchievements)
                         .withStyle(ChatFormatting.AQUA),
-                ServerText.translatable("gui.omnitools.achievement.claimed", service.claimedCount(owner))
+                ServerText.translatable("gui.omnitools.achievement.claimed", claimedCount)
                         .withStyle(ChatFormatting.GREEN),
                 ServerText.translatable("gui.omnitools.achievement.total", totalAchievements)
                         .withStyle(ChatFormatting.DARK_GRAY))));
         return profile;
     }
 
-    private GuiStatusItem.State visualState(AchievementService.State state, ConditionProgress progress) {
-        return switch (state) {
+    private static AchievementDisplayState displayState(AchievementService.Evaluation evaluation) {
+        // The current schema has no prerequisite field; do not infer a lock from display text or Lore.
+        return AchievementDisplayState.resolve(false, evaluation.completed(), evaluation.claimed());
+    }
+
+    private static GuiStatusItem.State visualState(AchievementDisplayState displayState) {
+        return switch (displayState) {
+            case LOCKED -> GuiStatusItem.State.BLOCKED;
+            case IN_PROGRESS -> GuiStatusItem.State.IN_PROGRESS;
             case CLAIMABLE -> GuiStatusItem.State.ACTIONABLE;
             case CLAIMED -> GuiStatusItem.State.COMPLETED;
-            case PENDING -> GuiStatusItem.State.PENDING;
-            case IN_PROGRESS -> hasProgress(progress) ? GuiStatusItem.State.IN_PROGRESS
-                    : GuiStatusItem.State.INACTIVE;
         };
     }
 
-    private static boolean hasProgress(ConditionProgress progress) {
-        if (progress.current() > 0L) {
-            return true;
-        }
-        return progress.children().stream().anyMatch(AchievementScreenHandler::hasProgress);
+    private ItemStack displayIcon(AchievementConfig.AchievementDefinition achievement,
+                                  AchievementDisplayState displayState) {
+        return displayState == AchievementDisplayState.LOCKED
+                ? new ItemStack(Items.BARRIER) : new ItemStack(achievement.icon());
+    }
+
+    private Component achievementName(AchievementConfig.AchievementDefinition achievement,
+                                      AchievementDisplayState displayState) {
+        return ServerText.translatable(stateNameTranslationKey(displayState)).append(Component.literal(" "))
+                .append(TextTemplateRenderer.render(owner, achievement.display()));
+    }
+
+    private static List<Component> statusLines(AchievementDisplayState displayState, ConditionProgress progress,
+                                               ChatFormatting color) {
+        return List.of(
+                ServerText.translatable("gui.omnitools.achievement.progress", progress.current(), progress.target())
+                        .withStyle(color),
+                ServerText.translatable(stateStatusTranslationKey(displayState)).withStyle(color)
+        );
+    }
+
+    private void showNonClaimableFeedback(ServerPlayer player, AchievementDisplayState displayState) {
+        GuiFeedbackService.failure(player);
+        String messageKey = switch (displayState) {
+            case LOCKED -> "message.omnitools.achievement.locked";
+            case IN_PROGRESS -> "message.omnitools.achievement.not_completed";
+            case CLAIMED -> "message.omnitools.achievement.already_claimed";
+            case CLAIMABLE -> throw new IllegalArgumentException("Claimable achievements must be claimed directly");
+        };
+        player.displayClientMessage(ServerText.translatable(messageKey), true);
+    }
+
+    private List<AchievementConfig.AchievementDefinition> filteredAchievements(
+            AchievementService.MenuSnapshot menuSnapshot,
+            List<AchievementConfig.AchievementDefinition> achievements) {
+        return achievements.stream().filter(achievement -> filter.includes(
+                displayState(menuSnapshot.evaluation(achievement.id())))).toList();
+    }
+
+    private static int completedCount(AchievementService.MenuSnapshot menuSnapshot,
+                                      List<AchievementConfig.AchievementDefinition> achievements) {
+        return (int) achievements.stream().filter(achievement -> displayState(menuSnapshot.evaluation(achievement.id()))
+                .isCompleted()).count();
+    }
+
+    private static int claimableCount(AchievementService.MenuSnapshot menuSnapshot,
+                                      List<AchievementConfig.AchievementDefinition> achievements) {
+        return (int) achievements.stream().filter(achievement -> displayState(menuSnapshot.evaluation(achievement.id()))
+                .isClaimable()).count();
+    }
+
+    private ItemStack filterButton(Item item, AchievementFilter target, String titleKey, String inactiveHintKey) {
+        boolean active = filter == target;
+        return GuiStatusItem.create(new ItemStack(item), ServerText.translatable(titleKey),
+                active ? GuiStatusItem.State.ACTIONABLE : GuiStatusItem.State.INACTIVE,
+                List.of(ServerText.translatable(active ? "gui.omnitools.achievement.filter_show_all_hint"
+                        : inactiveHintKey).withStyle(ChatFormatting.GRAY)));
     }
 
     private void appendConditionLore(AchievementCondition condition, ConditionProgress progress,
@@ -546,13 +647,46 @@ public final class AchievementScreenHandler extends ChestMenu {
         };
     }
 
-    private static String stateTranslationKey(AchievementService.State state) {
-        return switch (state) {
-            case IN_PROGRESS -> "gui.omnitools.achievement.in_progress";
-            case CLAIMABLE -> "gui.omnitools.achievement.available";
-            case PENDING -> "gui.omnitools.achievement.pending";
-            case CLAIMED -> "gui.omnitools.achievement.claimed_status";
+    private static String stateNameTranslationKey(AchievementDisplayState displayState) {
+        return switch (displayState) {
+            case LOCKED -> "gui.omnitools.achievement.state.locked";
+            case IN_PROGRESS -> "gui.omnitools.achievement.state.in_progress";
+            case CLAIMABLE -> "gui.omnitools.achievement.state.claimable";
+            case CLAIMED -> "gui.omnitools.achievement.state.claimed";
         };
+    }
+
+    private static String stateStatusTranslationKey(AchievementDisplayState displayState) {
+        return switch (displayState) {
+            case LOCKED -> "gui.omnitools.achievement.status.locked";
+            case IN_PROGRESS -> "gui.omnitools.achievement.status.in_progress";
+            case CLAIMABLE -> "gui.omnitools.achievement.status.claimable";
+            case CLAIMED -> "gui.omnitools.achievement.status.claimed";
+        };
+    }
+
+    private enum AchievementFilter {
+        ALL("gui.omnitools.achievement.filter_all"),
+        COMPLETED("gui.omnitools.achievement.filter_completed"),
+        CLAIMABLE("gui.omnitools.achievement.filter_claimable");
+
+        private final String translationKey;
+
+        AchievementFilter(String translationKey) {
+            this.translationKey = translationKey;
+        }
+
+        public boolean includes(AchievementDisplayState displayState) {
+            return switch (this) {
+                case ALL -> true;
+                case COMPLETED -> displayState.isCompleted();
+                case CLAIMABLE -> displayState.isClaimable();
+            };
+        }
+
+        public String translationKey() {
+            return translationKey;
+        }
     }
 
     private static int pageCount(int achievementCount) {

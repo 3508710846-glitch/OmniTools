@@ -208,19 +208,36 @@ public final class AchievementService {
     public Evaluation evaluation(ServerPlayer player, AchievementConfig.AchievementDefinition achievement,
                                  ConditionProgress progress) {
         AchievementData data = AchievementData.get(player);
-        State state;
-        if (data.isClaimed(player.getUUID(), achievement.id())) {
-            state = State.CLAIMED;
-        } else if (RewardClaimLedger.get(player).hasEvent(RewardEvent.achievement(player.getUUID(), achievement.id()))
-                && !RewardClaimLedger.get(player).allGranted(RewardEvent.achievement(player.getUUID(), achievement.id()),
-                achievement.rewards())) {
-            state = State.PENDING;
-        } else if (data.isUnlocked(player.getUUID(), achievement.id()) || progress.completed()) {
-            state = State.CLAIMABLE;
-        } else {
-            state = State.IN_PROGRESS;
+        boolean claimed = data.isClaimed(player.getUUID(), achievement.id());
+        boolean completed = data.isUnlocked(player.getUUID(), achievement.id()) || progress.completed();
+        boolean pending = hasPendingRewards(player, achievement);
+        return new Evaluation(rewardState(claimed, pending, completed), progress, completed, claimed);
+    }
+
+    /** Completion is durable once it has been recorded, even if a statistic later changes. */
+    public boolean isCompleted(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {
+        return AchievementData.get(player).isUnlocked(player.getUUID(), achievement.id())
+                || achievement.complete(new StatisticEvaluationContext(player));
+    }
+
+    public boolean hasClaimed(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {
+        return AchievementData.get(player).isClaimed(player.getUUID(), achievement.id());
+    }
+
+    private boolean hasPendingRewards(ServerPlayer player, AchievementConfig.AchievementDefinition achievement) {
+        RewardEvent event = RewardEvent.achievement(player.getUUID(), achievement.id());
+        RewardClaimLedger ledger = RewardClaimLedger.get(player);
+        return ledger.hasEvent(event) && !ledger.allGranted(event, achievement.rewards());
+    }
+
+    private static State rewardState(boolean claimed, boolean pending, boolean completed) {
+        if (claimed) {
+            return State.CLAIMED;
         }
-        return new Evaluation(state, progress);
+        if (pending) {
+            return State.PENDING;
+        }
+        return completed ? State.CLAIMABLE : State.IN_PROGRESS;
     }
 
     private int checkInternal(ServerPlayer player, boolean announce) {
@@ -254,12 +271,11 @@ public final class AchievementService {
                 }
             }
             if (evaluations != null) {
-                RewardEvent event = RewardEvent.achievement(playerId, achievement.id());
-                boolean pending = RewardClaimLedger.get(player).hasEvent(event)
-                        && !RewardClaimLedger.get(player).allGranted(event, achievement.rewards());
-                State state = data.isClaimed(playerId, achievement.id()) ? State.CLAIMED
-                        : (pending ? State.PENDING : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS));
-                evaluations.put(achievement.id(), new Evaluation(state, progress));
+                boolean claimed = data.isClaimed(playerId, achievement.id());
+                boolean completed = unlocked || progress.completed();
+                boolean pending = hasPendingRewards(player, achievement);
+                evaluations.put(achievement.id(), new Evaluation(rewardState(claimed, pending, completed), progress,
+                        completed, claimed));
             }
         }
         if (evaluations != null) {
@@ -289,12 +305,11 @@ public final class AchievementService {
             return;
         }
         Map<String, Evaluation> updated = new LinkedHashMap<>(cached.evaluations());
-        RewardEvent event = RewardEvent.achievement(player.getUUID(), achievement.id());
-        boolean pending = RewardClaimLedger.get(player).hasEvent(event)
-                && !RewardClaimLedger.get(player).allGranted(event, achievement.rewards());
-        State state = AchievementData.get(player).isClaimed(player.getUUID(), achievement.id()) ? State.CLAIMED
-                : (pending ? State.PENDING : (unlocked || progress.completed() ? State.CLAIMABLE : State.IN_PROGRESS));
-        updated.put(achievement.id(), new Evaluation(state, progress));
+        boolean claimed = hasClaimed(player, achievement);
+        boolean completed = unlocked || progress.completed();
+        boolean pending = hasPendingRewards(player, achievement);
+        updated.put(achievement.id(), new Evaluation(rewardState(claimed, pending, completed), progress,
+                completed, claimed));
         openMenuSnapshots.put(player.getUUID(), new MenuSnapshot(Map.copyOf(updated), cached.revision()));
     }
 
@@ -393,7 +408,7 @@ public final class AchievementService {
             return;
         }
         Map<String, Evaluation> updated = new LinkedHashMap<>(cached.evaluations());
-        updated.put(achievementId, new Evaluation(State.CLAIMED, previous.progress()));
+        updated.put(achievementId, new Evaluation(State.CLAIMED, previous.progress(), true, true));
         openMenuSnapshots.put(playerId, new MenuSnapshot(Map.copyOf(updated), cached.revision()));
     }
 
@@ -457,7 +472,7 @@ public final class AchievementService {
     public record ClaimResult(ClaimStatus status, long balance, int grantedRewards, String reason) {
     }
 
-    public record Evaluation(State state, ConditionProgress progress) {
+    public record Evaluation(State state, ConditionProgress progress, boolean completed, boolean claimed) {
     }
 
     public record MenuSnapshot(Map<String, Evaluation> evaluations, int revision) {

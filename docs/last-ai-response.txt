@@ -1,10 +1,10 @@
-已完成成就卡片的专用 Lore 扩展：
+已完成成就菜单状态改造：
 
-- `GuiTextService.cardLore` 新增最大行数重载，默认仍为 6 行。
-- `GuiStatusItem.create` 新增 `maximumLoreLines` 重载，默认仍为 6 行。
-- 成就卡片改用最多 10 行，状态提示仍固定保留在最后。
-- 称号效果预览最多显示 3 项，超出时显示“还有 N 个效果未显示”。
-- 其他菜单未改变，继续使用 6 行限制。
-- 新增 `GuiTextServiceTest` 覆盖默认 6 行和成就 10 行行为。
+- 新增 [AchievementDisplayState.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementDisplayState.java:4)，并由服务快照明确提供“已完成/已领取”事实：[AchievementService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementService.java:208)。
+- 卡片固定保留“进度 + 状态”两行；可领取项亮绿并带附魔光效，已领取和进行中均有明确前缀与点击反馈：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:280)。
+- 顶部显示完成进度、可领取奖励数和当前筛选；增加“查看已完成”与“只看可领取”按钮：[AchievementScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/AchievementScreenHandler.java:217)。
+- Lore 支持多个固定尾行，避免状态被奖励说明挤掉：[GuiTextService.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/GuiTextService.java:53)。中英文文案已补齐。
 
-验证已通过：内容校验成功，受管构建及全部测试成功。
+当前配置没有前置成就字段，因此 `LOCKED` 状态已预留但不会误锁现有成就。
+
+验证：ModMind 内容校验通过，受管 Gradle 构建成功并产出 JAR；新增状态与 Lore 保留测试。隔离 Minecraft 冒烟测试尝试两次，但受管工具卡在 JDK 下载并于 300 秒超时，未获得运行时启动证据。
