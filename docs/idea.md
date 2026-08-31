@@ -3365,3 +3365,15 @@ enum AchievementDisplayState {
 ## Development request 2026/8/31 16:08:51
 
 把最近一次添加的成就固定尾行去掉，和之前的功能重复了
+
+---
+
+## Development request 2026/8/31 19:44:09
+
+关于礼包模块：
+
+---
+
+## Development request 2026/8/31 19:46:45
+
+关于礼包模块：1.礼包GUI名称显示错误 2.开启礼包时，位于GUI第一位的礼包在开启后会显示“投递中”不消失，直到重新打开GUI。3.礼包上会显示来源和礼包的id，省略这些信息

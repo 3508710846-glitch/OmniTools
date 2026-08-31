@@ -68,7 +68,7 @@ public final class PackageScreenHandler extends ChestMenu {
     static void open(ServerPlayer player, int page) {
         player.openMenu(new SimpleMenuProvider(
                 (syncId, inventory, ignored) -> createServer(syncId, inventory, player, page),
-                Component.literal("礼包")));
+                ServerText.translatable("gui.omnitools.packages.title")));
     }
 
     @Override
@@ -127,13 +127,14 @@ public final class PackageScreenHandler extends ChestMenu {
             owner.closeContainer();
             return;
         }
+        if (owner != null && !pendingEntries().equals(entries)) {
+            refreshContents();
+        }
         super.broadcastChanges();
     }
 
     private void refreshContents() {
-        entries = PackageData.get(owner.level().getServer()).list(ownerId).stream()
-                .filter(instance -> instance.status() != PackageInstance.Status.OPENED)
-                .toList();
+        entries = pendingEntries();
         pageCount = Math.max(1, (entries.size() + CONTENT_SLOTS - 1) / CONTENT_SLOTS);
         page = Math.max(0, Math.min(page, pageCount - 1));
         GuiTheme.clear(container);
@@ -160,6 +161,12 @@ public final class PackageScreenHandler extends ChestMenu {
         }
     }
 
+    private List<PackageInstance> pendingEntries() {
+        return PackageData.get(owner.level().getServer()).list(ownerId).stream()
+                .filter(instance -> instance.status() != PackageInstance.Status.OPENED)
+                .toList();
+    }
+
     private ItemStack displayInstance(PackageInstance instance) {
         Identifier id = Identifier.tryParse(instance.iconId());
         ItemStack icon = new ItemStack(id == null ? Items.CHEST
@@ -170,9 +177,6 @@ public final class PackageScreenHandler extends ChestMenu {
         }
         lore.add(Component.literal(instance.mode() == dev.modmind.omnitools.packages.PackageDefinition.Mode.ALL
                 ? "模式：全部获得" : "模式：随机一种").withStyle(ChatFormatting.AQUA));
-        if (!instance.sourceEvent().isBlank()) {
-            lore.add(Component.literal("来源：" + instance.sourceEvent()).withStyle(ChatFormatting.DARK_GRAY));
-        }
         lore.add(Component.literal("状态：" + statusLabel(instance.status())).withStyle(statusColor(instance.status())));
         return GuiStatusItem.create(icon, TextTemplateRenderer.render(owner, instance.displayName()),
                 statusStyle(instance.status()), GuiTextService.cardLore(lore,

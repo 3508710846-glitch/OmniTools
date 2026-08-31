@@ -194,6 +194,7 @@
   "command.omnitools.reload.unknown_module": "Unknown OmniTools module: %s",
   "message.omnitools.module_disabled": "This feature module is currently disabled.",
   "gui.omnitools.title.menu_title": "My Titles",
+  "gui.omnitools.packages.title": "My Packages",
   "gui.omnitools.title.empty_title": "No titles unlocked",
   "gui.omnitools.title.empty_hint": "Ask an administrator to grant you a title",
   "gui.omnitools.title.rarity.common": "Common - chat prefix only",

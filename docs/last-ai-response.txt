@@ -1,5 +1,7 @@
-已去掉新增的“进度 + 状态”双固定尾行，成就卡片恢复为原有的单行状态尾注；条件进度仍由原有条件 Lore 展示。筛选、顶部统计、状态前缀和可领取光效均保留。
+礼包模块已修复：
 
-同时清理了仅为双尾行新增的 Lore 重载、测试和中英文文案。
+- 修复缺失的 `gui.omnitools.packages.title` 翻译，列表 GUI 标题现在显示“我的礼包”：[PackageScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java:68)。
+- 开启后持续检查实例状态；投递完成变为 `OPENED` 时，礼包会自动从当前列表移除，无需关闭重开：[PackageScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageScreenHandler.java:124)。
+- 移除卡片 Lore 中的来源信息；礼包 ID 本身未在玩家礼包卡片中单独渲染。
 
-验证通过：ModMind 内容校验与受管完整构建成功，JAR 已更新。
+已通过 ModMind 内容校验和受管完整构建。
