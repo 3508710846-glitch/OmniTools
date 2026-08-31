@@ -173,6 +173,8 @@ public final class TitleEffectService {
                 }
                 applied.permissions.add(permission);
             }
+            // Skill XP is evaluated only when a skill XP event is granted.
+            case SKILL_XP -> { }
         }
     }
 

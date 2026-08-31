@@ -13,6 +13,8 @@ import dev.modmind.omnitools.reward.RewardDefinition;
 import dev.modmind.omnitools.reward.RewardType;
 import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
+import dev.modmind.omnitools.packages.PackageDefinition;
+import dev.modmind.omnitools.packages.PackageSkillXp;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import dev.modmind.omnitools.achievement.AchievementCondition;
 import dev.modmind.omnitools.achievement.AllCondition;
@@ -45,6 +47,7 @@ public final class ConfigValidator {
             throw new IllegalArgumentException("packages definitions require the packages module to be enabled");
         }
         validateShop(snapshot);
+        validatePackageSkillXp(snapshot);
         validateSidebar(snapshot);
         validateLeaderboards(snapshot);
         validateCommandMenus(snapshot);
@@ -120,6 +123,23 @@ public final class ConfigValidator {
             }
             if (snapshot.packages().definition(product.packageId()).isEmpty()) {
                 throw new IllegalArgumentException("shop product references unknown package " + product.packageId());
+            }
+        }
+    }
+
+    private static void validatePackageSkillXp(OmniToolsConfigSnapshot snapshot) {
+        for (PackageDefinition definition : snapshot.packages().packages()) {
+            for (PackageSkillXp reward : definition.skillXp()) {
+                if (!snapshot.enabled(ModuleId.SKILLS)) {
+                    throw new IllegalArgumentException("package " + definition.id()
+                            + " contains skill_xp but skills is disabled");
+                }
+                for (String treeId : reward.treeIds()) {
+                    if (snapshot.skills().tree(treeId).isEmpty()) {
+                        throw new IllegalArgumentException("package " + definition.id()
+                                + " references unknown skill tree " + treeId);
+                    }
+                }
             }
         }
     }
@@ -221,6 +241,14 @@ public final class ConfigValidator {
             }
             if (reward.packageId().isBlank() || snapshot.packages().definition(reward.packageId()).isEmpty()) {
                 throw new IllegalArgumentException(context + " references unknown package " + reward.packageId());
+            }
+        }
+        if (reward.type() == RewardType.SKILL_XP) {
+            if (!snapshot.enabled(ModuleId.SKILLS)) {
+                throw new IllegalArgumentException(context + " contains skill_xp but skills is disabled");
+            }
+            if (reward.skillTreeId().isBlank() || snapshot.skills().tree(reward.skillTreeId()).isEmpty()) {
+                throw new IllegalArgumentException(context + " references unknown skill tree " + reward.skillTreeId());
             }
         }
     }

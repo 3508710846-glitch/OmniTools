@@ -329,11 +329,12 @@ public final class PackageData extends SavedData {
             }
             quantities.add(value.longValue());
         }
+        List<PackageSkillXpGrant> skillXpGrants = decodeSkillXpGrants(tag.getListOrEmpty("skill_xp"));
         return new PackageInstance(id, owner, tag.getStringOr("package_id", ""),
                 tag.getIntOr("package_version", 1), tag.getStringOr("display", ""),
                 decodeDescription(tag.getListOrEmpty("description")),
                 tag.getStringOr("icon", ""), PackageDefinition.Mode.parse(tag.getStringOr("mode", "all")),
-                items, quantities, tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
+                items, quantities, skillXpGrants, tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
                 parseStatus(tag.getStringOr("status", "PENDING")), tag.getLongOr("granted_at", 0L),
                 tag.getIntOr("selected", -1));
     }
@@ -405,6 +406,28 @@ public final class PackageData extends SavedData {
             description.add(line.value());
         }
         return List.copyOf(description);
+    }
+
+    private static List<PackageSkillXpGrant> decodeSkillXpGrants(ListTag list) {
+        List<PackageSkillXpGrant> grants = new ArrayList<>();
+        for (int index = 0; index < list.size(); index++) {
+            if (!(list.get(index) instanceof CompoundTag tag)) {
+                throw new IllegalArgumentException("package skill XP snapshot is not a compound");
+            }
+            PackageSkillXp.Mode mode = PackageSkillXp.Mode.parse(tag.getStringOr("mode", "fixed"));
+            List<PackageSkillXpGrant.TreeOption> options = new ArrayList<>();
+            ListTag optionTags = tag.getListOrEmpty("options");
+            for (int optionIndex = 0; optionIndex < optionTags.size(); optionIndex++) {
+                if (!(optionTags.get(optionIndex) instanceof CompoundTag option)) {
+                    throw new IllegalArgumentException("package skill XP option is not a compound");
+                }
+                options.add(new PackageSkillXpGrant.TreeOption(option.getStringOr("tree", ""),
+                        option.getStringOr("display", ""), option.getStringOr("icon", "")));
+            }
+            grants.add(new PackageSkillXpGrant(tag.getStringOr("id", ""), tag.getLongOr("amount", 0L), mode,
+                    options, tag.getStringOr("resolved_tree", "")));
+        }
+        return List.copyOf(grants);
     }
 
     private static ItemStack decodeItem(CompoundTag tag, HolderLookup.Provider registries) {
@@ -545,6 +568,7 @@ public final class PackageData extends SavedData {
                     quantities.add(LongTag.valueOf(quantity));
                 }
                 tag.put("quantities", quantities);
+                tag.put("skill_xp", encodeSkillXpGrants(instance.skillXpGrants()));
                 values.put(entry.getKey().toString(), tag);
             }
             owners.put(ownerEntry.getKey().toString(), values);
@@ -605,6 +629,30 @@ public final class PackageData extends SavedData {
         }
         tag.put("stacks", stacks);
         return tag;
+    }
+
+    private static ListTag encodeSkillXpGrants(List<PackageSkillXpGrant> grants) {
+        ListTag entries = new ListTag();
+        for (PackageSkillXpGrant grant : grants) {
+            CompoundTag tag = new CompoundTag();
+            tag.putString("id", grant.id());
+            tag.putLong("amount", grant.amount());
+            tag.putString("mode", grant.mode().serializedName());
+            if (!grant.resolvedTreeId().isBlank()) {
+                tag.putString("resolved_tree", grant.resolvedTreeId());
+            }
+            ListTag options = new ListTag();
+            for (PackageSkillXpGrant.TreeOption option : grant.options()) {
+                CompoundTag optionTag = new CompoundTag();
+                optionTag.putString("tree", option.treeId());
+                optionTag.putString("display", option.display());
+                optionTag.putString("icon", option.iconId());
+                options.add(optionTag);
+            }
+            tag.put("options", options);
+            entries.add(tag);
+        }
+        return entries;
     }
 
     private static CompoundTag encodeItem(ItemStack stack, HolderLookup.Provider registries) {

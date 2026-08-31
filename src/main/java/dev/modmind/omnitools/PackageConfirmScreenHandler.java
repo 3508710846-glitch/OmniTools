@@ -83,6 +83,11 @@ public final class PackageConfirmScreenHandler extends ChestMenu {
             return;
         }
         PackageService.OpenResult result = ModMindEntry.packageService().open(serverPlayer, instanceId);
+        if (result.result() == PackageService.Result.SELECTION_REQUIRED) {
+            PackageSkillXpSelectionScreenHandler.open(serverPlayer, instanceId, listPage, previewPage);
+            serverPlayer.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.7f, 1.0f);
+            return;
+        }
         if (result.result() == PackageService.Result.OPENED) {
             serverPlayer.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.0f);
         } else if (result.result() == PackageService.Result.WAITING_INBOX) {
@@ -115,7 +120,8 @@ public final class PackageConfirmScreenHandler extends ChestMenu {
         detail.set(net.minecraft.core.component.DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(List.of(
                 Component.literal(instance.mode() == dev.modmind.omnitools.packages.PackageDefinition.Mode.ALL
                         ? "将获得全部物品" : "将随机获得一种物品").withStyle(ChatFormatting.GRAY),
-                Component.literal("物品条目：" + instance.items().size()).withStyle(ChatFormatting.GRAY))));
+                Component.literal("物品条目：" + instance.items().size()).withStyle(ChatFormatting.GRAY),
+                Component.literal("技能经验：" + instance.skillXpGrants().size() + " 项").withStyle(ChatFormatting.GRAY))));
         container.setItem(DETAIL_SLOT, detail);
         if (PackageScreenHandler.canOpen(instance)) {
             container.setItem(CONFIRM_SLOT, GuiTheme.navigation(Items.LIME_DYE, Component.literal("确认打开"),
@@ -140,6 +146,7 @@ public final class PackageConfirmScreenHandler extends ChestMenu {
         return switch (result) {
             case OPENED -> "礼包已打开";
             case WAITING_INBOX -> "背包空间不足，剩余物品待投递";
+            case SELECTION_REQUIRED -> "请选择技能树";
             case BLOCKED -> "礼包投递已阻塞，请联系管理员";
             case NOT_FOUND -> "礼包不存在";
             case INVALID -> "礼包当前不可打开";

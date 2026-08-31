@@ -60,6 +60,15 @@ class RewardDefinitionTest {
     }
 
     @Test
+    void skillXpRewardsCarryTheirTreeTarget() {
+        RewardDefinition definition = RewardDefinition.skillXp("combat_xp", "combat", 1000L);
+
+        assertEquals(RewardType.SKILL_XP, definition.type());
+        assertEquals("combat", definition.toJsonObject().get("tree").getAsString());
+        assertEquals(1000L, definition.toJsonObject().get("amount").getAsLong());
+    }
+
+    @Test
     void makeupCardsAreScalarIdempotentRewards() {
         RewardDefinition definition = RewardDefinition.makeupCard("makeup_cards", 2L);
 

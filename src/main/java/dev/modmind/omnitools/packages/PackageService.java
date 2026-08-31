@@ -1,5 +1,10 @@
 package dev.modmind.omnitools.packages;
 
+import dev.modmind.omnitools.ModMindEntry;
+import dev.modmind.omnitools.reward.RewardDefinition;
+import dev.modmind.omnitools.reward.RewardEvent;
+import dev.modmind.omnitools.reward.RewardGrantResult;
+import dev.modmind.omnitools.reward.RewardGrantService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -12,11 +17,13 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /** Server-authoritative creation and durable, conservative opening of virtual packages. */
 public final class PackageService {
-    public enum Result { CREATED, OPENED, WAITING_INBOX, BLOCKED, NOT_FOUND, INVALID, LIMIT_REACHED }
+    public enum Result { CREATED, OPENED, WAITING_INBOX, SELECTION_REQUIRED, BLOCKED, NOT_FOUND, INVALID, LIMIT_REACHED }
 
     public record OpenResult(Result result, PackageInstance instance, List<ItemStack> delivered,
-                             List<ItemStack> pending) {
+                              List<ItemStack> pending) {
     }
+
+    private final RewardGrantService rewardGrantService = new RewardGrantService();
 
     public Optional<String> preflightCreate(MinecraftServer server, UUID owner, String packageId, int amount) {
         if (server == null || owner == null || amount < 1) return Optional.of("invalid arguments");
@@ -57,8 +64,17 @@ public final class PackageService {
         return new PackageInstance(UUID.randomUUID(), owner, definition.id(), definition.version(),
                 definition.display(), definition.description(), definition.iconId(), definition.mode(),
                 definition.items().stream().map(PackageItem::prototype).toList(),
-                definition.items().stream().map(PackageItem::quantity).toList(), sourceEvent, grantKey,
+                definition.items().stream().map(PackageItem::quantity).toList(), definition.skillXp().stream()
+                        .map(reward -> snapshotSkillXp(reward)).toList(), sourceEvent, grantKey,
                 PackageInstance.Status.PENDING, System.currentTimeMillis(), -1);
+    }
+
+    private static PackageSkillXpGrant snapshotSkillXp(PackageSkillXp reward) {
+        return new PackageSkillXpGrant(reward.id(), reward.amount(), reward.mode(), reward.treeIds().stream()
+                .map(treeId -> ModMindEntry.configSnapshot().skills().tree(treeId)
+                        .map(tree -> new PackageSkillXpGrant.TreeOption(tree.id(), tree.display(), tree.iconId()))
+                        .orElseThrow(() -> new IllegalStateException("Unknown package skill XP tree: " + treeId)))
+                .toList(), "");
     }
 
     /** Stores an already-durable definition snapshot, preserving its stable grant-key boundary. */
@@ -102,16 +118,32 @@ public final class PackageService {
                 || batch.hasUncertainDelivery() || batch.hasBlockedStack())) {
             return block(data, player.level().getServer(), instance, batch);
         }
-        if (batch != null && (batch.status() == PackageDeliveryBatch.Status.COMPLETED || batch.isComplete())) {
-            PackageDeliveryBatch completed = batch.withStatus(PackageDeliveryBatch.Status.COMPLETED,
-                    System.currentTimeMillis());
-            data.updateDeliveryBatch(completed);
-            PackageInstance opened = instance.withStatus(PackageInstance.Status.OPENED);
-            data.update(opened);
-            return result(Result.OPENED, opened, List.of(), List.of());
-        }
-
         try {
+            instance = resolveRandomSkillXp(data, player.level().getServer(), instance);
+            if (instance.hasPendingSkillXpChoice()) {
+                return result(Result.SELECTION_REQUIRED, instance, List.of(), List.of());
+            }
+            RewardGrantResult skillXpResult = grantSkillXp(player, instance);
+            if (!skillXpResult.complete()) {
+                System.err.println("[omnitools] Package skill XP grant was blocked: instance=" + instance.instanceId()
+                        + " (" + skillXpResult.status() + ": " + skillXpResult.reason() + ")");
+                return block(data, player.level().getServer(), instance, batch);
+            }
+            if (batch != null && (batch.status() == PackageDeliveryBatch.Status.COMPLETED || batch.isComplete())) {
+                PackageDeliveryBatch completed = batch.withStatus(PackageDeliveryBatch.Status.COMPLETED,
+                        System.currentTimeMillis());
+                data.updateDeliveryBatch(completed);
+                PackageInstance opened = instance.withStatus(PackageInstance.Status.OPENED);
+                data.update(opened);
+                data.flush(player.level().getServer());
+                return result(Result.OPENED, opened, List.of(), List.of());
+            }
+            if (instance.items().isEmpty()) {
+                PackageInstance opened = instance.withStatus(PackageInstance.Status.OPENED);
+                data.update(opened);
+                data.flush(player.level().getServer());
+                return result(Result.OPENED, opened, List.of(), List.of());
+            }
             if (batch == null) {
                 PackageInstance opening = lockSelection(data, instance);
                 if (opening.mode() == PackageDefinition.Mode.RANDOM_ONE) data.flush(player.level().getServer());
@@ -130,6 +162,65 @@ public final class PackageService {
             return block(data, player.level().getServer(), instance, batch);
         }
         return result(Result.CREATED, instance, List.of(), batch.pendingStacks());
+    }
+
+    /** Persists a player's self-selected tree before the package reward path can mutate progression. */
+    public boolean resolveSkillXpChoice(ServerPlayer player, UUID instanceId, String rewardId, String treeId) {
+        if (player == null || instanceId == null || rewardId == null || treeId == null) {
+            return false;
+        }
+        PackageData data = PackageData.get(player.level().getServer());
+        PackageInstance instance = data.find(player.getUUID(), instanceId).orElse(null);
+        if (instance == null || instance.status() != PackageInstance.Status.PENDING) {
+            return false;
+        }
+        List<PackageSkillXpGrant> updated = new ArrayList<>();
+        boolean changed = false;
+        for (PackageSkillXpGrant grant : instance.skillXpGrants()) {
+            if (grant.id().equals(rewardId.trim().toLowerCase(java.util.Locale.ROOT)) && grant.requiresPlayerChoice()) {
+                updated.add(grant.withResolvedTree(treeId));
+                changed = true;
+            } else {
+                updated.add(grant);
+            }
+        }
+        if (!changed) {
+            return false;
+        }
+        PackageInstance resolved = instance.withSkillXpGrants(updated);
+        data.update(resolved);
+        data.flush(player.level().getServer());
+        return true;
+    }
+
+    private static PackageInstance resolveRandomSkillXp(PackageData data, MinecraftServer server,
+                                                         PackageInstance instance) {
+        if (instance.skillXpGrants().stream().noneMatch(PackageSkillXpGrant::unresolvedRandom)) {
+            return instance;
+        }
+        List<PackageSkillXpGrant> resolved = new ArrayList<>();
+        for (PackageSkillXpGrant grant : instance.skillXpGrants()) {
+            if (grant.unresolvedRandom()) {
+                int selected = ThreadLocalRandom.current().nextInt(grant.options().size());
+                resolved.add(grant.withResolvedTree(grant.options().get(selected).treeId()));
+            } else {
+                resolved.add(grant);
+            }
+        }
+        PackageInstance updated = instance.withSkillXpGrants(resolved);
+        data.update(updated);
+        // The resolved target is the retry boundary. It must be durable before a reward mutation starts.
+        data.flush(server);
+        return updated;
+    }
+
+    private RewardGrantResult grantSkillXp(ServerPlayer player, PackageInstance instance) {
+        if (instance.skillXpGrants().isEmpty()) {
+            return RewardGrantResult.success(0, 0);
+        }
+        List<RewardDefinition> rewards = instance.skillXpGrants().stream()
+                .map(PackageSkillXpGrant::asRewardDefinition).toList();
+        return rewardGrantService.grant(player, new RewardEvent("package:" + instance.instanceId(), player.getUUID()), rewards);
     }
 
     /** Advances durable package deliveries on the server thread with a bounded per-tick budget. */

@@ -193,6 +193,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
                 case PACKAGE -> new ItemStack(Items.CHEST);
+                case SKILL_XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
             };
         }
         String status = status(player, entry);
@@ -218,6 +219,9 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                 ItemStack displayItem = TextTemplateRenderer.renderItemText(player, entry.reward().createItemStack());
                 lore.add(ServerText.translatable("gui.omnitools.reward.item", displayItem.getHoverName(),
                         displayItem.getCount()).withStyle(ChatFormatting.AQUA));
+            } else if (entry.reward().type() == RewardType.SKILL_XP) {
+                lore.add(Component.literal("技能经验：" + entry.reward().amount() + "（" + entry.reward().skillTreeId() + "）")
+                        .withStyle(ChatFormatting.AQUA));
             }
             RewardClaimLedger.Entry ledger = entry.event() == null ? null
                     : RewardClaimLedger.get(player).entry(entry.event(), entry.reward().id());
@@ -242,6 +246,7 @@ public final class CheckinRewardInfoScreenHandler extends ChestMenu {
                     .orElseGet(() -> ServerText.translatable("gui.omnitools.checkin.title_reward", reward.titleId()));
             case COMMAND -> ServerText.translatable("gui.omnitools.checkin.command_reward");
             case PACKAGE -> ServerText.translatable("gui.omnitools.checkin.package_reward");
+            case SKILL_XP -> Component.literal("技能经验：" + reward.skillTreeId());
         };
     }
 

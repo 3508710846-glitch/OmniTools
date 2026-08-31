@@ -166,6 +166,11 @@ public final class TitleEffectConfig {
                     throw new JsonParseException("Permission effect " + id + " requires permission");
                 }
             }
+            case SKILL_XP -> {
+                if (!Double.isFinite(amount) || amount < 0.0D || amount > 1.0D) {
+                    throw new JsonParseException("Skill XP effect " + id + " requires amount between 0 and 1");
+                }
+            }
         }
         if (type == EffectType.PERMISSION) {
             Identifier permissionId = Identifier.tryParse(permission);
@@ -178,6 +183,7 @@ public final class TitleEffectConfig {
             case ATTRIBUTE -> attribute;
             case PARTICLE -> particle;
             case PERMISSION -> throw new IllegalStateException("Handled above");
+            case SKILL_XP -> "minecraft:empty";
         }) == null) {
             throw new JsonParseException("Effect " + id + " contains an invalid Minecraft identifier");
         }
@@ -206,6 +212,7 @@ public final class TitleEffectConfig {
                 object.addProperty("frequency", definition.frequency());
             }
             case PERMISSION -> object.addProperty("permission", definition.permission());
+            case SKILL_XP -> object.addProperty("amount", definition.amount());
         }
         object.addProperty("display", definition.display());
         return object;
@@ -260,6 +267,8 @@ public final class TitleEffectConfig {
                     object.addProperty("frequency", definition.frequency());
                 } else if (definition.type() == EffectType.PERMISSION) {
                     object.addProperty("permission", definition.permission());
+                } else if (definition.type() == EffectType.SKILL_XP) {
+                    object.addProperty("amount", definition.amount());
                 }
                 object.addProperty("display", definition.display());
                 root.add(definition.id(), object);
@@ -340,7 +349,9 @@ public final class TitleEffectConfig {
         POTION,
         ATTRIBUTE,
         PARTICLE,
-        PERMISSION;
+        PERMISSION,
+        /** Adds a percentage to skill-tree XP only; SkillTreeConfig enforces the total cap. */
+        SKILL_XP;
 
         static EffectType parse(String value) {
             try {

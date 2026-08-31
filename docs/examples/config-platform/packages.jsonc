@@ -34,6 +34,14 @@
           "count": 1,
           "quantity": 32
         }
+      ],
+      "skill_xp": [
+        {
+          "id": "starter_gathering_xp",
+          "mode": "fixed",
+          "tree": "gathering",
+          "amount": 1000
+        }
       ]
     },
     {
@@ -62,6 +70,30 @@
           "item": "minecraft:gold_ingot",
           "count": 1,
           "quantity": 32
+        }
+      ]
+    },
+    {
+      "id": "skill_xp_showcase",
+      "display": "&d技能经验礼包",
+      "description": [
+        "&7包含随机与自选技能经验"
+      ],
+      "icon": "minecraft:experience_bottle",
+      "mode": "all",
+      "version": 1,
+      "skill_xp": [
+        {
+          "id": "random_training",
+          "mode": "random",
+          "trees": ["gathering", "combat", "defense", "hunting", "crafting", "survival"],
+          "amount": 1000
+        },
+        {
+          "id": "chosen_training",
+          "mode": "player_choice",
+          "trees": ["gathering", "combat", "crafting"],
+          "amount": 2000
         }
       ]
     }

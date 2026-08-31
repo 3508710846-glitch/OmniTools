@@ -18,6 +18,8 @@ import java.util.*;
 public record PackageConfig(int formatVersion, Settings settings, List<PackageDefinition> packages) {
     public static final int CURRENT_FORMAT_VERSION = 2;
     public static final int MAX_ENTRIES = 256;
+    public static final int MAX_SKILL_XP_ENTRIES = 32;
+    public static final int MAX_SKILL_XP_TREE_OPTIONS = 32;
     public static final long MAX_TOTAL_QUANTITY = 2304L * 256L;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     public PackageConfig {
@@ -34,6 +36,9 @@ public record PackageConfig(int formatVersion, Settings settings, List<PackageDe
                 if (item.quantity() > settings.maxQuantityPerEntry()) throw new JsonParseException("Package item quantity exceeds max_quantity_per_entry");
             }
             if (total > settings.maxTotalQuantity()) throw new JsonParseException("Package total quantity exceeds configured limit");
+            if (definition.skillXp().size() > MAX_SKILL_XP_ENTRIES) {
+                throw new JsonParseException("Package skill_xp entries exceed " + MAX_SKILL_XP_ENTRIES);
+            }
         }
     }
     public static PackageConfig empty() { return new PackageConfig(CURRENT_FORMAT_VERSION, Settings.defaults(), List.of()); }
@@ -73,14 +78,65 @@ public record PackageConfig(int formatVersion, Settings settings, List<PackageDe
         }
     }
     private static PackageDefinition parseDefinition(JsonObject object, Settings settings, HolderLookup.Provider registries, String context) {
-        ConfigFieldReporter.warnUnknown(object, context, Set.of("id", "display", "description", "icon", "mode", "items", "version"));
+        ConfigFieldReporter.warnUnknown(object, context, Set.of("id", "display", "description", "icon", "mode", "items", "skill_xp", "version"));
         String id = requiredString(object, "id", context); String iconId = requiredString(object, "icon", context); Identifier identifier = Identifier.tryParse(iconId); Item icon = identifier == null ? null : BuiltInRegistries.ITEM.getOptional(identifier).orElse(null);
         List<String> description = new ArrayList<>(); JsonElement desc = object.get("description"); if (desc != null) { if (!desc.isJsonArray()) throw new JsonParseException(context + ".description must be an array"); for (JsonElement line : desc.getAsJsonArray()) { if (!line.isJsonPrimitive() || !line.getAsJsonPrimitive().isString()) throw new JsonParseException(context + ".description must contain strings"); description.add(line.getAsString()); } }
-        JsonElement items = object.get("items"); if (items == null || !items.isJsonArray() || items.getAsJsonArray().isEmpty() || items.getAsJsonArray().size() > MAX_ENTRIES) throw new JsonParseException(context + ".items must contain 1-" + MAX_ENTRIES + " entries");
-        if (items.getAsJsonArray().size() > settings.maxDeliveryStacksPerPackage()) throw new JsonParseException(context + ".items exceeds max_delivery_stacks_per_package");
+        JsonElement items = object.get("items");
+        if (items != null && (!items.isJsonArray() || items.getAsJsonArray().size() > MAX_ENTRIES)) {
+            throw new JsonParseException(context + ".items must contain at most " + MAX_ENTRIES + " entries");
+        }
+        if (items != null && items.getAsJsonArray().size() > settings.maxDeliveryStacksPerPackage()) throw new JsonParseException(context + ".items exceeds max_delivery_stacks_per_package");
         List<PackageItem> parsedItems = new ArrayList<>(); Set<String> itemIds = new HashSet<>();
-        for (int i = 0; i < items.getAsJsonArray().size(); i++) { JsonElement value = items.getAsJsonArray().get(i); if (!value.isJsonObject()) throw new JsonParseException(context + ".items[" + i + "] must be an object"); JsonObject itemObject = value.getAsJsonObject(); String itemContext = context + ".items[" + i + "]"; ConfigFieldReporter.warnUnknown(itemObject, itemContext, Set.of("id", "item", "count", "components", "nbt", "quantity")); String itemId = requiredString(itemObject, "id", itemContext); if (!itemIds.add(itemId.toLowerCase(Locale.ROOT))) throw new JsonParseException(context + " has duplicate item id " + itemId); long quantity = positiveLong(itemObject, "quantity", itemContext); if (quantity > settings.maxQuantityPerEntry()) throw new JsonParseException(itemContext + ".quantity exceeds max_quantity_per_entry"); try { JsonObject prototypeObject = itemObject.deepCopy(); prototypeObject.remove("id"); prototypeObject.remove("quantity"); var prototype = ItemStackConfigParser.parse(prototypeObject, registries, itemContext, 64); prototype.setCount(1); ItemStackConfigParser.validateRewardSnapshot(prototype, registries, itemContext, 64); parsedItems.add(new PackageItem(itemId, prototype, quantity)); } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) { throw new JsonParseException(itemContext + " has invalid item", e); } }
-        int packageVersion = integer(object, "version", 1); return new PackageDefinition(id, string(object, "display", id), description, iconId, icon, PackageDefinition.Mode.parse(string(object, "mode", "all")), parsedItems, packageVersion);
+        if (items != null) for (int i = 0; i < items.getAsJsonArray().size(); i++) { JsonElement value = items.getAsJsonArray().get(i); if (!value.isJsonObject()) throw new JsonParseException(context + ".items[" + i + "] must be an object"); JsonObject itemObject = value.getAsJsonObject(); String itemContext = context + ".items[" + i + "]"; ConfigFieldReporter.warnUnknown(itemObject, itemContext, Set.of("id", "item", "count", "components", "nbt", "quantity")); String itemId = requiredString(itemObject, "id", itemContext); if (!itemIds.add(itemId.toLowerCase(Locale.ROOT))) throw new JsonParseException(context + " has duplicate item id " + itemId); long quantity = positiveLong(itemObject, "quantity", itemContext); if (quantity > settings.maxQuantityPerEntry()) throw new JsonParseException(itemContext + ".quantity exceeds max_quantity_per_entry"); try { JsonObject prototypeObject = itemObject.deepCopy(); prototypeObject.remove("id"); prototypeObject.remove("quantity"); var prototype = ItemStackConfigParser.parse(prototypeObject, registries, itemContext, 64); prototype.setCount(1); ItemStackConfigParser.validateRewardSnapshot(prototype, registries, itemContext, 64); parsedItems.add(new PackageItem(itemId, prototype, quantity)); } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) { throw new JsonParseException(itemContext + " has invalid item", e); } }
+        List<PackageSkillXp> skillXp = parseSkillXp(object.get("skill_xp"), context);
+        if (parsedItems.isEmpty() && skillXp.isEmpty()) throw new JsonParseException(context + " must contain items or skill_xp");
+        int packageVersion = integer(object, "version", 1); return new PackageDefinition(id, string(object, "display", id), description, iconId, icon, PackageDefinition.Mode.parse(string(object, "mode", "all")), parsedItems, skillXp, packageVersion);
+    }
+    private static List<PackageSkillXp> parseSkillXp(JsonElement element, String context) {
+        if (element == null) return List.of();
+        if (!element.isJsonArray() || element.getAsJsonArray().isEmpty() || element.getAsJsonArray().size() > MAX_SKILL_XP_ENTRIES) {
+            throw new JsonParseException(context + ".skill_xp must contain 1-" + MAX_SKILL_XP_ENTRIES + " entries");
+        }
+        List<PackageSkillXp> parsed = new ArrayList<>(); Set<String> ids = new HashSet<>();
+        for (int index = 0; index < element.getAsJsonArray().size(); index++) {
+            JsonElement value = element.getAsJsonArray().get(index);
+            String entryContext = context + ".skill_xp[" + index + "]";
+            if (!value.isJsonObject()) throw new JsonParseException(entryContext + " must be an object");
+            JsonObject entry = value.getAsJsonObject();
+            ConfigFieldReporter.warnUnknown(entry, entryContext, Set.of("id", "amount", "mode", "tree", "trees"));
+            String id = requiredString(entry, "id", entryContext);
+            if (!ids.add(id.toLowerCase(Locale.ROOT))) throw new JsonParseException(context + " has duplicate skill_xp id " + id);
+            PackageSkillXp.Mode mode;
+            try {
+                mode = PackageSkillXp.Mode.parse(string(entry, "mode", "fixed"));
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException(entryContext + ".mode must be fixed, random, or player_choice", exception);
+            }
+            List<String> trees = new ArrayList<>();
+            if (mode == PackageSkillXp.Mode.FIXED) {
+                if (entry.has("trees")) throw new JsonParseException(entryContext + ".trees is not valid for fixed mode");
+                trees.add(requiredString(entry, "tree", entryContext));
+            } else {
+                if (entry.has("tree")) throw new JsonParseException(entryContext + ".tree is only valid for fixed mode");
+                JsonElement treeValues = entry.get("trees");
+                if (treeValues == null || !treeValues.isJsonArray() || treeValues.getAsJsonArray().isEmpty()
+                        || treeValues.getAsJsonArray().size() > MAX_SKILL_XP_TREE_OPTIONS) {
+                    throw new JsonParseException(entryContext + ".trees must contain 1-" + MAX_SKILL_XP_TREE_OPTIONS + " entries");
+                }
+                for (JsonElement tree : treeValues.getAsJsonArray()) {
+                    if (!tree.isJsonPrimitive() || !tree.getAsJsonPrimitive().isString()) {
+                        throw new JsonParseException(entryContext + ".trees must contain tree ids");
+                    }
+                    trees.add(tree.getAsString());
+                }
+            }
+            try {
+                parsed.add(new PackageSkillXp(id, positiveLong(entry, "amount", entryContext), mode, trees));
+            } catch (IllegalArgumentException exception) {
+                throw new JsonParseException(entryContext + " is invalid: " + exception.getMessage(), exception);
+            }
+        }
+        return List.copyOf(parsed);
     }
     private static void save(PackageConfig config) throws IOException { Path file = path(); Files.createDirectories(file.getParent()); JsonObject root = new JsonObject(); root.addProperty("format_version", CURRENT_FORMAT_VERSION); JsonObject settings = new JsonObject(); settings.addProperty("max_pending_packages_per_player", config.settings().maxPendingPackagesPerPlayer()); settings.addProperty("max_quantity_per_entry", config.settings().maxQuantityPerEntry()); settings.addProperty("max_total_quantity", config.settings().maxTotalQuantity()); settings.addProperty("max_delivery_stacks_per_package", config.settings().maxDeliveryStacksPerPackage()); settings.addProperty("delivery_stacks_per_tick", config.settings().deliveryStacksPerTick()); settings.addProperty("history_retention_days", config.settings().historyRetentionDays()); settings.addProperty("delivery_policy", config.settings().deliveryPolicy()); settings.addProperty("random_strategy", config.settings().randomStrategy()); root.add("settings", settings); root.add("packages", new JsonArray()); try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { GSON.toJson(root, writer); } }
     private static JsonObject object(JsonObject root, String key) { JsonElement e = root.get(key); if (e == null) return new JsonObject(); if (!e.isJsonObject()) throw new JsonParseException(key + " must be an object"); return e.getAsJsonObject(); }

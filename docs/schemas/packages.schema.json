@@ -31,7 +31,7 @@
     },
     "package": {
       "type": "object",
-      "required": ["id", "icon", "items"],
+      "required": ["id", "icon"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
@@ -49,8 +49,18 @@
           "minItems": 1,
           "maxItems": 256,
           "items": { "$ref": "#/$defs/item" }
+        },
+        "skill_xp": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/skill_xp" }
         }
-      }
+      },
+      "anyOf": [
+        { "required": ["items"] },
+        { "required": ["skill_xp"] }
+      ]
     },
     "item": {
       "type": "object",
@@ -72,6 +82,45 @@
       "oneOf": [
         { "required": ["item", "count"], "not": { "required": ["nbt"] } },
         { "required": ["nbt"], "not": { "required": ["item"] } }
+      ]
+    },
+    "skill_xp": {
+      "type": "object",
+      "required": ["id", "amount"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "amount": { "type": "integer", "minimum": 1 },
+        "mode": { "enum": ["fixed", "random", "player_choice"] },
+        "tree": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "trees": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": { "mode": { "const": "fixed" } },
+          "required": ["tree"],
+          "not": { "required": ["trees"] }
+        },
+        {
+          "properties": { "mode": { "const": "random" } },
+          "required": ["trees"],
+          "not": { "required": ["tree"] }
+        },
+        {
+          "properties": { "mode": { "const": "player_choice" } },
+          "required": ["trees"],
+          "not": { "required": ["tree"] }
+        },
+        {
+          "not": { "anyOf": [ { "required": ["mode"] }, { "required": ["trees"] } ] },
+          "required": ["tree"]
+        }
       ]
     }
   }

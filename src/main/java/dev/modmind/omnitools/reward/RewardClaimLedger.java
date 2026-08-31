@@ -77,6 +77,15 @@ public final class RewardClaimLedger extends SavedData {
         return get(player.level().getServer());
     }
 
+    /** Persists an irreversible reward boundary before or after an external reward mutation. */
+    public void flush(MinecraftServer server) {
+        ServerLevel overworld = server == null ? null : server.getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            throw new IllegalStateException("The overworld is not available while saving reward ledger");
+        }
+        overworld.getDataStorage().saveAndJoin();
+    }
+
     /**
      * Reads an already-created ledger without creating or dirtying SavedData. This is intended for
      * read-only diagnostics and returns empty when no reward has ever been recorded.

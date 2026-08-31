@@ -2,6 +2,8 @@ package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.packages.PackageDefinition;
 import dev.modmind.omnitools.packages.PackageInstance;
+import dev.modmind.omnitools.packages.PackageSkillXp;
+import dev.modmind.omnitools.packages.PackageSkillXpGrant;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -196,7 +198,7 @@ public final class ShopPurchaseData extends SavedData {
         return new PackageInstance(instanceId, ownerId, tag.getStringOr("package_id", ""),
                 tag.getIntOr("package_version", 1), tag.getStringOr("display", ""), description,
                 tag.getStringOr("icon", ""), PackageDefinition.Mode.parse(tag.getStringOr("mode", "all")),
-                items, quantities, tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
+                items, quantities, decodeSkillXpGrants(tag.getListOrEmpty("skill_xp")), tag.getStringOr("source", ""), tag.getStringOr("grant_key", ""),
                 PackageInstance.Status.PENDING, tag.getLongOr("granted_at", 0L), -1);
     }
 
@@ -233,7 +235,54 @@ public final class ShopPurchaseData extends SavedData {
             quantities.add(LongTag.valueOf(quantity));
         }
         tag.put("quantities", quantities);
+        tag.put("skill_xp", encodeSkillXpGrants(snapshot.skillXpGrants()));
         return tag;
+    }
+
+    private static List<PackageSkillXpGrant> decodeSkillXpGrants(ListTag entries) {
+        List<PackageSkillXpGrant> grants = new ArrayList<>();
+        for (int index = 0; index < entries.size(); index++) {
+            if (!(entries.get(index) instanceof CompoundTag entry)) {
+                throw new IllegalArgumentException("package skill XP snapshot is not a compound");
+            }
+            List<PackageSkillXpGrant.TreeOption> options = new ArrayList<>();
+            ListTag optionEntries = entry.getListOrEmpty("options");
+            for (int optionIndex = 0; optionIndex < optionEntries.size(); optionIndex++) {
+                if (!(optionEntries.get(optionIndex) instanceof CompoundTag option)) {
+                    throw new IllegalArgumentException("package skill XP option is not a compound");
+                }
+                options.add(new PackageSkillXpGrant.TreeOption(option.getStringOr("tree", ""),
+                        option.getStringOr("display", ""), option.getStringOr("icon", "")));
+            }
+            grants.add(new PackageSkillXpGrant(entry.getStringOr("id", ""), entry.getLongOr("amount", 0L),
+                    PackageSkillXp.Mode.parse(entry.getStringOr("mode", "fixed")), options,
+                    entry.getStringOr("resolved_tree", "")));
+        }
+        return List.copyOf(grants);
+    }
+
+    private static ListTag encodeSkillXpGrants(List<PackageSkillXpGrant> grants) {
+        ListTag entries = new ListTag();
+        for (PackageSkillXpGrant grant : grants) {
+            CompoundTag entry = new CompoundTag();
+            entry.putString("id", grant.id());
+            entry.putLong("amount", grant.amount());
+            entry.putString("mode", grant.mode().serializedName());
+            if (!grant.resolvedTreeId().isBlank()) {
+                entry.putString("resolved_tree", grant.resolvedTreeId());
+            }
+            ListTag options = new ListTag();
+            for (PackageSkillXpGrant.TreeOption option : grant.options()) {
+                CompoundTag optionEntry = new CompoundTag();
+                optionEntry.putString("tree", option.treeId());
+                optionEntry.putString("display", option.display());
+                optionEntry.putString("icon", option.iconId());
+                options.add(optionEntry);
+            }
+            entry.put("options", options);
+            entries.add(entry);
+        }
+        return entries;
     }
 
     public record PurchaseTransaction(UUID transactionId, UUID ownerId, String ownerName, int productIndex,

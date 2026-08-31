@@ -12,7 +12,9 @@ public enum RewardType {
     COMMAND,
     /** A server-owned daily check-in makeup-card entitlement, never an inventory item. */
     MAKEUP_CARD,
-    PACKAGE;
+    PACKAGE,
+    /** Adds experience to one configured skill tree. */
+    SKILL_XP;
 
     public static RewardType parse(String value) {
         if (value == null || value.isBlank()) {

@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Immutable published package definition. */
 public record PackageDefinition(String id, String display, List<String> description, String iconId, Item icon,
-                                Mode mode, List<PackageItem> items, int version) {
+                                Mode mode, List<PackageItem> items, List<PackageSkillXp> skillXp, int version) {
     public PackageDefinition {
         id = normalizeId(id);
         display = display == null || display.isBlank() ? id : display.trim();
@@ -15,7 +15,11 @@ public record PackageDefinition(String id, String display, List<String> descript
         if (icon == null) throw new IllegalArgumentException("Package icon is required: " + id);
         mode = mode == null ? Mode.ALL : mode;
         items = List.copyOf(items == null ? List.of() : items);
-        if (items.isEmpty()) throw new IllegalArgumentException("Package must contain at least one item: " + id);
+        skillXp = List.copyOf(skillXp == null ? List.of() : skillXp);
+        if (items.isEmpty() && skillXp.isEmpty()) throw new IllegalArgumentException("Package must contain at least one reward: " + id);
+        if (skillXp.stream().map(PackageSkillXp::id).distinct().count() != skillXp.size()) {
+            throw new IllegalArgumentException("Package has duplicate skill XP ids: " + id);
+        }
         if (display.length() > 128 || description.size() > 32) throw new IllegalArgumentException("Package text is too long: " + id);
         if (version < 1) throw new IllegalArgumentException("Package version must be positive");
     }

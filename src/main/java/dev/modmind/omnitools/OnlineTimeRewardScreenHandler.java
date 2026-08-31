@@ -263,6 +263,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
             case TITLE -> new ItemStack(Items.NAME_TAG);
             case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
             case PACKAGE -> new ItemStack(Items.CHEST);
+            case SKILL_XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
         };
     }
 
@@ -288,6 +289,7 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
                         .orElseGet(() -> ServerText.translatable("gui.omnitools.reward.title", reward.titleId()));
                 case COMMAND -> ServerText.translatable("gui.omnitools.reward.command");
                 case PACKAGE -> ServerText.translatable("gui.omnitools.reward.package");
+                case SKILL_XP -> Component.literal("技能经验：" + reward.amount() + "（" + reward.skillTreeId() + "）");
             };
             lore.add(preview.copy().withStyle(
                     reward.type() == RewardType.CURRENCY ? ChatFormatting.GOLD : ChatFormatting.AQUA));

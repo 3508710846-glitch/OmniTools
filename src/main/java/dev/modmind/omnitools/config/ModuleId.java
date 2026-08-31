@@ -17,7 +17,8 @@ public enum ModuleId {
     COMMAND_MENU("command_menu"),
     SIDEBAR("sidebar"),
     LEADERBOARDS("leaderboards"),
-    PACKAGES("packages");
+    PACKAGES("packages"),
+    SKILLS("skills");
 
     private final String id;
 

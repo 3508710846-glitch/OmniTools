@@ -21,7 +21,8 @@ import java.util.regex.Pattern;
 
 /** Immutable, validated definition of one idempotent reward effect. */
 public record RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack,
-                               String titleId, TimedEntitlement.Grant titleGrant, String command, String packageId) {
+                               String titleId, TimedEntitlement.Grant titleGrant, String command, String packageId,
+                               String skillTreeId) {
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9_.-]{1,64}");
     public static final int MAX_ITEM_COUNT = 64;
     public static final int MAX_EVENT_ITEM_COUNT = 2_304;
@@ -46,16 +47,17 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         titleGrant = titleGrant == null ? TimedEntitlement.permanentGrant() : titleGrant;
         command = command == null ? "" : command;
         packageId = packageId == null ? "" : packageId.trim().toLowerCase(Locale.ROOT);
+        skillTreeId = skillTreeId == null ? "" : skillTreeId.trim().toLowerCase(Locale.ROOT);
     }
 
     /** Retained for existing callers that create a permanent title or non-title reward directly. */
     public RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack, String titleId,
                             String command) {
-        this(id, type, amount, itemStack, titleId, TimedEntitlement.permanentGrant(), command, "");
+        this(id, type, amount, itemStack, titleId, TimedEntitlement.permanentGrant(), command, "", "");
     }
     public RewardDefinition(String id, RewardType type, long amount, ItemStack itemStack, String titleId,
                             TimedEntitlement.Grant titleGrant, String command) {
-        this(id, type, amount, itemStack, titleId, titleGrant, command, "");
+        this(id, type, amount, itemStack, titleId, titleGrant, command, "", "");
     }
 
     public ItemStack createItemStack() {
@@ -66,7 +68,7 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
     public String fingerprintMaterial() {
         return id + "|" + type.serializedName() + "|" + amount + "|" + itemStack + "|" + titleId + "|"
                 + titleGrant.mode().serializedName() + "|" + titleGrant.activeTicks() + "|"
-                + titleGrant.renewalPolicy().serializedName() + "|" + command + "|" + packageId;
+                + titleGrant.renewalPolicy().serializedName() + "|" + command + "|" + packageId + "|" + skillTreeId;
     }
 
     public static List<RewardDefinition> parseArray(JsonElement element, String context,
@@ -135,6 +137,11 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
         return new RewardDefinition(id, RewardType.MAKEUP_CARD, amount, ItemStack.EMPTY, "", "");
     }
 
+    public static RewardDefinition skillXp(String id, String treeId, long amount) {
+        return new RewardDefinition(id, RewardType.SKILL_XP, amount, ItemStack.EMPTY, "",
+                TimedEntitlement.permanentGrant(), "", "", requiredRewardId(treeId, "skill tree id"));
+    }
+
     public static RewardDefinition title(String id, String titleId) {
         return new RewardDefinition(id, RewardType.TITLE, 0L, ItemStack.EMPTY, titleId,
                 TimedEntitlement.permanentGrant(), "");
@@ -180,6 +187,10 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
                 object.addProperty("command", command);
             }
             case PACKAGE -> object.addProperty("package", packageId);
+            case SKILL_XP -> {
+                object.addProperty("tree", skillTreeId);
+                object.addProperty("amount", amount);
+            }
             case ITEM -> throw new AssertionError("handled above");
         }
         return object;
@@ -213,7 +224,11 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
             case PACKAGE -> {
                 rejectTitleTimingFields(object, context);
                 String packageId = requiredId(object, "package", context);
-                yield new RewardDefinition(id, RewardType.PACKAGE, 0L, ItemStack.EMPTY, "", TimedEntitlement.permanentGrant(), "", packageId);
+                yield new RewardDefinition(id, RewardType.PACKAGE, 0L, ItemStack.EMPTY, "", TimedEntitlement.permanentGrant(), "", packageId, "");
+            }
+            case SKILL_XP -> {
+                rejectTitleTimingFields(object, context);
+                yield skillXp(id, requiredId(object, "tree", context), positiveLong(object, "amount", context));
             }
         };
     }
@@ -317,9 +332,13 @@ public record RewardDefinition(String id, RewardType type, long amount, ItemStac
     }
 
     private static String requiredId(JsonObject object, String key, String context) {
-        String id = normalizeId(requiredString(object, key, context));
+        return requiredRewardId(requiredString(object, key, context), context + "." + key);
+    }
+
+    private static String requiredRewardId(String value, String context) {
+        String id = normalizeId(value);
         if (!ID_PATTERN.matcher(id).matches()) {
-            throw new JsonParseException(context + "." + key + " must match " + ID_PATTERN.pattern());
+            throw new JsonParseException(context + " must match " + ID_PATTERN.pattern());
         }
         return id;
     }

@@ -13,6 +13,7 @@ import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.cdk.CdkData;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.packages.PackageConfig;
+import dev.modmind.omnitools.skills.SkillTreeConfig;
 import net.minecraft.server.MinecraftServer;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
@@ -149,6 +150,7 @@ public final class OmniToolsConfigManager {
         SidebarConfig sidebar = moduleConfig(loaded, ModuleId.SIDEBAR, SidebarConfig.empty());
         LeaderboardConfig leaderboards = moduleConfig(loaded, ModuleId.LEADERBOARDS, LeaderboardConfig.empty());
         PackageConfig packages = moduleConfig(loaded, ModuleId.PACKAGES, PackageConfig.empty());
+        SkillTreeConfig skills = moduleConfig(loaded, ModuleId.SKILLS, SkillTreeConfig.empty());
         CommandPermissionConfig commandPermissions = moduleConfig(loaded, ModuleId.PERMISSIONS,
                 CommandPermissionConfig.defaults());
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
@@ -157,7 +159,7 @@ public final class OmniToolsConfigManager {
                     ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                storage, achievements, cdk, commandMenus, sidebar, leaderboards, packages, commandPermissions, statuses, revisions.get() + 1L,
+                storage, achievements, cdk, commandMenus, sidebar, leaderboards, packages, skills, commandPermissions, statuses, revisions.get() + 1L,
                 common);
         CrossModuleValidator.validate(candidate);
         moduleRegistry.validateAll(loaded, candidate);
@@ -179,6 +181,7 @@ public final class OmniToolsConfigManager {
         modules.put(ModuleId.SIDEBAR, snapshot.sidebar());
         modules.put(ModuleId.LEADERBOARDS, snapshot.leaderboards());
         modules.put(ModuleId.PACKAGES, snapshot.packages());
+        modules.put(ModuleId.SKILLS, snapshot.skills());
         return modules;
     }
 
@@ -273,6 +276,12 @@ public final class OmniToolsConfigManager {
                 return context.root().enabled(id()) ? PackageConfig.load(context.registries()) : PackageConfig.empty();
             }
         });
+        registry.register(new ConfigurableModule<SkillTreeConfig>() {
+            public ModuleId id() { return ModuleId.SKILLS; }
+            public SkillTreeConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? SkillTreeConfig.load() : SkillTreeConfig.empty();
+            }
+        });
         return registry;
     }
 
@@ -281,7 +290,7 @@ public final class OmniToolsConfigManager {
         OmniToolsConfigSnapshot published = new OmniToolsConfigSnapshot(candidate.root(), candidate.rewards(),
                 candidate.onlineRewards(), candidate.shop(), candidate.titles(), candidate.titleEffects(),
                 candidate.cloudStorage(), candidate.achievements(), candidate.cdk(), candidate.commandMenus(),
-                candidate.sidebar(), candidate.leaderboards(), candidate.packages(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
+                candidate.sidebar(), candidate.leaderboards(), candidate.packages(), candidate.skills(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
         snapshot = published;
         return published;
     }
@@ -325,7 +334,7 @@ public final class OmniToolsConfigManager {
         return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
                 AchievementConfig.empty(), CdkConfig.empty(), CommandMenuConfig.empty(), SidebarConfig.empty(),
-                LeaderboardConfig.empty(), PackageConfig.empty(),
+                LeaderboardConfig.empty(), PackageConfig.empty(), SkillTreeConfig.empty(),
                 CommandPermissionConfig.defaults(), statuses, 0L);
     }
 }

@@ -206,6 +206,7 @@ public final class CheckinRenderService {
                 case TITLE -> new ItemStack(Items.NAME_TAG);
                 case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
                 case PACKAGE -> new ItemStack(Items.CHEST);
+                case SKILL_XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
             };
             break;
         }

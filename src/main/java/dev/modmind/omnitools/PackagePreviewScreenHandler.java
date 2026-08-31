@@ -4,6 +4,7 @@ import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.packages.PackageData;
 import dev.modmind.omnitools.packages.PackageDefinition;
 import dev.modmind.omnitools.packages.PackageInstance;
+import dev.modmind.omnitools.packages.PackageSkillXpGrant;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
@@ -135,7 +136,7 @@ public final class PackagePreviewScreenHandler extends ChestMenu {
         container.setItem(GuiSlots.HEADER_CENTER_54, GuiTheme.status(Items.BOOK,
                 Component.literal("礼包预览"), ChatFormatting.AQUA,
                 List.of(Component.literal(instance.mode() == PackageDefinition.Mode.ALL
-                        ? "以下物品将全部获得" : "以下物品中随机获得一种").withStyle(ChatFormatting.GRAY)), false));
+                        ? "以下内容将在打开后发放" : "物品随机一种，技能经验按其配置发放").withStyle(ChatFormatting.GRAY)), false));
         container.setItem(CLOSE_SLOT, GuiNavigationService.close());
         if (page > 0) {
             container.setItem(PREVIOUS_SLOT, GuiNavigationService.previous());
@@ -172,6 +173,29 @@ public final class PackagePreviewScreenHandler extends ChestMenu {
             }
             result.add(GuiStatusItem.create(display, display.getHoverName(), GuiStatusItem.State.OWNED,
                     GuiTextService.compactLore(lore, 6)));
+        }
+        for (PackageSkillXpGrant grant : instance.skillXpGrants()) {
+            ItemStack display = new ItemStack(Items.EXPERIENCE_BOTTLE);
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.literal("经验：" + grant.amount()).withStyle(ChatFormatting.GOLD));
+            String mode = switch (grant.mode()) {
+                case FIXED -> "指定技能树";
+                case RANDOM -> "随机技能树";
+                case PLAYER_CHOICE -> "自选技能树";
+            };
+            lore.add(Component.literal(mode).withStyle(ChatFormatting.AQUA));
+            if (!grant.resolvedTreeId().isBlank()) {
+                PackageSkillXpGrant.TreeOption selected = grant.options().stream()
+                        .filter(option -> option.treeId().equals(grant.resolvedTreeId())).findFirst().orElse(null);
+                lore.add(Component.literal("目标：" + (selected == null ? grant.resolvedTreeId() : selected.display()))
+                        .withStyle(ChatFormatting.GREEN));
+            } else {
+                for (PackageSkillXpGrant.TreeOption option : grant.options()) {
+                    lore.add(Component.literal("候选：" + option.display()).withStyle(ChatFormatting.GRAY));
+                }
+            }
+            Component title = Component.literal("技能经验：" + grant.id()).withStyle(ChatFormatting.LIGHT_PURPLE);
+            result.add(GuiStatusItem.create(display, title, GuiStatusItem.State.OWNED, GuiTextService.compactLore(lore, 6)));
         }
         return List.copyOf(result);
     }

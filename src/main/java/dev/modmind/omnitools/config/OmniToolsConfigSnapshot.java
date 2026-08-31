@@ -13,6 +13,7 @@ import dev.modmind.omnitools.sidebar.SidebarConfig;
 import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.packages.PackageConfig;
+import dev.modmind.omnitools.skills.SkillTreeConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -28,6 +29,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     SidebarConfig sidebar,
                                     LeaderboardConfig leaderboards,
                                     PackageConfig packages,
+                                    SkillTreeConfig skills,
                                     CommandPermissionConfig commandPermissions,
                                     Map<ModuleId, ModuleStatus> statuses, long revision,
                                     CommonConfig common) implements ConfigSnapshot {
@@ -36,10 +38,22 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
                                    AchievementConfig achievements, CdkConfig cdk, CommandMenuConfig commandMenus,
                                    SidebarConfig sidebar, LeaderboardConfig leaderboards, PackageConfig packages,
+                                   SkillTreeConfig skills, CommandPermissionConfig commandPermissions,
+                                   Map<ModuleId, ModuleStatus> statuses, long revision) {
+        this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
+                commandMenus, sidebar, leaderboards, packages, skills, commandPermissions, statuses, revision,
+                CommonConfig.empty());
+    }
+
+    public OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
+                                   OnlineRewardConfig onlineRewards, ShopConfig shop, TitleConfig titles,
+                                   TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
+                                   AchievementConfig achievements, CdkConfig cdk, CommandMenuConfig commandMenus,
+                                   SidebarConfig sidebar, LeaderboardConfig leaderboards, PackageConfig packages,
                                    CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, packages, commandPermissions, statuses, revision, CommonConfig.empty());
+                commandMenus, sidebar, leaderboards, packages, SkillTreeConfig.empty(), commandPermissions, statuses, revision, CommonConfig.empty());
     }
 
     /** Compatibility constructor retained for integrations compiled against the leaderboard-only snapshot. */
@@ -51,7 +65,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, PackageConfig.empty(), commandPermissions, statuses, revision,
+                commandMenus, sidebar, leaderboards, PackageConfig.empty(), SkillTreeConfig.empty(), commandPermissions, statuses, revision,
                 CommonConfig.empty());
     }
 
@@ -69,6 +83,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         cdk = cdk == null ? CdkConfig.empty() : cdk;
         leaderboards = leaderboards == null ? LeaderboardConfig.empty() : leaderboards;
         packages = packages == null ? PackageConfig.empty() : packages;
+        skills = skills == null ? SkillTreeConfig.empty() : skills;
         common = common == null ? CommonConfig.empty() : common;
     }
 

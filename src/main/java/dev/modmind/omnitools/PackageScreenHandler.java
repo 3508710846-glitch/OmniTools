@@ -177,6 +177,12 @@ public final class PackageScreenHandler extends ChestMenu {
         }
         lore.add(Component.literal(instance.mode() == dev.modmind.omnitools.packages.PackageDefinition.Mode.ALL
                 ? "模式：全部获得" : "模式：随机一种").withStyle(ChatFormatting.AQUA));
+        if (!instance.skillXpGrants().isEmpty()) {
+            lore.add(Component.literal("技能经验：" + instance.skillXpGrants().size() + " 项").withStyle(ChatFormatting.LIGHT_PURPLE));
+        }
+        if (instance.hasPendingSkillXpChoice()) {
+            lore.add(Component.literal("打开后选择技能树").withStyle(ChatFormatting.YELLOW));
+        }
         lore.add(Component.literal("状态：" + statusLabel(instance.status())).withStyle(statusColor(instance.status())));
         return GuiStatusItem.create(icon, TextTemplateRenderer.render(owner, instance.displayName()),
                 statusStyle(instance.status()), GuiTextService.cardLore(lore,

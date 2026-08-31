@@ -150,6 +150,7 @@ public final class RewardGrantService {
                 case TITLE -> grantTitle(player, reward, ledger, event);
                 case COMMAND -> grantCommand(player, reward, ledger, event);
                 case PACKAGE -> grantPackage(player, reward, ledger, event);
+                case SKILL_XP -> grantSkillXp(player, reward, ledger, event);
             };
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
@@ -173,6 +174,7 @@ public final class RewardGrantService {
             case ITEM -> blocked(ledger, event, reward, "item_delivery_outcome_unknown");
             case COMMAND -> blocked(ledger, event, reward, "command_dispatch_outcome_unknown");
             case PACKAGE -> grantPackage(player, reward, ledger, event);
+            case SKILL_XP -> blocked(ledger, event, reward, "skill_xp_outcome_unknown");
         };
     }
 
@@ -202,6 +204,23 @@ public final class RewardGrantService {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
         }
+    }
+
+    private SingleResult grantSkillXp(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
+                                      RewardEvent event) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) {
+            return blocked(ledger, event, reward, "skills_module_disabled");
+        }
+        ledger.beginApplying(event, reward.id(), "skill_xp_apply");
+        ledger.flush(player.level().getServer());
+        var result = ModMindEntry.skillTreeService().addSkillXp(player, reward.skillTreeId(), reward.amount(),
+                dev.modmind.omnitools.skills.SkillXpSource.REWARD);
+        if (!result.granted()) {
+            return blocked(ledger, event, reward, "skill_xp_" + result.status().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+        ledger.flush(player.level().getServer());
+        return SingleResult.granted();
     }
 
     private SingleResult grantCurrency(ServerPlayer player, RewardDefinition reward, RewardClaimLedger ledger,
@@ -360,7 +379,8 @@ public final class RewardGrantService {
     private static boolean isManualResolutionRequired(String reason) {
         return "item_delivery_outcome_unknown".equals(reason)
                 || "command_dispatch_outcome_unknown".equals(reason)
-                || "command_dispatch_failed_no_replay".equals(reason);
+                || "command_dispatch_failed_no_replay".equals(reason)
+                || "skill_xp_outcome_unknown".equals(reason);
     }
 
     private static String substitute(String command, ServerPlayer player) {

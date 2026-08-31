@@ -79,11 +79,17 @@ config/omnitools/packages/config.json
 | `icon` | 已注册物品 ID | 无效物品会阻止重载。 |
 | `mode` | `all` 或 `random_one` | 缺省为 `all`。 |
 | `version` | 正整数，缺省 `1` | 定义版本写入实例快照，仅用于审计和迁移识别。 |
-| `items` | 1--256 条 | 条目数量还必须不超过 `max_delivery_stacks_per_package`。 |
+| `items` | 0--256 条 | 可与 `skill_xp` 混合；至少要存在 `items` 或 `skill_xp` 之一。条目数量还必须不超过 `max_delivery_stacks_per_package`。 |
 | `items[].id` | `[a-z0-9_.-]{1,64}` | 礼包内稳定条目 ID，不得重复。 |
 | `items[].item`、`count`、`components` | 简单物品写法 | 与 `nbt` 二选一；原型堆叠数为 1--64，最终会规范化为 1。 |
 | `items[].nbt` | 完整 ItemStack SNBT，最多 32 KiB | 与 `item`、`count`、`components` 二选一。 |
 | `items[].quantity` | 正整数，不超过单条上限 | 业务数量可大于 64，投递时按最大堆叠数拆分。 |
+| `skill_xp` | 1--32 条，可选 | 礼包内的技能树经验奖励；配置后要求技能树模块已启用。 |
+| `skill_xp[].id` | `[a-z0-9_.-]{1,64}` | 礼包内稳定技能经验条目 ID，不得重复。 |
+| `skill_xp[].amount` | 正整数 | 通过统一技能经验接口发放。 |
+| `skill_xp[].mode` | `fixed` / `random` / `player_choice` | 指定树、随机树或玩家自选。缺省为 `fixed`。 |
+| `skill_xp[].tree` | 技能树 ID | 仅 `fixed` 模式使用，必须是一个已配置技能树。 |
+| `skill_xp[].trees` | 1--32 个技能树 ID | `random` 与 `player_choice` 模式使用，候选树都必须有效。 |
 
 不支持礼包嵌套。无效物品、组件、SNBT、数量、重复 ID 或超限条目会使整次重载失败并保留旧配置。
 
@@ -105,9 +111,23 @@ config/omnitools/packages/config.json
 }
 ```
 
-`all` 发放所有条目；`random_one` 只选择一个条目并发放其完整数量。随机选择由服务端生成并立即持久化，重启不会重新随机。
+`all` 发放所有物品条目；`random_one` 只选择一个物品条目并发放其完整数量。随机选择由服务端生成并立即持久化，重启不会重新随机。
 
-实例会保存实例 UUID、所有者 UUID、礼包 ID 和版本、名称、描述、图标、模式、物品原型、数量、来源事件、`grantKey`、状态、授予时间和随机选择索引。配置修改不会改变既有快照。
+## 技能经验礼包
+
+礼包可独立配置 `skill_xp`，即使没有物品条目也可使用。三种模式如下：
+
+```json
+"skill_xp": [
+  { "id": "combat_fixed", "mode": "fixed", "tree": "combat", "amount": 1000 },
+  { "id": "random_training", "mode": "random", "trees": ["gathering", "combat", "crafting"], "amount": 1000 },
+  { "id": "chosen_training", "mode": "player_choice", "trees": ["combat", "defense"], "amount": 2000 }
+]
+```
+
+`fixed` 直接锁定配置树；`random` 会在玩家确认打开时等概率选择一个候选树，先将结果写入礼包实例并落盘，再发放经验；`player_choice` 会打开技能树选择界面，玩家只能选择该实例快照中的候选树。选择结果同样先持久化。经验发放使用稳定的礼包实例 ID 作为奖励账本事件键，已成功发放的条目重试时不会重复增加经验；中断在经验写入边界的条目会保守阻塞，等待管理员处理。
+
+实例会保存实例 UUID、所有者 UUID、礼包 ID 和版本、名称、描述、图标、模式、物品原型、数量、技能经验候选项及解析结果、来源事件、`grantKey`、状态、授予时间和随机选择索引。配置修改不会改变既有快照。
 
 奖励来源的 `grantKey` 为 `eventId + "#" + rewardId`。非空 `grantKey` 创建前会查询同一玩家的已有实例并复用，保证奖励账本从 `APPLYING` 恢复时不会重复创建。管理员 `give` 使用空授权键，按命令批次独立创建。
 
@@ -162,7 +182,7 @@ DELIVERING（不确定中断）-> BLOCKED
 
 先确认根开关、权限和模块状态，再检查 V2 字段、定义/条目 ID、物品 ID 或 SNBT、数量及条目上限。使用 `package list` 和 `package inspect` 查看批次及堆状态；不确定状态先备份世界并查阅审计日志，不能删除账本记录来“修复”重复发放。
 
-测试服至少验证：`all` 和 `random_one`、超过 64 的数量拆分、NBT/组件保真、背包满后的 `WAITING_INBOX`、重复点击、奖励 `APPLYING` 恢复、重启后随机索引保持、配置重载不影响旧快照、`give` 全量预检/回滚，以及玩家无法打开其他玩家实例。
+测试服至少验证：`all` 和 `random_one`、`fixed` / `random` / `player_choice` 技能经验、超过 64 的数量拆分、NBT/组件保真、背包满后的 `WAITING_INBOX`、重复点击、奖励 `APPLYING` 恢复、重启后物品随机索引与技能树随机结果保持、配置重载不影响旧快照、`give` 全量预检/回滚，以及玩家无法打开其他玩家实例。
 
 ## 当前未实现与规划
 

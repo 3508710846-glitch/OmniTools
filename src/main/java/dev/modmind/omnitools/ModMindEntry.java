@@ -7,6 +7,8 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -61,6 +63,9 @@ import dev.modmind.omnitools.packages.PackageData;
 import dev.modmind.omnitools.packages.PackageInstance;
 import dev.modmind.omnitools.packages.PackageDeliveryBatch;
 import dev.modmind.omnitools.packages.PackageAuditLog;
+import dev.modmind.omnitools.skills.SkillTreeConfig;
+import dev.modmind.omnitools.skills.SkillTreeService;
+import dev.modmind.omnitools.skills.SkillXpSource;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -78,6 +83,7 @@ public final class ModMindEntry implements ModInitializer {
     private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
     private static final LeaderboardService LEADERBOARD_SERVICE = new LeaderboardService();
     private static final PackageService PACKAGE_SERVICE = new PackageService();
+    private static final SkillTreeService SKILL_TREE_SERVICE = new SkillTreeService(SkillTreeConfig.empty());
     private static final ShopPurchaseService SHOP_PURCHASE_SERVICE = new ShopPurchaseService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
     private static final ModuleControlService MODULE_CONTROL = new ModuleControlService(CONFIG_MANAGER);
@@ -91,6 +97,7 @@ public final class ModMindEntry implements ModInitializer {
             rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
             onlineTimeRewardService = new OnlineTimeRewardService();
             achievementService = AchievementService.empty();
+            SKILL_TREE_SERVICE.replace(SkillTreeConfig.empty());
             CDK_SERVICE.replace(CdkConfig.empty());
             LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
         });
@@ -107,6 +114,7 @@ public final class ModMindEntry implements ModInitializer {
             onlineTimeRewardService().flushAll(server);
             TIMED_ENTITLEMENTS.flush(server);
             TitleEffectService.removeAll(server);
+            SKILL_TREE_SERVICE.removeAll(server);
             TitleDisplayService.clearAll(server);
             TitleData.unbind(server);
         });
@@ -117,6 +125,9 @@ public final class ModMindEntry implements ModInitializer {
                     PackageData.get(server).cleanupHistory(server,
                             configSnapshot.packages().settings().historyRetentionDays());
                 }
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                SKILL_TREE_SERVICE.tick(server);
             }
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 onlineTimeRewardService().tick(server);
@@ -137,6 +148,18 @@ public final class ModMindEntry implements ModInitializer {
                 sidebarService().tick(server);
             }
         });
+        PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
+            if (player instanceof ServerPlayer serverPlayer && isModuleEnabled(ModuleId.SKILLS)) {
+                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "gathering", 5L, SkillXpSource.BLOCK_BREAK);
+            }
+        });
+        ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((world, entity, killedEntity, damageSource) -> {
+            if (entity instanceof ServerPlayer player && isModuleEnabled(ModuleId.SKILLS)) {
+                SKILL_TREE_SERVICE.addSkillXp(player, "combat", 15L, SkillXpSource.ENTITY_KILL);
+                SKILL_TREE_SERVICE.addSkillXp(player, "defense", 8L, SkillXpSource.ENTITY_KILL);
+                SKILL_TREE_SERVICE.addSkillXp(player, "hunting", 20L, SkillXpSource.ENTITY_KILL);
+            }
+        });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
@@ -153,6 +176,9 @@ public final class ModMindEntry implements ModInitializer {
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
                 achievementService().check(player);
                 achievementService().retryPending(player);
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                SKILL_TREE_SERVICE.refreshAttributes(player);
             }
             if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
                 CheckinData.get(player).ensureFirstSeen(player.getUUID(),
@@ -178,6 +204,7 @@ public final class ModMindEntry implements ModInitializer {
             TIMED_ENTITLEMENTS.flush(server);
             TitleDisplayService.onDisconnect(handler.getPlayer());
             achievementService().forgetMenuSnapshot(handler.getPlayer());
+            SKILL_TREE_SERVICE.forget(handler.getPlayer());
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
                 TitleEffectService.remove(handler.getPlayer());
             }
@@ -193,6 +220,9 @@ public final class ModMindEntry implements ModInitializer {
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
                 TitleDisplayService.refreshPlayer(newPlayer);
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                SKILL_TREE_SERVICE.refreshAttributes(newPlayer);
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
                 sidebarService().onJoin(newPlayer);
@@ -215,7 +245,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.CDK_REDEEM, CommandAction.CDK_ADMIN,
                             CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT,
                             CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE, CommandAction.PACKAGE_INSPECT,
-                            CommandAction.PACKAGE_REMOVE, CommandAction.PACKAGE_RESOLVE, CommandAction.PACKAGE_CANCEL))
+                            CommandAction.PACKAGE_REMOVE, CommandAction.PACKAGE_RESOLVE, CommandAction.PACKAGE_CANCEL,
+                            CommandAction.SKILLS_OPEN, CommandAction.SKILLS_ADMIN))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -228,6 +259,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(achievementCommand())
                     .then(leaderboardCommand("leaderboard"))
                     .then(packageCommand())
+                    .then(skillTreeCommand())
                     .then(checkinCardsAndMakeupCommand())
                     .then(cdkCommand())
                     .then(sidebarCommand())
@@ -307,6 +339,7 @@ public final class ModMindEntry implements ModInitializer {
             target.register(packageCommand());
             target.register(packageCommand("packages"));
         });
+        commands.register(ModuleId.SKILLS, target -> target.register(skillTreeCommand()));
         commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("balance")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
                         CommandAction.CURRENCY_BALANCE_OTHER))
@@ -351,7 +384,7 @@ public final class ModMindEntry implements ModInitializer {
         return titleConfig;
     }
 
-    static TitleEffectConfig titleEffectConfig() {
+    public static TitleEffectConfig titleEffectConfig() {
         return titleEffectConfig;
     }
 
@@ -391,7 +424,7 @@ public final class ModMindEntry implements ModInitializer {
         return configSnapshot.enabled(module);
     }
 
-    static ZoneId configuredZone() {
+    public static ZoneId configuredZone() {
         return configSnapshot.zoneId();
     }
 
@@ -411,12 +444,15 @@ public final class ModMindEntry implements ModInitializer {
         cloudStorageConfig = snapshot.cloudStorage();
         CDK_SERVICE.replace(snapshot.cdk());
         LEADERBOARD_SERVICE.replace(snapshot.leaderboards());
+        SKILL_TREE_SERVICE.replace(snapshot.skills());
         // Keep existing achievement menus bound to the live service. Its revision
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
     }
 
     public static PackageService packageService() { return PACKAGE_SERVICE; }
+
+    public static SkillTreeService skillTreeService() { return SKILL_TREE_SERVICE; }
 
     public static ShopPurchaseService shopPurchaseService() { return SHOP_PURCHASE_SERVICE; }
 
@@ -432,6 +468,9 @@ public final class ModMindEntry implements ModInitializer {
         if (previous.enabled(ModuleId.TITLES) && !current.enabled(ModuleId.TITLES)) {
             TIMED_ENTITLEMENTS.flush(server);
             TitleDisplayService.clearAll(server);
+        }
+        if (previous.enabled(ModuleId.SKILLS) && !current.enabled(ModuleId.SKILLS)) {
+            SKILL_TREE_SERVICE.removeAll(server);
         }
         applySnapshot(current);
         warnPermissiveCommandSecurity(current);
@@ -452,6 +491,9 @@ public final class ModMindEntry implements ModInitializer {
         }
         if (current.enabled(ModuleId.ACHIEVEMENTS)) {
             achievementService().checkAll(server);
+        }
+        if (current.enabled(ModuleId.SKILLS)) {
+            SKILL_TREE_SERVICE.refreshAll(server);
         }
         refreshCommandMenus(server, current);
         if (current.enabled(ModuleId.SIDEBAR)) {
@@ -549,6 +591,44 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
                         .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> skillTreeCommand() {
+        return Commands.literal("skills")
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.SKILLS_OPEN, CommandAction.SKILLS_ADMIN)
+                        .and(source -> isModuleEnabled(ModuleId.SKILLS)))
+                .executes(context -> openSkillTreeMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_OPEN))
+                        .executes(context -> openSkillTreeMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("add").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_ADMIN))
+                        .then(Commands.argument("tree", StringArgumentType.word())
+                                .then(Commands.argument("amount", LongArgumentType.longArg(1L, 1_000_000_000L))
+                                        .executes(ModMindEntry::addSkillXpToSource))));
+    }
+
+    private static int openSkillTreeMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.SKILLS) || !COMMAND_PERMISSIONS.canUse(player, CommandAction.SKILLS_OPEN)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider((syncId, inventory, ignored) -> SkillTreeScreenHandler.createServer(
+                syncId, inventory, player, SKILL_TREE_SERVICE), Component.literal("技能树")));
+        return 1;
+    }
+
+    private static int addSkillXpToSource(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        String tree = StringArgumentType.getString(context, "tree");
+        long amount = LongArgumentType.getLong(context, "amount");
+        SkillTreeService.XpResult result = SKILL_TREE_SERVICE.addSkillXp(player, tree, amount, SkillXpSource.COMMAND);
+        if (!result.granted()) {
+            context.getSource().sendFailure(Component.literal("技能经验未发放：" + result.status().name().toLowerCase(java.util.Locale.ROOT)));
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.literal("已发放 " + result.acceptedXp() + " 点 " + tree
+                + " 技能经验，当前等级 " + result.progress().level()), true);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> achievementCommand() {
@@ -1897,6 +1977,10 @@ public final class ModMindEntry implements ModInitializer {
                         && (player.containerMenu instanceof PackageScreenHandler
                         || player.containerMenu instanceof PackagePreviewScreenHandler
                         || player.containerMenu instanceof PackageConfirmScreenHandler))
+                    || (!snapshot.enabled(ModuleId.SKILLS)
+                    && player.containerMenu instanceof SkillTreeScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.SKILLS_OPEN)
+                    && player.containerMenu instanceof SkillTreeScreenHandler)
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
