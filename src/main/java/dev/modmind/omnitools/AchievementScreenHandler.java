@@ -291,7 +291,8 @@ public final class AchievementScreenHandler extends ChestMenu {
         appendRewards(achievement.rewards(), lore);
         appendPendingRewardReason(achievement, lore);
         return GuiStatusItem.create(displayIcon(achievement, displayState), achievementName(achievement, displayState),
-                visualState, GuiTextService.cardLore(lore, statusLines(displayState, progress, color),
+                visualState, GuiTextService.cardLore(lore,
+                        ServerText.translatable(stateFooterTranslationKey(displayState)).withStyle(color),
                         MAX_ACHIEVEMENT_LORE_LINES), MAX_ACHIEVEMENT_LORE_LINES);
     }
 
@@ -334,15 +335,6 @@ public final class AchievementScreenHandler extends ChestMenu {
                                       AchievementDisplayState displayState) {
         return ServerText.translatable(stateNameTranslationKey(displayState)).append(Component.literal(" "))
                 .append(TextTemplateRenderer.render(owner, achievement.display()));
-    }
-
-    private static List<Component> statusLines(AchievementDisplayState displayState, ConditionProgress progress,
-                                               ChatFormatting color) {
-        return List.of(
-                ServerText.translatable("gui.omnitools.achievement.progress", progress.current(), progress.target())
-                        .withStyle(color),
-                ServerText.translatable(stateStatusTranslationKey(displayState)).withStyle(color)
-        );
     }
 
     private void showNonClaimableFeedback(ServerPlayer player, AchievementDisplayState displayState) {
@@ -656,12 +648,12 @@ public final class AchievementScreenHandler extends ChestMenu {
         };
     }
 
-    private static String stateStatusTranslationKey(AchievementDisplayState displayState) {
+    private static String stateFooterTranslationKey(AchievementDisplayState displayState) {
         return switch (displayState) {
-            case LOCKED -> "gui.omnitools.achievement.status.locked";
-            case IN_PROGRESS -> "gui.omnitools.achievement.status.in_progress";
-            case CLAIMABLE -> "gui.omnitools.achievement.status.claimable";
-            case CLAIMED -> "gui.omnitools.achievement.status.claimed";
+            case LOCKED -> "gui.omnitools.achievement.state.locked";
+            case IN_PROGRESS -> "gui.omnitools.achievement.in_progress";
+            case CLAIMABLE -> "gui.omnitools.achievement.available";
+            case CLAIMED -> "gui.omnitools.achievement.claimed_status";
         };
     }
 

@@ -41,22 +41,6 @@ class GuiLayoutTest {
     }
 
     @Test
-    void cardLoreReservesEveryFixedFooterLine() {
-        List<Component> lore = GuiTextService.cardLore(List.of(
-                Component.literal("description"),
-                Component.literal("condition"),
-                Component.literal("reward one"),
-                Component.literal("reward two"),
-                Component.literal("overflow")),
-                List.of(Component.literal("progress"), Component.literal("status")), 6);
-
-        assertEquals(6, lore.size());
-        assertEquals("progress", lore.get(4).getString());
-        assertEquals("status", lore.getLast().getString());
-        assertTrue(lore.stream().noneMatch(line -> line.getString().equals("overflow")));
-    }
-
-    @Test
     void pagedMenusUseTheSharedContentAreaWithoutTouchingHeaders() {
         assertEquals(GuiSlots.CONTENT_SLOT_COUNT_54, ShopScreenHandler.PRODUCT_SLOT_COUNT);
         assertEquals(GuiSlots.CONTENT_SLOT_COUNT_54, CheckinRecordsScreenHandler.RECORD_SLOT_COUNT);

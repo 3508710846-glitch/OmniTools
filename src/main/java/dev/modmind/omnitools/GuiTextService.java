@@ -46,15 +46,9 @@ public final class GuiTextService {
 
     /** Keeps a status/action footer visible with a caller-selected card height. */
     public static List<Component> cardLore(List<Component> details, Component footer, int maximumLines) {
-        return cardLore(details, footer == null ? List.of() : List.of(footer), maximumLines);
-    }
-
-    /** Keeps every fixed footer visible after truncating card details. */
-    public static List<Component> cardLore(List<Component> details, List<Component> footers, int maximumLines) {
         int cardLimit = Math.max(1, Math.min(MAX_LORE_LINES, maximumLines));
-        List<Component> footerLines = compactLore(footers, cardLimit);
-        int detailLimit = Math.max(0, cardLimit - footerLines.size());
         List<Component> lines = new ArrayList<>(cardLimit);
+        int detailLimit = Math.max(0, cardLimit - 1);
         if (details != null) {
             for (Component detail : details) {
                 if (detail != null && lines.size() == detailLimit) {
@@ -65,7 +59,9 @@ public final class GuiTextService {
                 }
             }
         }
-        lines.addAll(footerLines);
+        if (footer != null) {
+            lines.add(footer);
+        }
         return compactLore(lines, cardLimit);
     }
 
