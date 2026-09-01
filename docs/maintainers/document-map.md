@@ -10,7 +10,7 @@
 | `docs/getting-started/*.md` | canonical | 文档维护者 | 新服主上手和通用排错；不维护第二份模块命令表。 |
 | `docs/modules/<module>.md` | canonical | 对应模块维护者 | 模块用途、开关、配置、命令、数据与模块级重载行为的唯一说明。 |
 | `docs/reference/root-config.md` | canonical | 配置平台维护者 | 根配置字段、默认值和安全边界。 |
-| `docs/reference/rewards.md` | canonical | 奖励系统维护者 | 奖励类型、NBT 物品、限时称号、补签卡和指令安全。 |
+| `docs/reference/rewards.md` | canonical | 奖励系统维护者 | 奖励类型、NBT 物品、限时称号、技能经验、补签卡和指令安全。 |
 | `docs/reference/placeholders.md` | canonical | 文本集成维护者 | 内置占位符、回退值和支持模块。 |
 | `docs/reference/placeholder-api.md` | canonical | 文本集成维护者 | 可选 Text Placeholder API 的安装、开关与文本边界。 |
 | `docs/guides/module-management.md`、`upgrade-guide.md`、`backup-and-recovery.md`、`reward-consistency.md` | canonical | 运维维护者 | 模块管理、升级、备份和奖励账本处理流程。 |

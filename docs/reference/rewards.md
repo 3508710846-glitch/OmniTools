@@ -44,6 +44,7 @@ V1 的 `templates`、模块内 `template` 和 `$ref` 仍兼容，且保留旧的
 | `command` | `id`、`run_as`、`command` | 仅允许控制台执行，并受命令奖励开关、长度、冷却和 `allowed_roots` 白名单限制。 |
 | `makeup_card` | `id`、`amount` | 发放服务端虚拟补签卡，受 `daily_checkin.makeup.max_cards` 限制。 |
 | `package` | `id`、`package` | 创建礼包虚拟实例；礼包模块必须启用且定义存在。 |
+| `skill_xp` | `id`、`tree`、`amount` | 向一个固定技能树发放经验；技能树模块必须启用。 |
 
 ## 物品与 SNBT
 
@@ -102,6 +103,16 @@ V1 的 `templates`、模块内 `template` 和 `$ref` 仍兼容，且保留旧的
 ```
 
 奖励账本的 `grantKey` 为 `eventId + "#" + rewardId`。恢复 `APPLYING` 时先按玩家和 `grantKey` 查询已有实例并复用，保证不会重复创建。礼包的快照、随机选择、分批投递、`WAITING_INBOX`、`BLOCKED` 和管理员处置见[礼包模块](../modules/packages.md)。
+
+## 技能经验奖励
+
+统一奖励的技能经验只能指定一棵固定技能树：
+
+```json
+{ "id": "combat_training", "type": "skill_xp", "tree": "combat", "amount": 1000 }
+```
+
+`tree` 必须是已配置的技能树 ID，`amount` 必须为正整数。`title_bonus` 缺省为 `true`；设为 `false` 时，该条奖励不应用当前佩戴称号的技能经验加成。奖励使用同一账本状态机处理，重复处理相同事件和奖励 ID 不会再次增加经验；不确定的写入会保守进入人工处理流程。需要随机树或玩家自选树时，应改用礼包的 `skill_xp` 条目，详见[技能树](../modules/skills.md#礼包技能经验)和[礼包模块](../modules/packages.md#技能经验礼包)。
 
 ## 补签卡奖励
 

@@ -70,7 +70,6 @@ import dev.modmind.omnitools.skills.SkillXpSource;
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
     private static CheckinRewardService rewardService;
-    private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService();
     private static final TimedEntitlementService TIMED_ENTITLEMENTS = new TimedEntitlementService();
     private static final CheckinMakeupService CHECKIN_MAKEUP_SERVICE = new CheckinMakeupService();
     private static final CdkService CDK_SERVICE = new CdkService(CdkConfig.empty());
@@ -82,7 +81,8 @@ public final class ModMindEntry implements ModInitializer {
     private static AchievementService achievementService = AchievementService.empty();
     private static final SidebarService SIDEBAR_SERVICE = new SidebarService();
     private static final LeaderboardService LEADERBOARD_SERVICE = new LeaderboardService();
-    private static final PackageService PACKAGE_SERVICE = new PackageService();
+    private static final PackageService PACKAGE_SERVICE = new PackageService(ModMindEntry::rewardGrantService);
+    private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService(PACKAGE_SERVICE);
     private static final SkillTreeService SKILL_TREE_SERVICE = new SkillTreeService(SkillTreeConfig.empty());
     private static final ShopPurchaseService SHOP_PURCHASE_SERVICE = new ShopPurchaseService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();

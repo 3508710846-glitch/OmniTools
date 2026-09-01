@@ -69,6 +69,7 @@ V1 的 `templates`、`template` 与 `$ref` 仍受支持。模板引用保留调�
 | 侧边栏 | `sidebar.jsonc` | `sidebar.schema.json` |
 | 排行榜 | `leaderboards.jsonc` | `leaderboards.schema.json` |
 | 礼包 | `packages.jsonc` | `packages.schema.json` |
+| 技能树 | 首次启用生成 `skills/config.json` | 无独立 Schema；由服务端固定规则校验 |
 
 公共 Schema 为 `common-rewards.schema.json`、`common-conditions.schema.json` 和 `common-texts.schema.json`。奖励库引用仅可用于签到、在线奖励、成就和 CDK 的奖励列表；条件模板仅可用于成就条件。两者都不能让命令执行、权限绕过或持久化数据规则变为可配置项。
 

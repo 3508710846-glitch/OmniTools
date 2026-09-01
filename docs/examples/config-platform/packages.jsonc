@@ -87,13 +87,15 @@
           "id": "random_training",
           "mode": "random",
           "trees": ["gathering", "combat", "defense", "hunting", "crafting", "survival"],
-          "amount": 1000
+          "amount": 1000,
+          "title_bonus": false
         },
         {
           "id": "chosen_training",
           "mode": "player_choice",
           "trees": ["gathering", "combat", "crafting"],
-          "amount": 2000
+          "amount": 2000,
+          "title_bonus": true
         }
       ]
     }

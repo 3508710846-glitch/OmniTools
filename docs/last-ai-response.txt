@@ -1,7 +1,11 @@
-礼包技能经验已补齐三种模式：`fixed`、`random`、`player_choice`。
+可以，礼包系统已与技能树联动。
 
-随机目标会在发奖前持久化；自选进入新的技能树选择界面；经验发放复用稳定的礼包实例账本事件，避免重试重复增加经验。实例与商店快照均保存技能经验候选和解析结果。
+礼包的 `skill_xp` 条目支持三种模式：
 
-更新了 [礼包服务](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/packages/PackageService.java)、[选择界面](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/PackageSkillXpSelectionScreenHandler.java)、[配置 Schema](D:/mod/qiandao/docs/schemas/packages.schema.json) 与[示例文档](D:/mod/qiandao/docs/modules/packages.md)。
+- `fixed`：定向发放到指定技能树。
+- `random`：从配置候选树中随机选择，优先排除满级树；随机结果会先持久化，再发经验。
+- `player_choice`：打开礼包后由玩家在候选树中自选。
 
-ModMind 内容校验通过：4 个文件，无错误或警告。按指令未重跑已完成的受管构建和运行测试。
+发放通过统一技能经验接口结算，能触发升级提示、百级公告、属性成长与满级后的精通经验转换。每条礼包经验还可配置 `title_bonus`，决定是否享受称号经验加成。
+
+礼包奖励具备持久化与账本幂等处理：重复打开或重试不会重新随机，也不会重复发经验。配置示例见 [packages.jsonc](D:/mod/qiandao/docs/examples/config-platform/packages.jsonc:84)。

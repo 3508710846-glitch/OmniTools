@@ -7,7 +7,7 @@ import java.util.Locale;
 
 /** Immutable, persisted package skill-XP promise with a resolved target when one is available. */
 public record PackageSkillXpGrant(String id, long amount, PackageSkillXp.Mode mode, List<TreeOption> options,
-                                  String resolvedTreeId) {
+                                  String resolvedTreeId, boolean applyTitleXpBonus) {
     public PackageSkillXpGrant {
         id = normalizeId(id, "skill XP id");
         if (amount < 1L) {
@@ -24,13 +24,20 @@ public record PackageSkillXpGrant(String id, long amount, PackageSkillXp.Mode mo
         if (options.stream().map(TreeOption::treeId).distinct().count() != options.size()) {
             throw new IllegalArgumentException("Package skill XP contains duplicate tree options");
         }
-        resolvedTreeId = resolvedTreeId == null ? "" : resolvedTreeId.trim().toLowerCase(Locale.ROOT);
-        if (!resolvedTreeId.isBlank() && options.stream().noneMatch(option -> option.treeId().equals(resolvedTreeId))) {
+        final String requestedResolvedTreeId = resolvedTreeId == null ? "" : resolvedTreeId.trim().toLowerCase(Locale.ROOT);
+        if (!requestedResolvedTreeId.isBlank() && options.stream().noneMatch(option -> option.treeId().equals(requestedResolvedTreeId))) {
             throw new IllegalArgumentException("Resolved package skill XP tree is not an option");
         }
-        if (mode == PackageSkillXp.Mode.FIXED && resolvedTreeId.isBlank()) {
+        if (mode == PackageSkillXp.Mode.FIXED && requestedResolvedTreeId.isBlank()) {
             resolvedTreeId = options.getFirst().treeId();
+        } else {
+            resolvedTreeId = requestedResolvedTreeId;
         }
+    }
+
+    public PackageSkillXpGrant(String id, long amount, PackageSkillXp.Mode mode, List<TreeOption> options,
+                               String resolvedTreeId) {
+        this(id, amount, mode, options, resolvedTreeId, false);
     }
 
     public boolean requiresPlayerChoice() {
@@ -46,14 +53,14 @@ public record PackageSkillXpGrant(String id, long amount, PackageSkillXp.Mode mo
         if (options.stream().noneMatch(option -> option.treeId().equals(normalized))) {
             throw new IllegalArgumentException("Selected package skill XP tree is not an option");
         }
-        return new PackageSkillXpGrant(id, amount, mode, options, normalized);
+        return new PackageSkillXpGrant(id, amount, mode, options, normalized, applyTitleXpBonus);
     }
 
     public RewardDefinition asRewardDefinition() {
         if (resolvedTreeId.isBlank()) {
             throw new IllegalStateException("Package skill XP target was not resolved");
         }
-        return RewardDefinition.skillXp(id, resolvedTreeId, amount);
+        return RewardDefinition.skillXp(id, resolvedTreeId, amount, applyTitleXpBonus);
     }
 
     private static String normalizeId(String value, String label) {

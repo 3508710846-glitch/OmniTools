@@ -95,7 +95,12 @@ public final class PackageConfirmScreenHandler extends ChestMenu {
         } else {
             serverPlayer.playSound(SoundEvents.UI_BUTTON_CLICK.value(), 0.7f, 0.5f);
         }
-        serverPlayer.displayClientMessage(Component.literal(openResultMessage(result.result()))
+        String resultMessage = openResultMessage(result.result());
+        if (result.result() == PackageService.Result.OPENED && result.instance() != null
+                && !result.instance().skillXpGrants().isEmpty()) {
+            resultMessage += "；技能经验已按礼包配置发放";
+        }
+        serverPlayer.displayClientMessage(Component.literal(resultMessage)
                 .withStyle(result.result() == PackageService.Result.OPENED ? ChatFormatting.GREEN : ChatFormatting.YELLOW), true);
         PackageScreenHandler.open(serverPlayer, listPage);
     }

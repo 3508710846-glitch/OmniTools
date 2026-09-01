@@ -18,7 +18,12 @@ import java.util.UUID;
 
 /** Applies one event in configuration order with per-reward idempotency and durable failure state. */
 public final class RewardGrantService {
-    private final PackageService packageService = new PackageService();
+    private final PackageService packageService;
+
+    public RewardGrantService(PackageService packageService) {
+        this.packageService = java.util.Objects.requireNonNull(packageService, "packageService");
+    }
+
     public RewardGrantResult grant(ServerPlayer player, RewardEvent event, List<RewardDefinition> rewards) {
         if (!player.getUUID().equals(event.playerId())) {
             return RewardGrantResult.failed(0, 0, "reward event belongs to another player");
@@ -214,7 +219,7 @@ public final class RewardGrantService {
         ledger.beginApplying(event, reward.id(), "skill_xp_apply");
         ledger.flush(player.level().getServer());
         var result = ModMindEntry.skillTreeService().addSkillXp(player, reward.skillTreeId(), reward.amount(),
-                dev.modmind.omnitools.skills.SkillXpSource.REWARD);
+                dev.modmind.omnitools.skills.SkillXpSource.REWARD, reward.applyTitleXpBonus());
         if (!result.granted()) {
             return blocked(ledger, event, reward, "skill_xp_" + result.status().name().toLowerCase(java.util.Locale.ROOT));
         }

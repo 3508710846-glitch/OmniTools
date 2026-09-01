@@ -425,7 +425,7 @@ public final class PackageData extends SavedData {
                         option.getStringOr("display", ""), option.getStringOr("icon", "")));
             }
             grants.add(new PackageSkillXpGrant(tag.getStringOr("id", ""), tag.getLongOr("amount", 0L), mode,
-                    options, tag.getStringOr("resolved_tree", "")));
+                    options, tag.getStringOr("resolved_tree", ""), tag.getBooleanOr("title_bonus", false)));
         }
         return List.copyOf(grants);
     }
@@ -638,6 +638,7 @@ public final class PackageData extends SavedData {
             tag.putString("id", grant.id());
             tag.putLong("amount", grant.amount());
             tag.putString("mode", grant.mode().serializedName());
+            if (grant.applyTitleXpBonus()) tag.putBoolean("title_bonus", true);
             if (!grant.resolvedTreeId().isBlank()) {
                 tag.putString("resolved_tree", grant.resolvedTreeId());
             }

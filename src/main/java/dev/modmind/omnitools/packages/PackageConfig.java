@@ -103,7 +103,7 @@ public record PackageConfig(int formatVersion, Settings settings, List<PackageDe
             String entryContext = context + ".skill_xp[" + index + "]";
             if (!value.isJsonObject()) throw new JsonParseException(entryContext + " must be an object");
             JsonObject entry = value.getAsJsonObject();
-            ConfigFieldReporter.warnUnknown(entry, entryContext, Set.of("id", "amount", "mode", "tree", "trees"));
+            ConfigFieldReporter.warnUnknown(entry, entryContext, Set.of("id", "amount", "mode", "tree", "trees", "title_bonus"));
             String id = requiredString(entry, "id", entryContext);
             if (!ids.add(id.toLowerCase(Locale.ROOT))) throw new JsonParseException(context + " has duplicate skill_xp id " + id);
             PackageSkillXp.Mode mode;
@@ -131,7 +131,14 @@ public record PackageConfig(int formatVersion, Settings settings, List<PackageDe
                 }
             }
             try {
-                parsed.add(new PackageSkillXp(id, positiveLong(entry, "amount", entryContext), mode, trees));
+                boolean titleBonus = entry.has("title_bonus") && entry.get("title_bonus").isJsonPrimitive()
+                        && entry.getAsJsonPrimitive("title_bonus").isBoolean()
+                        && entry.get("title_bonus").getAsBoolean();
+                if (entry.has("title_bonus") && (!entry.get("title_bonus").isJsonPrimitive()
+                        || !entry.getAsJsonPrimitive("title_bonus").isBoolean())) {
+                    throw new JsonParseException(entryContext + ".title_bonus must be a boolean");
+                }
+                parsed.add(new PackageSkillXp(id, positiveLong(entry, "amount", entryContext), mode, trees, titleBonus));
             } catch (IllegalArgumentException exception) {
                 throw new JsonParseException(entryContext + " is invalid: " + exception.getMessage(), exception);
             }

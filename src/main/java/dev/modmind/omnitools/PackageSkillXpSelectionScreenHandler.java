@@ -94,6 +94,10 @@ public final class PackageSkillXpSelectionScreenHandler extends ChestMenu {
         if (result.result() == PackageService.Result.SELECTION_REQUIRED) {
             open(serverPlayer, instanceId, listPage, previewPage);
         } else {
+            if (result.result() == PackageService.Result.OPENED) {
+                serverPlayer.displayClientMessage(Component.literal("技能经验礼包已领取：" + pendingGrant.amount()
+                        + " 点经验已发放").withStyle(ChatFormatting.GREEN), true);
+            }
             PackageScreenHandler.open(serverPlayer, listPage);
         }
     }
@@ -119,7 +123,7 @@ public final class PackageSkillXpSelectionScreenHandler extends ChestMenu {
             Identifier identifier = Identifier.tryParse(option.iconId());
             ItemStack icon = new ItemStack(identifier == null ? Items.EXPERIENCE_BOTTLE
                     : BuiltInRegistries.ITEM.getOptional(identifier).orElse(Items.EXPERIENCE_BOTTLE));
-            container.setItem(GuiSlots.contentSlot54(index), GuiTheme.status(icon,
+            container.setItem(GuiSlots.contentSlot54(index), GuiTheme.status(icon.getItem(),
                     Component.literal(option.display()), ChatFormatting.AQUA,
                     List.of(Component.literal("获得 " + pendingGrant.amount() + " 技能经验").withStyle(ChatFormatting.GOLD),
                             Component.literal("点击选择").withStyle(ChatFormatting.GREEN)), false));

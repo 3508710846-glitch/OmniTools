@@ -27,7 +27,9 @@ public final class SkillTreeScreenHandler extends ChestMenu {
     private static final int SIZE = ROWS * 9;
     private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_54;
     private static final int BACK_SLOT = GuiSlots.HEADER_LEFT_54;
+    private static final int MASTERY_RESERVE_SLOT = 29;
     private static final int ATTRIBUTE_SLOT = 31;
+    private static final int UNIFORM_REWARD_SLOT = 33;
     private static final int[] SKILL_SLOTS = {11, 13, 15, 17};
     private final SimpleContainer container;
     private final ServerPlayer owner;
@@ -92,6 +94,16 @@ public final class SkillTreeScreenHandler extends ChestMenu {
             refreshContents();
             return;
         }
+        if (slotId == UNIFORM_REWARD_SLOT) {
+            service.claimUniformReward(serverPlayer, selectedTreeId);
+            refreshContents();
+            return;
+        }
+        if (slotId == MASTERY_RESERVE_SLOT) {
+            service.reserveMastery(serverPlayer, selectedTreeId);
+            refreshContents();
+            return;
+        }
         SkillTreeConfig.TreeDefinition tree = service.config().tree(selectedTreeId).orElse(null);
         if (tree == null) {
             selectedTreeId = "";
@@ -133,14 +145,17 @@ public final class SkillTreeScreenHandler extends ChestMenu {
         List<SkillTreeConfig.TreeDefinition> trees = service.config().trees();
         int completed = 0;
         int availablePoints = 0;
+        int totalLevel = 0;
         for (SkillTreeConfig.TreeDefinition tree : trees) {
             SkillTreeData.Progress progress = service.progress(owner, tree.id());
             if (progress.level() >= service.config().settings().maxLevel()) completed++;
             availablePoints += progress.availablePoints();
+            totalLevel += progress.level();
         }
         container.setItem(GuiSlots.HEADER_LEFT_54, GuiTheme.status(Items.EXPERIENCE_BOTTLE,
                 Component.literal("技能树").withStyle(ChatFormatting.AQUA), ChatFormatting.AQUA,
                 List.of(Component.literal("已满级：" + completed + " / " + trees.size()).withStyle(ChatFormatting.GRAY),
+                        Component.literal("总技能等级：" + totalLevel).withStyle(ChatFormatting.GOLD),
                         Component.literal("可用技能点：" + availablePoints).withStyle(ChatFormatting.GREEN)), false));
         container.setItem(GuiSlots.HEADER_CENTER_54, GuiTheme.status(Items.NETHER_STAR,
                 Component.literal("MMO 成长").withStyle(ChatFormatting.GOLD), ChatFormatting.GOLD,
@@ -179,7 +194,7 @@ public final class SkillTreeScreenHandler extends ChestMenu {
         container.setItem(GuiSlots.HEADER_CENTER_54, GuiTheme.status(tree.icon(), Component.literal(tree.display()),
                 ChatFormatting.YELLOW, List.of(Component.literal("等级：" + progress.level() + " / " + service.config().settings().maxLevel()),
                         Component.literal("经验：" + progress.currentXp() + " / " + required),
-                        Component.literal("溢出经验：" + progress.overflowXp()).withStyle(ChatFormatting.DARK_GRAY)), false));
+                        Component.literal("精通经验：" + progress.masteryXp()).withStyle(ChatFormatting.DARK_GRAY)), false));
         for (int index = 0; index < tree.skills().size(); index++) {
             SkillTreeConfig.SkillDefinition skill = tree.skills().get(index);
             boolean unlocked = progress.unlockedSkills().contains(skill.id());
@@ -189,6 +204,11 @@ public final class SkillTreeScreenHandler extends ChestMenu {
             lore.add(Component.literal(skill.description()).withStyle(ChatFormatting.GRAY));
             lore.add(Component.literal("解锁等级：" + skill.unlockLevel()).withStyle(levelReady ? ChatFormatting.GREEN : ChatFormatting.RED));
             lore.add(Component.literal("技能点消耗：" + skill.pointCost()).withStyle(ChatFormatting.GOLD));
+            if (index == tree.skills().size() - 1 && unlocked) {
+                long remaining = service.ultimateCooldownRemainingSeconds(progress);
+                lore.add(Component.literal(remaining == 0L ? "终极效果：就绪" : "终极效果冷却：" + remaining + " 秒")
+                        .withStyle(remaining == 0L ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY));
+            }
             if (unlocked) {
                 lore.add(Component.literal("状态：已解锁").withStyle(ChatFormatting.GREEN));
                 item = GuiTheme.status(Items.GREEN_DYE, Component.literal(skill.display()), ChatFormatting.GREEN, lore, false);
@@ -204,6 +224,14 @@ public final class SkillTreeScreenHandler extends ChestMenu {
         int maxAttributePoints = (int) Math.floor((service.config().settings().pointAttributeCap() + 0.000_000_1D)
                 / service.config().settings().pointAttributeBonus());
         boolean canInvest = progress.availablePoints() > 0 && progress.attributePoints() < maxAttributePoints;
+        boolean canClaimReward = progress.availablePoints() > 0 && service.config().settings().pointRewardCurrency() > 0L;
+        boolean canReserveMastery = progress.availablePoints() > 0;
+        container.setItem(MASTERY_RESERVE_SLOT, GuiTheme.status(canReserveMastery ? Items.NETHER_STAR : Items.GRAY_DYE,
+                Component.literal("精通储备").withStyle(canReserveMastery ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY),
+                canReserveMastery ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY,
+                List.of(Component.literal("已储备：" + progress.masteryPoints() + " 点").withStyle(ChatFormatting.GOLD),
+                        Component.literal(canReserveMastery ? "点击消耗 1 点，为精通兑换保留" : "需要可用技能点")
+                                .withStyle(canReserveMastery ? ChatFormatting.AQUA : ChatFormatting.RED)), canReserveMastery));
         container.setItem(ATTRIBUTE_SLOT, GuiTheme.status(canInvest ? Items.LIME_DYE : Items.GRAY_DYE,
                 Component.literal("属性强化").withStyle(canInvest ? ChatFormatting.GREEN : ChatFormatting.GRAY),
                 canInvest ? ChatFormatting.GREEN : ChatFormatting.GRAY,
@@ -212,6 +240,13 @@ public final class SkillTreeScreenHandler extends ChestMenu {
                         Component.literal("每点增加：" + percent(service.config().settings().pointAttributeBonus())),
                         Component.literal(canInvest ? "点击消耗 1 点强化" : "需要可用技能点或未达到上限")
                                 .withStyle(canInvest ? ChatFormatting.AQUA : ChatFormatting.RED)), canInvest));
+        container.setItem(UNIFORM_REWARD_SLOT, GuiTheme.status(canClaimReward ? Items.SUNFLOWER : Items.GRAY_DYE,
+                Component.literal("统一奖励").withStyle(canClaimReward ? ChatFormatting.YELLOW : ChatFormatting.GRAY),
+                canClaimReward ? ChatFormatting.YELLOW : ChatFormatting.GRAY,
+                List.of(Component.literal("绑定货币：" + service.config().settings().pointRewardCurrency()).withStyle(ChatFormatting.GOLD),
+                        Component.literal("已兑换：" + progress.rewardPoints() + " 次").withStyle(ChatFormatting.GRAY),
+                        Component.literal(canClaimReward ? "点击消耗 1 点领取" : "当前未配置奖励或没有技能点")
+                                .withStyle(canClaimReward ? ChatFormatting.AQUA : ChatFormatting.RED)), canClaimReward));
     }
 
     private static String percent(double value) { return String.format(java.util.Locale.ROOT, "%.1f%%", value * 100.0D); }

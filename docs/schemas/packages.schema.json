@@ -99,7 +99,8 @@
           "maxItems": 32,
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" }
-        }
+        },
+        "title_bonus": { "type": "boolean", "default": false }
       },
       "oneOf": [
         {

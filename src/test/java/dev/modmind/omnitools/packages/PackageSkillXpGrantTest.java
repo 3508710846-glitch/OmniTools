@@ -36,6 +36,16 @@ class PackageSkillXpGrantTest {
     }
 
     @Test
+    void snapshotCarriesExplicitTitleBonusPolicyIntoRewardDefinition() {
+        PackageSkillXpGrant grant = new PackageSkillXpGrant("activity_training", 1000L,
+                PackageSkillXp.Mode.FIXED, List.of(
+                new PackageSkillXpGrant.TreeOption("combat", "Combat", "minecraft:iron_sword")), "", true);
+
+        assertTrue(grant.applyTitleXpBonus());
+        assertTrue(grant.asRewardDefinition().applyTitleXpBonus());
+    }
+
+    @Test
     void instanceKeepsSkillXpSnapshotWhenItsStatusChanges() {
         PackageSkillXpGrant grant = new PackageSkillXpGrant("random_training", 1000L,
                 PackageSkillXp.Mode.RANDOM, List.of(

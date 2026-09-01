@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Locale;
 
 /** Configured skill-XP reward for a virtual package. */
-public record PackageSkillXp(String id, long amount, Mode mode, List<String> treeIds) {
+public record PackageSkillXp(String id, long amount, Mode mode, List<String> treeIds, boolean applyTitleXpBonus) {
     public PackageSkillXp {
         id = normalizeId(id, "skill XP id");
         if (amount < 1L) {
@@ -22,6 +22,10 @@ public record PackageSkillXp(String id, long amount, Mode mode, List<String> tre
         if (treeIds.stream().distinct().count() != treeIds.size()) {
             throw new IllegalArgumentException("Package skill XP contains duplicate tree ids");
         }
+    }
+
+    public PackageSkillXp(String id, long amount, Mode mode, List<String> treeIds) {
+        this(id, amount, mode, treeIds, false);
     }
 
     private static String normalizeId(String value, String label) {

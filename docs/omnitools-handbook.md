@@ -19,21 +19,22 @@ OmniTools 是 Fabric `1.21.11` 的纯服务端模组，玩家使用原版客户�
 11. [商店与货币](#11-商店与货币)
 12. [称号与称号效果](#12-称号与称号效果)
 13. [礼包模块](#13-礼包模块)
-14. [排行榜模块](#14-排行榜模块)
-15. [侧边栏模块](#15-侧边栏模块)
-16. [命令菜单模块](#16-命令菜单模块)
-17. [权限配置](#17-权限配置)
-18. [云存储](#18-云存储)
-19. [占位符](#19-占位符)
-20. [GUI 使用规范](#20-gui-使用规范)
-21. [数据保存、备份与恢复](#21-数据保存备份与恢复)
-22. [热重载与模块管理](#22-热重载与模块管理)
-23. [故障排查](#23-故障排查)
-24. [配置示例索引](#24-配置示例索引)
-25. [Schema 与编辑器支持](#25-schema-与编辑器支持)
-26. [版本升级说明](#26-版本升级说明)
-27. [已实现功能、缺口与规划](#27-已实现功能缺口与规划)
-28. [原始文档对照表](#28-原始文档对照表)
+14. [技能树](#14-技能树)
+15. [排行榜模块](#15-排行榜模块)
+16. [侧边栏模块](#16-侧边栏模块)
+17. [命令菜单模块](#17-命令菜单模块)
+18. [权限配置](#18-权限配置)
+19. [云存储](#19-云存储)
+20. [占位符](#20-占位符)
+21. [GUI 使用规范](#21-gui-使用规范)
+22. [数据保存、备份与恢复](#22-数据保存备份与恢复)
+23. [热重载与模块管理](#23-热重载与模块管理)
+24. [故障排查](#24-故障排查)
+25. [配置示例索引](#25-配置示例索引)
+26. [Schema 与编辑器支持](#26-schema-与编辑器支持)
+27. [版本升级说明](#27-版本升级说明)
+28. [已实现功能、缺口与规划](#28-已实现功能缺口与规划)
+29. [原始文档对照表](#29-原始文档对照表)
 
 ## 1. 项目简介与版本要求
 
@@ -45,7 +46,7 @@ OmniTools 是 Fabric `1.21.11` 的纯服务端模组，玩家使用原版客户�
 | Java | `21` |
 | 客户端 | 不需要安装 OmniTools，原版客户端即可 |
 
-功能包括签到、在线奖励、成就、CDK、商店与货币、称号、礼包、排行榜、侧边栏、命令菜单、权限和云存储。安装入口见 [README.md](../README.md)。
+功能包括签到、在线奖励、成就、CDK、商店与货币、称号、礼包、技能树、排行榜、侧边栏、命令菜单、权限和云存储。安装入口见 [README.md](../README.md)。
 
 ## 2. 五分钟完成首次配置
 
@@ -53,7 +54,7 @@ OmniTools 是 Fabric `1.21.11` 的纯服务端模组，玩家使用原版客户�
 2. 用 Java 21 启动一次服务端，等待 `config/omnitools/` 生成。
 3. 备份 `config/omnitools/` 和世界 `data/`。
 4. 编辑根配置 `config/omnitools/config.json`。新服建议保留指令奖励关闭，并只填写需要允许的命令根。
-5. 编辑要使用的模块文件。礼包、排行榜、权限默认关闭，其余模块默认开启；按需调整。
+5. 编辑要使用的模块文件。礼包、排行榜、权限默认关闭；技能树及其余模块默认开启；按需调整。
 6. 以管理员身份执行 `/omnitools reload`。
 7. 用 `/omnitools diagnose` 检查模块状态、Placeholder API、命令白名单、未处理奖励和侧边栏状态。
 
@@ -91,7 +92,8 @@ OmniTools 是 Fabric `1.21.11` 的纯服务端模组，玩家使用原版客户�
     "command_menu": { "enabled": true },
     "sidebar": { "enabled": true },
     "leaderboards": { "enabled": false },
-    "packages": { "enabled": false }
+    "packages": { "enabled": false },
+    "skills": { "enabled": true }
   }
 }
 ```
@@ -114,6 +116,7 @@ config/omnitools/
   titles/config.json
   title_effects/config.json
   packages/config.json
+  skills/config.json
   leaderboards/config.json
   sidebar/config.json
   command_menu/config.json
@@ -136,6 +139,7 @@ config/omnitools/
 | 称号 | `titles` | 开 | `titles/config.json` |
 | 称号效果 | `title_effects` | 开 | `title_effects/config.json` |
 | 礼包 | `packages` | 关 | `packages/config.json` |
+| 技能树 | `skills` | 开 | `skills/config.json` |
 | 排行榜 | `leaderboards` | 关 | `leaderboards/config.json` |
 | 侧边栏 | `sidebar` | 开 | `sidebar/config.json` |
 | 命令菜单 | `command_menu` | 开 | `command_menu/config.json` 和 `menus/` |
@@ -293,6 +297,7 @@ config/omnitools/
 | `command` | `id`、`run_as`、`command` | 仅受控控制台命令 |
 | `makeup_card` | `id`、`amount` | 增加虚拟补签卡 |
 | `package` | `id`、`package` | 创建虚拟礼包实例 |
+| `skill_xp` | `id`、`tree`、`amount` | 向指定技能树发放经验 |
 
 奖励 ID 必须在同一事件内唯一，格式为 1--64 位小写字母、数字、`_`、`.` 或 `-`。已上线 ID 是永久业务键，不要改作另一种类型或含义；应新增 ID。
 
@@ -305,6 +310,8 @@ config/omnitools/
 **称号**：没有 `duration` 为永久；`duration.mode: "active_days"` 只在在线且佩戴时消耗时间，`renewal` 可为 `extend`、`replace` 或 `max`。
 
 **礼包奖励**：服务端按 `eventId + rewardId` 生成 `grantKey`，奖励账本在 `APPLYING` 恢复时查询并复用既有实例。礼包模式、快照、预览、投递和恢复见[礼包模块](modules/packages.md)。
+
+**技能经验奖励**：统一奖励可直接发放指定技能树经验；礼包可配置固定、随机或玩家自选树。礼包随机和玩家选择结果都会先持久化，重试不会重新选择。完整成长规则、称号加成、满级精通与配置见[技能树](modules/skills.md)。
 
 **幂等与故障**：账本状态为 `PENDING -> APPLYING -> GRANTED`；不确定的物品投递进入奖励箱或保守隔离，不通过删除账本记录解决问题。玩家使用 `/omnitools rewards open`，管理员使用 `/omnitools rewards inspect <player> [event]`、`retry`、`resolve <player> <event> grant|fail`。
 
@@ -368,7 +375,7 @@ config/omnitools/
 
 ### 称号效果
 
-**用途与场景**：为称号提供药水、属性、粒子或权限效果。
+**用途与场景**：为称号提供药水、属性、粒子、权限或技能经验效果。`SKILL_XP` 使用 `amount: 0..1` 表示经验加成；多个已佩戴称号效果相加后，由技能树统一封顶 `+50%`。
 
 **默认开关与依赖**：`modules.title_effects.enabled` 默认开启且依赖 `titles`。
 
@@ -406,7 +413,7 @@ config/omnitools/
 }
 ```
 
-**字段重点**：定义 ID、`display`、`description`、`icon`、`mode`（`all`/`random_one`）、`version`、条目 `item`/`nbt` 和 `quantity`。单条数量、礼包总量、条目数和 SNBT 大小均有限制；礼包禁止嵌套。
+**字段重点**：定义 ID、`display`、`description`、`icon`、`mode`（`all`/`random_one`）、`version`、条目 `item`/`nbt`、`quantity` 和可选 `skill_xp`。技能经验支持固定、随机、玩家自选三种模式；随机优先未满级候选树，所有候选树满级时转为精通经验。单条数量、礼包总量、条目数和 SNBT 大小均有限制；礼包禁止嵌套。
 
 **指令与权限**：玩家使用 `/omnitools packages` 或 `/omnitools package open`（`package.open`，`PLAYER`）；管理员使用 `give`、`list`、`inspect`、`resolve`、`cancel`、`remove`（分别需要对应 `package.*` 的 `ADMIN` 权限）。`resolve` 必须明确指定堆 UUID 和 `delivered|pending confirm`，不存在一键重试；`resolve`、`cancel`、`remove` 会写入 `config/omnitools/package-audit.log`。
 
@@ -418,7 +425,19 @@ config/omnitools/
 
 **高级示例与原始文档**：[packages.jsonc](examples/config-platform/packages.jsonc)、[packages.schema.json](schemas/packages.schema.json)、[礼包原文](modules/packages.md)。
 
-## 14. 排行榜模块
+## 14. 技能树
+
+**用途与场景**：独立记录每棵树的经验、等级、技能点、属性投资、技能解锁和精通经验。玩家通过 `/skills` 查看六棵默认技能树：采集、战斗、防御、狩猎、制造和生存。
+
+**固定规则**：单树最高 `2000` 级，每棵固定四个技能，等级 `1/250/750/1500` 分别解锁；每 `500` 级获得一点技能点。自动属性最高 `30%`，四点属性强化最多额外 `20%`，单树最终属性严格封顶 `50%`。满级后新增经验转为精通经验，不再增加战力。
+
+**经验与公告**：方块、击杀、制作和有效移动会结算对应树经验，并受来源白名单、间隔、每日上限及异常行为限制。玩家每次升级会收到聊天提示；单树或总等级首次跨过百级时可发送限频全服公告。
+
+**称号、奖励与礼包**：称号 `SKILL_XP` 效果只提高技能经验。统一奖励 `skill_xp` 只能投放固定树，默认应用称号加成；礼包 `skill_xp` 支持固定、随机和玩家自选。随机或选择结果会先持久化，重试不会换树或重复发放；所有候选树满级时经验转为精通经验。
+
+**开关、数据与原始文档**：`modules.skills.enabled` 默认开启，配置位于 `skills/config.json`，修改后使用 `/omnitools reload skills`。关闭模块会移除当前技能属性但保留 SavedData 进度。完整配置、技能说明、命令与验收步骤见[技能树原文](modules/skills.md)。
+
+## 15. 排行榜模块
 
 **用途与场景**：按原版统计生成可缓存榜单，支持挖掘、物品使用、实体击杀和 `custom` 统计；不修改原版统计。
 
@@ -444,7 +463,7 @@ config/omnitools/
 
 **原始文档**：[leaderboards.jsonc](examples/config-platform/leaderboards.jsonc)、[leaderboards.schema.json](schemas/leaderboards.schema.json)、[排行榜原文](modules/leaderboards.md)。
 
-## 15. 侧边栏模块
+## 16. 侧边栏模块
 
 **用途与场景**：使用原版计分板展示文本页或排行榜快照。
 
@@ -470,7 +489,7 @@ config/omnitools/
 
 **原始文档**：[sidebar.jsonc](examples/config-platform/sidebar.jsonc)、[sidebar.schema.json](schemas/sidebar.schema.json)、[侧边栏原文](modules/sidebar.md)。
 
-## 16. 命令菜单模块
+## 17. 命令菜单模块
 
 **用途与场景**：纯服务端 27/54 格箱子菜单，支持子菜单、消息、玩家命令和受控控制台命令。
 
@@ -500,7 +519,7 @@ config/omnitools/
 
 **原始文档**：[command-menu.jsonc](examples/config-platform/command-menu.jsonc)、[command-menu.schema.json](schemas/command-menu.schema.json)、[命令菜单原文](modules/command-menu.md)。
 
-## 17. 权限配置
+## 18. 权限配置
 
 **用途与场景**：将 OmniTools 动作映射到原生命令等级：`PLAYER`=0、`MODERATOR`=1、`ADMIN`=2、`OWNER`=4。
 
@@ -526,7 +545,7 @@ config/omnitools/
 
 **原始文档**：[permissions.jsonc](examples/config-platform/permissions.jsonc)、[permissions.schema.json](schemas/permissions.schema.json)、[权限原文](modules/permissions.md)。
 
-## 18. 云存储
+## 19. 云存储
 
 **用途与场景**：每名玩家拥有原版 6 行箱子，默认一页，可用货币扩容至第二页。
 
@@ -552,7 +571,7 @@ config/omnitools/
 
 **原始文档**：[cloud-storage.jsonc](examples/config-platform/cloud-storage.jsonc)、[cloud-storage.schema.json](schemas/cloud-storage.schema.json)、[云存储原文](modules/cloud-storage.md)。
 
-## 19. 占位符
+## 20. 占位符
 
 渲染顺序是 OmniTools 内置占位符、可选 Placeholder API、颜色格式。标准写法为 `%omnitools:balance%`；侧边栏兼容 `%balance%`。
 
@@ -575,7 +594,7 @@ config/omnitools/
 
 文本占位符只用于玩家可见文本；菜单或奖励控制台命令只能使用受控 `{player_*}` 变量。
 
-## 20. GUI 使用规范
+## 21. GUI 使用规范
 
 - 所有 GUI 由服务端创建和校验，客户端不能提交奖励内容、随机结果或他人实例 UUID。
 - 箱子 GUI 的装饰槽和玩家物品槽由服务端拦截；只在明确的奖励详情、确认或奖励箱入口领取物品。
@@ -583,7 +602,7 @@ config/omnitools/
 - 奖励箱用于背包不足或暂时不可投递的物品；不要通过重复点击尝试“补发”。
 - 关闭、分页和刷新按钮均应按当前模块文档使用；热重载失败时旧快照继续服务。
 
-## 21. 数据保存、备份与恢复
+## 22. 数据保存、备份与恢复
 
 备份至少包括：
 
@@ -594,7 +613,7 @@ config/omnitools/
 
 恢复流程：停止服务端，恢复同一批配置与世界数据，再启动并执行 `/omnitools diagnose`。不要删除 SavedData 或账本来“重置”奖励；先用 `/omnitools rewards inspect` 定位事件，再按[奖励一致性指南](guides/reward-consistency.md)重试或人工结案。礼包实例删除属于不可逆操作，先备份并核对 UUID。
 
-## 22. 热重载与模块管理
+## 23. 热重载与模块管理
 
 修改根配置或 `common/`：
 
@@ -610,7 +629,7 @@ config/omnitools/
 
 重载采用候选快照，失败时不发布半份配置。禁用模块会关闭相关 GUI、任务、侧边栏或称号效果，但保留玩家数据；重新启用后从当前配置恢复。完整行为见[模块管理与热重载](guides/module-management.md)和[统一配置平台](config-platform.md)。
 
-## 23. 故障排查
+## 24. 故障排查
 
 | 现象 | 处理 |
 | --- | --- |
@@ -623,7 +642,7 @@ config/omnitools/
 | 礼包被隔离 | 备份世界 `data/`，用礼包 inspect 和日志核对快照，勿自动重试不确定堆。 |
 | CDK 无效 | 检查活动时间、次数和玩家兑换记录；原始码不会写入日志。 |
 
-## 24. 配置示例索引
+## 25. 配置示例索引
 
 所有 `docs/examples/config-platform/*.jsonc` 是教学副本，删除注释后才能写入 `config/`。目标路径、格式版本、前置开关和重载命令见[配置平台示例目录](examples/config-platform/README.md)。
 
@@ -632,27 +651,27 @@ config/omnitools/
 - [成就条件示例](examples/achievement-examples/README.md)
 - [成就预设](presets/achievements/README.md)
 
-## 25. Schema 与编辑器支持
+## 26. Schema 与编辑器支持
 
 `docs/schemas/` 提供根配置、每个模块、公共文件和通用模块配置的 JSON Schema，可用于编辑器补全和静态校验。Schema 不是运行时最终校验；运行时仍会检查跨模块依赖、权限、命令安全、物品 Codec、统计目标和数据边界。
 
 常用 Schema： [root-config](schemas/root-config.schema.json)、[common-rewards](schemas/common-rewards.schema.json)、[daily-checkin](schemas/daily-checkin.schema.json)、[online-reward](schemas/online-reward.schema.json)、[achievements](schemas/achievements.schema.json)、[cdk](schemas/cdk.schema.json)、[shop](schemas/shop.schema.json)、[packages](schemas/packages.schema.json)。完整列表见[文档首页](index.md)。
 
-## 26. 版本升级说明
+## 27. 版本升级说明
 
 升级前先备份配置和世界数据。根配置会迁移到 `format_version: 4` 并创建备份；缺失的 CDK、排行榜和礼包模块不会因升级自动开启。每日签到推荐 v3，成就推荐 v2，侧边栏推荐 v3。
 
 旧签到字段、旧在线奖励字段和旧公共模板保留兼容读取；迁移后应改写为推荐格式。不要修改已产生账本的奖励 ID、CDK 活动 ID、礼包 ID、成就 ID、称号 ID 或榜单 ID 的语义。详细迁移规则见[升级指南](guides/upgrade-guide.md)。
 
-## 27. 已实现功能、缺口与规划
+## 28. 已实现功能、缺口与规划
 
-**已实现**：服务端原版箱子 GUI；签到、在线奖励、成就、CDK、商店物品与礼包商品、称号、称号效果、虚拟礼包、排行榜、侧边栏、命令菜单、权限和云存储；统一奖励账本、V2 奖励库、奖励箱、限时称号、礼包快照、NBT/组件物品、礼包逐堆审计和商店购买事务恢复。
+**已实现**：服务端原版箱子 GUI；签到、在线奖励、成就、CDK、商店物品与礼包商品、称号、称号效果、技能树、虚拟礼包、排行榜、侧边栏、命令菜单、权限和云存储；统一奖励账本、V2 奖励库、奖励箱、限时称号、礼包快照、礼包技能经验选择、NBT/组件物品、礼包逐堆审计和商店购买事务恢复。
 
 **明确缺口**：按权重随机和保底、礼包专用占位符、实体礼包物品交易、商店自动退款/自动重发，以及更丰富的购买人工结案界面。当前版本不能把这些当作可用功能。
 
 **规划中**：权重与保底随机、礼包钥匙、赛季礼包、任务/公会/世界活动礼包等。规划记录只在[archive](archive/)中维护，不作为当前行为依据。
 
-## 28. 原始文档对照表
+## 29. 原始文档对照表
 
 | 原始路径 | 用途 |
 | --- | --- |

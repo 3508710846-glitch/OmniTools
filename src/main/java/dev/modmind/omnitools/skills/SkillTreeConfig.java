@@ -33,8 +33,23 @@ import java.util.regex.Pattern;
 public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDefinition> trees) {
     public static final int CURRENT_FORMAT_VERSION = 1;
     public static final int REQUIRED_SKILL_COUNT = 4;
+    public static final int MAX_LEVEL = 2000;
+    public static final int POINTS_EVERY_LEVELS = 500;
+    public static final double BASE_ATTRIBUTE_CAP = 0.30D;
+    public static final double POINT_ATTRIBUTE_CAP = 0.20D;
+    public static final double POINT_ATTRIBUTE_BONUS = 0.05D;
+    public static final double MAX_TITLE_XP_BONUS = 0.50D;
     private static final int MAX_TREES = 64;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9_.-]{1,64}");
+    private static final Set<String> LEGACY_DEFAULT_DESCRIPTIONS = Set.of(
+            "基础技能，达到等级后可解锁。",
+            "提升该玩法的效率方向。",
+            "提升该玩法的收益方向。",
+            "终极技能，须投入技能点解锁。",
+            "达到 Lv.1 自动解锁；该技能树的等级属性开始生效。",
+            "解锁后，对应有效玩法获得的技能经验提高 10%。",
+            "解锁后，对应有效玩法获得的技能经验再提高 15%。",
+            "对应有效玩法触发 10 秒终极效果；冷却 60 秒。");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public SkillTreeConfig {
@@ -78,7 +93,12 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             if (root == null || !root.isJsonObject()) {
                 throw new JsonParseException("skills configuration must be an object");
             }
-            return parse(root.getAsJsonObject());
+            SkillTreeConfig loaded = parse(root.getAsJsonObject());
+            SkillTreeConfig migrated = migrateDefaultDescriptions(loaded);
+            if (migrated != loaded) {
+                save(migrated);
+            }
+            return migrated;
         } catch (IOException | RuntimeException exception) {
             throw new IllegalStateException("Invalid skill-tree configuration", exception);
         }
@@ -129,52 +149,136 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
         Settings settings = Settings.defaults();
         return new SkillTreeConfig(CURRENT_FORMAT_VERSION, settings, List.of(
                 tree("gathering", "采集", "minecraft:diamond_pickaxe", SkillAttribute.BLOCK_BREAK_SPEED,
-                        SkillXpSource.BLOCK_BREAK, "精准采集", "高效作业", "资源感知", "过载采集"),
+                        SkillXpSource.BLOCK_BREAK,
+                        skill("精准采集", "自动解锁。采集等级带来的常驻采掘速度加成开始生效。"),
+                        skill("高效作业", "解锁后，有效采集获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("资源感知", "解锁后，有效采集获得的技能经验额外提高 15%；可与高效作业叠加。"),
+                        skill("过载采集", "有效采集时触发急迫 I，持续 10 秒；每 60 秒至多触发一次。")),
                 tree("combat", "战斗", "minecraft:iron_sword", SkillAttribute.ATTACK_DAMAGE,
-                        SkillXpSource.ENTITY_KILL, "战斗本能", "迅捷攻击", "致命打击", "战意爆发"),
+                        SkillXpSource.ENTITY_KILL,
+                        skill("战斗本能", "自动解锁。战斗等级带来的常驻攻击伤害加成开始生效。"),
+                        skill("迅捷攻击", "解锁后，有效击杀获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("致命打击", "解锁后，有效击杀获得的技能经验额外提高 15%；可与迅捷攻击叠加。"),
+                        skill("战意爆发", "有效击杀时触发力量 I，持续 10 秒；每 60 秒至多触发一次。")),
                 tree("defense", "防御", "minecraft:shield", SkillAttribute.ARMOR,
-                        SkillXpSource.ENTITY_KILL, "稳固姿态", "坚韧护甲", "伤害偏转", "不屈壁垒"),
+                        SkillXpSource.ENTITY_KILL,
+                        skill("稳固姿态", "自动解锁。防御等级带来的常驻护甲值加成开始生效。"),
+                        skill("坚韧护甲", "解锁后，有效击杀获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("伤害偏转", "解锁后，有效击杀获得的技能经验额外提高 15%；可与坚韧护甲叠加。"),
+                        skill("不屈壁垒", "有效击杀时触发抗性提升 I，持续 10 秒；每 60 秒至多触发一次。")),
                 tree("hunting", "狩猎", "minecraft:bow", SkillAttribute.LUCK,
-                        SkillXpSource.ENTITY_KILL, "追猎直觉", "猎手步伐", "稀有感知", "首领猎杀"),
+                        SkillXpSource.ENTITY_KILL,
+                        skill("追猎直觉", "自动解锁。狩猎等级带来的常驻幸运加成开始生效。"),
+                        skill("猎手步伐", "解锁后，有效击杀获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("稀有感知", "解锁后，有效击杀获得的技能经验额外提高 15%；可与猎手步伐叠加。"),
+                        skill("首领猎杀", "有效击杀时触发幸运 I，持续 10 秒；每 60 秒至多触发一次。")),
                 tree("crafting", "制造", "minecraft:crafting_table", SkillAttribute.LUCK,
-                        SkillXpSource.CRAFT, "工匠基础", "熟练制作", "品质把控", "大师工坊"),
+                        SkillXpSource.CRAFT,
+                        skill("工匠基础", "自动解锁。制造等级带来的常驻幸运加成开始生效。"),
+                        skill("熟练制作", "解锁后，有效制作获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("品质把控", "解锁后，有效制作获得的技能经验额外提高 15%；可与熟练制作叠加。"),
+                        skill("大师工坊", "有效制作时触发急迫 I，持续 10 秒；每 60 秒至多触发一次。")),
                 tree("survival", "生存", "minecraft:golden_apple", SkillAttribute.MAX_HEALTH,
-                        SkillXpSource.SURVIVAL, "野外本能", "耐力恢复", "远行准备", "生存专家")));
+                        SkillXpSource.SURVIVAL,
+                        skill("野外本能", "自动解锁。生存等级带来的常驻最大生命值加成开始生效。"),
+                        skill("耐力恢复", "解锁后，有效生存行为获得的技能经验提高 10%；不影响礼包与指令经验。"),
+                        skill("远行准备", "解锁后，有效生存行为获得的技能经验额外提高 15%；可与耐力恢复叠加。"),
+                        skill("生存专家", "有效生存行为时触发生命恢复 I，持续 10 秒；每 60 秒至多触发一次。"))));
     }
 
     private static TreeDefinition tree(String id, String display, String icon, SkillAttribute attribute,
-                                       SkillXpSource primarySource, String first, String second,
-                                       String third, String fourth) {
+                                       SkillXpSource primarySource, SkillCopy first, SkillCopy second,
+                                       SkillCopy third, SkillCopy fourth) {
         return new TreeDefinition(id, display, icon, item(icon), attribute,
                 Set.of(primarySource, SkillXpSource.REWARD, SkillXpSource.COMMAND),
                 List.of(new LevelMultiplier(1, 1.0D), new LevelMultiplier(501, 1.25D),
                         new LevelMultiplier(1001, 1.6D), new LevelMultiplier(1501, 2.0D)),
-                List.of(new SkillDefinition("foundation", first, "基础技能，达到等级后可解锁。", 1, 0),
-                        new SkillDefinition("efficiency", second, "提升该玩法的效率方向。", 250, 1),
-                        new SkillDefinition("yield", third, "提升该玩法的收益方向。", 750, 1),
-                        new SkillDefinition("ultimate", fourth, "终极技能，须投入技能点解锁。", 1500, 2)));
+                List.of(new SkillDefinition("foundation", first.display(), first.description(), 1, 0),
+                        new SkillDefinition("efficiency", second.display(), second.description(), 250, 1),
+                        new SkillDefinition("yield", third.display(), third.description(), 750, 1),
+                        new SkillDefinition("ultimate", fourth.display(), fourth.description(), 1500, 2)));
+    }
+
+    private static SkillCopy skill(String display, String description) {
+        return new SkillCopy(display, description);
+    }
+
+    private record SkillCopy(String display, String description) {
+    }
+
+    /**
+     * Existing configurations retain administrator-authored text. Only the exact legacy defaults
+     * of the built-in trees are upgraded to their more informative descriptions.
+     */
+    static SkillTreeConfig migrateDefaultDescriptions(SkillTreeConfig config) {
+        SkillTreeConfig defaults = defaults();
+        List<TreeDefinition> updatedTrees = new ArrayList<>();
+        boolean changed = false;
+        for (TreeDefinition tree : config.trees()) {
+            TreeDefinition defaultTree = defaults.tree(tree.id()).orElse(null);
+            if (defaultTree == null) {
+                updatedTrees.add(tree);
+                continue;
+            }
+            List<SkillDefinition> updatedSkills = new ArrayList<>();
+            for (int index = 0; index < tree.skills().size(); index++) {
+                SkillDefinition current = tree.skills().get(index);
+                SkillDefinition replacement = defaultTree.skills().get(index);
+                if (current.id().equals(replacement.id()) && LEGACY_DEFAULT_DESCRIPTIONS.contains(current.description())) {
+                    updatedSkills.add(new SkillDefinition(current.id(), current.display(), replacement.description(),
+                            current.unlockLevel(), current.pointCost()));
+                    changed = true;
+                } else {
+                    updatedSkills.add(current);
+                }
+            }
+            updatedTrees.add(changedForTree(tree.skills(), updatedSkills) ? new TreeDefinition(tree.id(), tree.display(),
+                    tree.iconId(), tree.icon(), tree.attribute(), tree.sources(), tree.levelMultipliers(), updatedSkills) : tree);
+        }
+        return changed ? new SkillTreeConfig(config.formatVersion(), config.settings(), updatedTrees) : config;
+    }
+
+    private static boolean changedForTree(List<SkillDefinition> current, List<SkillDefinition> updated) {
+        return !current.equals(updated);
     }
 
     public record Settings(int maxLevel, int pointsEveryLevels, long maxDailyXp, int minIntervalTicks,
                            double baseAttributeCap, double pointAttributeCap, double pointAttributeBonus,
-                           double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic) {
+                           double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic,
+                           AnnouncementSettings announcements, long pointRewardCurrency) {
         public Settings {
-            if (maxLevel < 1 || maxLevel > 10_000) throw new JsonParseException("skills.settings.max_level must be 1-10000");
-            if (pointsEveryLevels < 1 || pointsEveryLevels > maxLevel) throw new JsonParseException("skills.settings.points_every_levels is invalid");
+            if (maxLevel != MAX_LEVEL) throw new JsonParseException("skills.settings.max_level is fixed at " + MAX_LEVEL);
+            if (pointsEveryLevels != POINTS_EVERY_LEVELS) throw new JsonParseException("skills.settings.points_every_levels is fixed at " + POINTS_EVERY_LEVELS);
             if (maxDailyXp < 1L || maxDailyXp > 1_000_000_000L) throw new JsonParseException("skills.settings.max_daily_xp is invalid");
             if (minIntervalTicks < 0 || minIntervalTicks > 1200) throw new JsonParseException("skills.settings.min_interval_ticks is invalid");
             if (!fraction(baseAttributeCap) || !fraction(pointAttributeCap) || !fraction(pointAttributeBonus)
                     || !fraction(maxTitleXpBonus) || !Double.isFinite(xpQuadratic) || xpQuadratic < 0.0D) {
                 throw new JsonParseException("skills.settings contains an invalid percentage or XP curve value");
             }
-            if (baseAttributeCap + pointAttributeCap > 1.0D + 0.000_001D) throw new JsonParseException("skills attribute cap may not exceed 100%");
-            if (pointAttributeBonus > pointAttributeCap) throw new JsonParseException("skills point attribute bonus exceeds its cap");
+            if (!same(baseAttributeCap, BASE_ATTRIBUTE_CAP)) throw new JsonParseException("skills.settings.base_attribute_cap is fixed at 0.30");
+            if (!same(pointAttributeCap, POINT_ATTRIBUTE_CAP)) throw new JsonParseException("skills.settings.point_attribute_cap is fixed at 0.20");
+            if (!same(pointAttributeBonus, POINT_ATTRIBUTE_BONUS)) throw new JsonParseException("skills.settings.point_attribute_bonus is fixed at 0.05");
+            if (!same(maxTitleXpBonus, MAX_TITLE_XP_BONUS)) throw new JsonParseException("skills.settings.max_title_xp_bonus is fixed at 0.50");
             if (xpBase < 1L || xpLinear < 0L) throw new JsonParseException("skills XP curve values are invalid");
+            announcements = announcements == null ? AnnouncementSettings.defaults() : announcements;
+            if (pointRewardCurrency < 0L || pointRewardCurrency > 1_000_000_000L) {
+                throw new JsonParseException("skills.settings.point_reward_currency is invalid");
+            }
+        }
+
+        /** Compatibility constructor for callers that only configure the original progression fields. */
+        public Settings(int maxLevel, int pointsEveryLevels, long maxDailyXp, int minIntervalTicks,
+                        double baseAttributeCap, double pointAttributeCap, double pointAttributeBonus,
+                        double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic) {
+            this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
+                    pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic,
+                    AnnouncementSettings.defaults(), 250L);
         }
 
         static Settings defaults() {
-            return new Settings(2000, 500, 250_000L, 4, 0.30D, 0.20D, 0.05D, 0.50D,
-                    100L, 25L, 0.015D);
+            return new Settings(MAX_LEVEL, POINTS_EVERY_LEVELS, 250_000L, 4, BASE_ATTRIBUTE_CAP,
+                    POINT_ATTRIBUTE_CAP, POINT_ATTRIBUTE_BONUS, MAX_TITLE_XP_BONUS, 100L, 25L, 0.015D,
+                    AnnouncementSettings.defaults(), 250L);
         }
 
         static Settings parse(JsonObject object) {
@@ -188,7 +292,9 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                     decimal(object, "max_title_xp_bonus", 0.50D, "skills.settings"),
                     positiveLong(object, "xp_base", 100L, "skills.settings"),
                     positiveLong(object, "xp_linear", 25L, "skills.settings"),
-                    decimal(object, "xp_quadratic", 0.015D, "skills.settings"));
+                    decimal(object, "xp_quadratic", 0.015D, "skills.settings"),
+                    AnnouncementSettings.parse(optionalObject(object, "announcements", "skills.settings")),
+                    nonNegativeLong(object, "point_reward_currency", 250L, "skills.settings"));
         }
 
         JsonObject toJson() {
@@ -204,6 +310,55 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             object.addProperty("xp_base", xpBase);
             object.addProperty("xp_linear", xpLinear);
             object.addProperty("xp_quadratic", xpQuadratic);
+            object.add("announcements", announcements.toJson());
+            object.addProperty("point_reward_currency", pointRewardCurrency);
+            return object;
+        }
+    }
+
+    /** Chat delivery settings for server-wide skill milestones. */
+    public record AnnouncementSettings(boolean enabled, int minimumLevel, int cooldownSeconds,
+                                       String channel, String color) {
+        private static final Set<String> COLORS = Set.of("black", "dark_blue", "dark_green", "dark_aqua",
+                "dark_red", "dark_purple", "gold", "gray", "dark_gray", "blue", "green", "aqua",
+                "red", "light_purple", "yellow", "white");
+
+        public AnnouncementSettings {
+            if (minimumLevel < 100 || minimumLevel > MAX_LEVEL) {
+                throw new JsonParseException("skills.settings.announcements.minimum_level must be 100-2000");
+            }
+            if (cooldownSeconds < 0 || cooldownSeconds > 3600) {
+                throw new JsonParseException("skills.settings.announcements.cooldown_seconds must be 0-3600");
+            }
+            channel = channel == null ? "chat" : channel.trim().toLowerCase(Locale.ROOT);
+            if (!channel.equals("chat") && !channel.equals("action_bar")) {
+                throw new JsonParseException("skills.settings.announcements.channel must be chat or action_bar");
+            }
+            color = color == null ? "gold" : color.trim().toLowerCase(Locale.ROOT);
+            if (!COLORS.contains(color)) {
+                throw new JsonParseException("skills.settings.announcements.color must be a Minecraft chat color");
+            }
+        }
+
+        static AnnouncementSettings defaults() { return new AnnouncementSettings(true, 100, 60, "chat", "gold"); }
+
+        static AnnouncementSettings parse(JsonObject object) {
+            if (object == null) return defaults();
+            ConfigFieldReporter.warnUnknown(object, "skills.settings.announcements",
+                    Set.of("enabled", "minimum_level", "cooldown_seconds", "channel", "color"));
+            return new AnnouncementSettings(bool(object, "enabled", true, "skills.settings.announcements"),
+                    integer(object, "minimum_level", 100, "skills.settings.announcements"),
+                    integer(object, "cooldown_seconds", 60, "skills.settings.announcements"),
+                    string(object, "channel", "chat"), string(object, "color", "gold"));
+        }
+
+        JsonObject toJson() {
+            JsonObject object = new JsonObject();
+            object.addProperty("enabled", enabled);
+            object.addProperty("minimum_level", minimumLevel);
+            object.addProperty("cooldown_seconds", cooldownSeconds);
+            object.addProperty("channel", channel);
+            object.addProperty("color", color);
             return object;
         }
     }
@@ -229,7 +384,15 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             skills = List.copyOf(skills == null ? List.of() : skills);
             if (skills.size() != REQUIRED_SKILL_COUNT) throw new JsonParseException("skill tree " + id + " must define exactly " + REQUIRED_SKILL_COUNT + " skills");
             Set<String> skillIds = new LinkedHashSet<>();
-            for (SkillDefinition skill : skills) if (!skillIds.add(skill.id())) throw new JsonParseException("skill tree " + id + " has duplicate skill ids");
+            int[] unlockLevels = {1, 250, 750, 1500};
+            int[] pointCosts = {0, 1, 1, 2};
+            for (int index = 0; index < skills.size(); index++) {
+                SkillDefinition skill = skills.get(index);
+                if (!skillIds.add(skill.id())) throw new JsonParseException("skill tree " + id + " has duplicate skill ids");
+                if (skill.unlockLevel() != unlockLevels[index] || skill.pointCost() != pointCosts[index]) {
+                    throw new JsonParseException("skill tree " + id + " must use fixed four-skill unlock stages 1/250/750/1500");
+                }
+            }
         }
 
         static TreeDefinition parse(JsonObject object, Settings settings, String context) {
@@ -314,12 +477,16 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
         return BuiltInRegistries.ITEM.getOptional(identifier).orElseThrow(() -> new JsonParseException("unknown item: " + id));
     }
     private static boolean fraction(double value) { return Double.isFinite(value) && value >= 0.0D && value <= 1.0D; }
+    private static boolean same(double left, double right) { return Math.abs(left - right) < 0.000_001D; }
     private static JsonObject object(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null || !value.isJsonObject()) throw new JsonParseException(context + "." + key + " must be an object"); return value.getAsJsonObject(); }
+    private static JsonObject optionalObject(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null) return null; if (!value.isJsonObject()) throw new JsonParseException(context + "." + key + " must be an object"); return value.getAsJsonObject(); }
     private static JsonArray array(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null || !value.isJsonArray()) throw new JsonParseException(context + "." + key + " must be an array"); return value.getAsJsonArray(); }
     private static String requiredString(JsonObject object, String key, String context) { String value = string(object, key, ""); if (value.isBlank()) throw new JsonParseException(context + "." + key + " must be a non-empty string"); return value.trim(); }
     private static String string(JsonObject object, String key, String fallback) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) throw new JsonParseException(key + " must be a string"); return value.getAsString(); }
     private static int integer(JsonObject object, String key, int fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be an integer"); try { return Integer.parseInt(value.getAsString()); } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be an integer"); } }
     private static long positiveLong(JsonObject object, String key, long fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a positive integer"); try { long result = Long.parseLong(value.getAsString()); if (result < 1L) throw new NumberFormatException(); return result; } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be a positive integer"); } }
+    private static long nonNegativeLong(JsonObject object, String key, long fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a non-negative integer"); try { long result = Long.parseLong(value.getAsString()); if (result < 0L) throw new NumberFormatException(); return result; } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be a non-negative integer"); } }
     private static double decimal(JsonObject object, String key, double fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a number"); double result = value.getAsDouble(); if (!Double.isFinite(result)) throw new JsonParseException(context + "." + key + " must be finite"); return result; }
+    private static boolean bool(JsonObject object, String key, boolean fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) throw new JsonParseException(context + "." + key + " must be a boolean"); return value.getAsBoolean(); }
     private static String normalizedId(String value, String context) { String id = value == null ? "" : value.trim().toLowerCase(Locale.ROOT); if (!ID_PATTERN.matcher(id).matches()) throw new JsonParseException(context + " must match " + ID_PATTERN.pattern()); return id; }
 }
