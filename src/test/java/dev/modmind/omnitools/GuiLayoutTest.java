@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import net.minecraft.network.chat.Component;
+import dev.modmind.omnitools.config.ModuleId;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -56,5 +57,14 @@ class GuiLayoutTest {
         assertTrue(CloudStorageScreenHandler.PREVIOUS_PAGE_SLOT >= CloudStorageScreenHandler.STORAGE_SLOT_COUNT);
         assertTrue(CloudStorageScreenHandler.CLOSE_SLOT >= CloudStorageScreenHandler.STORAGE_SLOT_COUNT);
         assertEquals(GuiSlots.LAST_SLOT_54, CloudStorageScreenHandler.CLOSE_SLOT);
+    }
+
+    @Test
+    void moduleManagerHasAnExplicitIconForEveryModuleItRefreshes() {
+        for (ModuleId module : ModuleId.values()) {
+            assertTrue(ModuleManagerScreenHandler.hasConfiguredIcon(module),
+                    () -> "missing module icon for " + module.id());
+        }
+        assertFalse(ModuleManagerScreenHandler.hasConfiguredIcon(null));
     }
 }

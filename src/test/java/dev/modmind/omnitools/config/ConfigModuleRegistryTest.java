@@ -43,4 +43,28 @@ class ConfigModuleRegistryTest {
         assertEquals("cdk", registry.load(ModuleId.CDK, null));
         assertThrows(IllegalArgumentException.class, () -> registry.load(ModuleId.SHOP, null));
     }
+
+    @Test
+    void retainsTheFailingModuleAndCauseForReloadDiagnostics() {
+        ConfigModuleRegistry registry = new ConfigModuleRegistry();
+        IllegalStateException cause = new IllegalStateException("invalid package entry");
+        registry.register(new ConfigurableModule<String>() {
+            @Override
+            public ModuleId id() {
+                return ModuleId.PACKAGES;
+            }
+
+            @Override
+            public String load(LoadContext context) {
+                throw cause;
+            }
+        });
+
+        ConfigModuleRegistry.ModuleLoadException exception = assertThrows(
+                ConfigModuleRegistry.ModuleLoadException.class, () -> registry.loadAll(null));
+
+        assertEquals(ModuleId.PACKAGES, exception.module());
+        assertEquals(cause, exception.getCause());
+        assertEquals("Could not load configuration module packages", exception.getMessage());
+    }
 }

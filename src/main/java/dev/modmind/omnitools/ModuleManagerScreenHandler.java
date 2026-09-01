@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /** Server-authoritative module switchboard backed by transactional root configuration updates. */
 public final class ModuleManagerScreenHandler extends ChestMenu {
@@ -33,19 +34,21 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private static final int NEXT_PAGE_SLOT = GuiSlots.LAST_SLOT_27;
     private static final int CLOSE_SLOT = GuiSlots.HEADER_CLOSE_27;
     private static final List<ModuleId> MODULES = List.copyOf(Arrays.asList(ModuleId.values()));
-    private static final Map<ModuleId, Item> MODULE_ICONS = Map.ofEntries(
-            Map.entry(ModuleId.DAILY_CHECKIN, Items.CLOCK),
-            Map.entry(ModuleId.CDK, Items.TRIPWIRE_HOOK),
-            Map.entry(ModuleId.ONLINE_REWARD, Items.CLOCK),
-            Map.entry(ModuleId.SHOP, Items.EMERALD),
-            Map.entry(ModuleId.TITLES, Items.NAME_TAG),
-            Map.entry(ModuleId.TITLE_EFFECTS, Items.BLAZE_POWDER),
-            Map.entry(ModuleId.ACHIEVEMENTS, Items.KNOWLEDGE_BOOK),
-            Map.entry(ModuleId.CLOUD_STORAGE, Items.ENDER_CHEST),
-            Map.entry(ModuleId.PERMISSIONS, Items.TRIPWIRE_HOOK),
-            Map.entry(ModuleId.COMMAND_MENU, Items.CHEST),
-            Map.entry(ModuleId.SIDEBAR, Items.PAPER),
-            Map.entry(ModuleId.LEADERBOARDS, Items.GOLD_INGOT));
+    private static final Map<ModuleId, Supplier<Item>> MODULE_ICONS = Map.ofEntries(
+            Map.entry(ModuleId.DAILY_CHECKIN, () -> Items.CLOCK),
+            Map.entry(ModuleId.CDK, () -> Items.TRIPWIRE_HOOK),
+            Map.entry(ModuleId.ONLINE_REWARD, () -> Items.CLOCK),
+            Map.entry(ModuleId.SHOP, () -> Items.EMERALD),
+            Map.entry(ModuleId.TITLES, () -> Items.NAME_TAG),
+            Map.entry(ModuleId.TITLE_EFFECTS, () -> Items.BLAZE_POWDER),
+            Map.entry(ModuleId.ACHIEVEMENTS, () -> Items.KNOWLEDGE_BOOK),
+            Map.entry(ModuleId.CLOUD_STORAGE, () -> Items.ENDER_CHEST),
+            Map.entry(ModuleId.PERMISSIONS, () -> Items.TRIPWIRE_HOOK),
+            Map.entry(ModuleId.COMMAND_MENU, () -> Items.CHEST),
+            Map.entry(ModuleId.SIDEBAR, () -> Items.PAPER),
+            Map.entry(ModuleId.LEADERBOARDS, () -> Items.GOLD_INGOT),
+            Map.entry(ModuleId.PACKAGES, () -> Items.CHEST),
+            Map.entry(ModuleId.SKILLS, () -> Items.EXPERIENCE_BOTTLE));
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;
@@ -224,8 +227,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         lastConfigRevision = snapshot.revision();
     }
 
-    private static ItemStack moduleItem(ModuleId module, boolean enabled,
-                                         Optional<ModuleControlService.DependencyBlock> block) {
+    static ItemStack moduleItem(ModuleId module, boolean enabled,
+                                Optional<ModuleControlService.DependencyBlock> block) {
         ChatFormatting color = block.isPresent() ? ChatFormatting.YELLOW
                 : enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY;
         List<Component> lore = new java.util.ArrayList<>();
@@ -238,7 +241,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         }
         GuiStatusItem.State state = block.isPresent() ? GuiStatusItem.State.PENDING
                 : enabled ? GuiStatusItem.State.ACTIONABLE : GuiStatusItem.State.INACTIVE;
-        return GuiStatusItem.create(new ItemStack(MODULE_ICONS.get(module)), moduleName(module), state,
+        return GuiStatusItem.create(new ItemStack(moduleIcon(module)), moduleName(module), state,
                 GuiTextService.cardLore(lore, block.isPresent()
                         ? ServerText.translatable(block.get().translationKey()).withStyle(ChatFormatting.YELLOW)
                         : ServerText.translatable("gui.omnitools.modules.toggle_hint").withStyle(ChatFormatting.GRAY)));
@@ -247,6 +250,15 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
     private static ItemStack reloadItem() {
         return GuiTheme.navigation(Items.RECOVERY_COMPASS, ServerText.translatable("gui.omnitools.modules.reload"),
                 ServerText.translatable("gui.omnitools.modules.reload_hint"));
+    }
+
+    static Item moduleIcon(ModuleId module) {
+        Supplier<Item> supplier = module == null ? null : MODULE_ICONS.get(module);
+        return supplier == null ? Items.COMPASS : supplier.get();
+    }
+
+    static boolean hasConfiguredIcon(ModuleId module) {
+        return module != null && MODULE_ICONS.containsKey(module);
     }
 
     private static Component moduleName(ModuleId module) {
@@ -293,7 +305,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         boolean enabled = snapshot.enabled(module);
         Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
                 .dependencyBlock(snapshot, module, !enabled);
-        moduleContainer.setItem(GuiSlots.HEADER_LEFT_27, GuiTheme.status(MODULE_ICONS.get(module), moduleName(module),
+        moduleContainer.setItem(GuiSlots.HEADER_LEFT_27, GuiTheme.status(moduleIcon(module), moduleName(module),
                 enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY,
                 List.of(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled))
                         .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY)), false));

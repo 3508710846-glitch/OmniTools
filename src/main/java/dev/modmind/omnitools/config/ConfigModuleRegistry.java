@@ -41,14 +41,36 @@ public final class ConfigModuleRegistry {
     public synchronized Map<ModuleId, Object> loadAll(LoadContext context) throws Exception {
         Map<ModuleId, Object> loaded = new LinkedHashMap<>();
         for (Map.Entry<ModuleId, ConfigurableModule<?>> entry : modules.entrySet()) {
-            loaded.put(entry.getKey(), load(entry.getValue(), context));
+            ModuleId module = entry.getKey();
+            loaded.put(module, load(module, context));
         }
         return Map.copyOf(loaded);
     }
 
     /** Loads one module through the same typed lifecycle used by full snapshot reloads. */
     public synchronized Object load(ModuleId id, LoadContext context) throws Exception {
-        return load(require(id), context);
+        ConfigurableModule<?> module = require(id);
+        try {
+            return load(module, context);
+        } catch (ModuleLoadException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ModuleLoadException(id, exception);
+        }
+    }
+
+    /** Retains the module identity when a typed loader rejects its configuration. */
+    public static final class ModuleLoadException extends Exception {
+        private final ModuleId module;
+
+        public ModuleLoadException(ModuleId module, Exception cause) {
+            super("Could not load configuration module " + module.id(), cause);
+            this.module = module;
+        }
+
+        public ModuleId module() {
+            return module;
+        }
     }
 
     public synchronized void validateAll(Map<ModuleId, Object> loaded, OmniToolsConfigSnapshot snapshot) {

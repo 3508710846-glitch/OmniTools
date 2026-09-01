@@ -49,10 +49,11 @@ public final class OmniToolsConfigManager {
         try {
             OmniToolsConfigSnapshot candidate = buildCandidate(server, OmniToolsRootConfig.load(ConfigPaths.rootConfig()));
             OmniToolsConfigSnapshot published = publish(candidate);
+            logReloadApplied(published);
             return new ReloadResult(true, "", previous, published);
         } catch (RuntimeException | IOException exception) {
             String message = message(exception);
-            System.err.println("[omnitools] Configuration reload rejected; keeping the previous snapshot: " + message);
+            logFailure("Configuration reload rejected; keeping the previous snapshot", exception);
             return new ReloadResult(false, message, previous, previous);
         }
     }
@@ -74,15 +75,9 @@ public final class OmniToolsConfigManager {
             OmniToolsConfigSnapshot candidate = buildSnapshot(server, previous.root(), previous.common(), loaded);
             OmniToolsConfigSnapshot published = publish(candidate);
             return new ModuleReloadResult(true, module, "", previous, published);
-        } catch (RuntimeException | IOException exception) {
-            String message = message(exception);
-            System.err.println("[omnitools] Module reload rejected for " + module.id()
-                    + "; keeping the previous snapshot: " + message);
-            return new ModuleReloadResult(false, module, message, previous, previous);
         } catch (Exception exception) {
             String message = message(exception);
-            System.err.println("[omnitools] Module reload rejected for " + module.id()
-                    + "; keeping the previous snapshot: " + message);
+            logFailure("Module reload rejected for " + module.id() + "; keeping the previous snapshot", exception);
             return new ModuleReloadResult(false, module, message, previous, previous);
         }
     }
@@ -108,8 +103,7 @@ public final class OmniToolsConfigManager {
             return new ModuleUpdateResult(true, module, enabled, "", previous, published);
         } catch (RuntimeException | IOException exception) {
             String message = message(exception);
-            System.err.println("[omnitools] Module update rejected for " + module.id() + "; keeping the previous "
-                    + "snapshot: " + message);
+            logFailure("Module update rejected for " + module.id() + "; keeping the previous snapshot", exception);
             return new ModuleUpdateResult(false, module, enabled, message, previous, previous);
         }
     }
@@ -126,8 +120,10 @@ public final class OmniToolsConfigManager {
         java.util.Map<ModuleId, Object> loaded;
         try {
             loaded = moduleRegistry.loadAll(loadContext);
+        } catch (ConfigModuleRegistry.ModuleLoadException exception) {
+            throw new IllegalStateException("Could not load configuration module " + exception.module().id(), exception);
         } catch (Exception exception) {
-            throw new IllegalStateException("Could not load a configuration module", exception);
+            throw new IllegalStateException("Could not load configuration modules", exception);
         }
         return buildSnapshot(server, root, common, loaded);
     }
@@ -311,6 +307,19 @@ public final class OmniToolsConfigManager {
     private static String message(Exception exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private static void logFailure(String action, Exception exception) {
+        System.err.println("[omnitools] " + action + ": " + message(exception));
+        exception.printStackTrace(System.err);
+    }
+
+    private static void logReloadApplied(OmniToolsConfigSnapshot snapshot) {
+        System.err.println("[omnitools] Configuration reload applied: revision=" + snapshot.revision()
+                + ", packages=" + snapshot.enabled(ModuleId.PACKAGES)
+                + ", shop=" + snapshot.enabled(ModuleId.SHOP)
+                + ", permissions=" + snapshot.enabled(ModuleId.PERMISSIONS)
+                + ", sidebar=" + snapshot.enabled(ModuleId.SIDEBAR));
     }
 
     public record ReloadResult(boolean success, String message, OmniToolsConfigSnapshot previous,
