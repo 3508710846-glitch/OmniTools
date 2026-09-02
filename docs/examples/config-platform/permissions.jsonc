@@ -4,6 +4,7 @@
   "commands": {
     "checkin.open": "PLAYER",
     "storage.open": { "role": "ADMIN", "allow_native_node": true },
+    "storage.recovery": "ADMIN",
     "cdk.redeem": "PLAYER",
     "cdk.admin": "ADMIN",
     "leaderboards.open": "PLAYER",

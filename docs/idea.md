@@ -4608,3 +4608,448 @@ java.lang.NullPointerException: Cannot invoke "net.minecraft.class_1935.method_8
         at knot//net.minecraft.server.MinecraftServer.method_29741(MinecraftServer.java:771)
         at knot//net.minecraft.server.MinecraftServer.method_29739(MinecraftServer.java:301)
         at java.base/java.lang.Thread.run(Thread.java:1474)，但是我的所有模块是开启的
+
+---
+
+## Development request 2026/9/1 20:57:29
+
+[20:56:39] [Server thread/INFO]: [cllaouu0804: 模块 shop 配置重载成功，当前快照版本：1]
+[20:56:41] [Server thread/INFO]: [STDERR]: [omnitools] Configuration reload rejected; keeping the previous snapshot: Could not load configuration module packages
+[20:56:41] [Server thread/INFO]: [STDERR]: java.lang.IllegalStateException: Could not load configuration module packages
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:124)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.reload(OmniToolsConfigManager.java:50)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.ModuleControlService.reload(ModuleControlService.java:21)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.ModMindEntry.reloadRewards(ModMindEntry.java:1535)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.ModMindEntry.lambda$onInitialize$13(ModMindEntry.java:281)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//com.mojang.brigadier.context.ContextChain.runExecutable$mixinextras$wrapped$10(ContextChain.java:73)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//com.mojang.brigadier.context.ContextChain.mixinextras$bridge$runExecutable$mixinextras$wrapped$10$11(ContextChain.java)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//com.mojang.brigadier.context.ContextChain.wrapMethod$eag000$fabric-entity-events-v1$onRunExecutable(ContextChain.java:1057)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//com.mojang.brigadier.context.ContextChain.runExecutable(ContextChain.java)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8865.method_54416(class_8865.java:29)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8865.execute(class_8865.java:13)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8856.method_54405(class_8856.java:8)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8847.method_54388$mixinextras$wrapped$8(class_8847.java:8)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8847.mixinextras$bridge$method_54388$mixinextras$wrapped$8$9(class_8847.java)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8847.wrapMethod$eaf000$fabric-entity-events-v1$onExecute(class_8847.java:549)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8847.method_54388(class_8847.java)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_8854.method_54390(class_8854.java:106)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_2170.method_54313(class_2170.java:430)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_2170.method_9249(class_2170.java:362)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_3244.method_58590(class_3244.java:1568)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_3244.method_44356(class_3244.java:1556)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_3738.run(class_3738.java:18)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_1255.method_18859(class_1255.java:169)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_4093.mixinextras$bridge$method_18859$5(class_4093.java)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_4093.wrapOperation$dha000$carpet-tis-addition$yeetUpdateSuppressionCrash_implForThreadExecutorTaskExecuting(class_4093.java:578)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_4093.method_18859(class_4093.java:23)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_24306(MinecraftServer.java:948)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_18859(MinecraftServer.java:191)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_1255.method_16075(class_1255.java:143)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_20415(MinecraftServer.java:930)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_16075(MinecraftServer.java:924)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.class_1255.method_18857(class_1255.java:152)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_18857(MinecraftServer.java:884)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_16208(MinecraftServer.java:895)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_29741(MinecraftServer.java:777)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//net.minecraft.server.MinecraftServer.method_29739(MinecraftServer.java:301)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at java.base/java.lang.Thread.run(Thread.java:1474)
+[20:56:41] [Server thread/INFO]: [STDERR]: Caused by: dev.modmind.omnitools.config.ConfigModuleRegistry$ModuleLoadException: Could not load configuration module packages
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:58)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.loadAll(ConfigModuleRegistry.java:45)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:122)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	... 36 more
+[20:56:41] [Server thread/INFO]: [STDERR]: Caused by: java.lang.IllegalStateException: Invalid packages configuration
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.packages.PackageConfig.load(PackageConfig.java:51)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$13.load(OmniToolsConfigManager.java:272)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$13.load(OmniToolsConfigManager.java:269)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:90)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:54)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	... 38 more
+[20:56:41] [Server thread/INFO]: [STDERR]: Caused by: java.lang.IllegalArgumentException: Package icon is required: random_skeleton
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.packages.PackageDefinition.<init>(PackageDefinition.java:15)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.packages.PackageConfig.parseDefinition(PackageConfig.java:93)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.packages.PackageConfig.parse(PackageConfig.java:60)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	at knot//dev.modmind.omnitools.packages.PackageConfig.load(PackageConfig.java:50)
+[20:56:41] [Server thread/INFO]: [STDERR]: 	... 42 more
+
+---
+
+## Development request 2026/9/1 22:04:01
+
+我安装到我的服务器后，服务器大量报错：[22:02:04] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/169701d9-37f8-3785-ae88-310ad46dcb17.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_small":2,"usefulbackpacks:backpack_medium":2} missed input: {"minecraft:crafted":{"minecraft:oak_sign":3,"minecraft:cherry_pressure_plate":2,"minecraft:polished_deepslate_wall":6912,"minecraft:blaze_powder":16,"minecraft:iron_chain":81,"minecraft:wolf_armor":3,"minecraft:slime_block":21,"minecraft:diamond_shovel":2,"minecraft:lever":25,"minecraft:bookshelf":16,"minecraft:shulker_box":32,"minecraft:mace":1,"minecraft:repeater":3,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":3,"minecraft:melon_seeds":20,"minecraft:stone_pressure_plate":3,"minecraft:name_tag":1,"minecraft:blue_stained_glass":6912,"minecraft:target":1,"minecraft:emerald":825,"minecraft:diamond_axe":1,"minecraft:prismarine_bricks":5184,"minecraft:smithing_table":1,"minecraft:copper_ingot":9,"minecraft:sticky_piston":10,"minecraft:fletching_table":1,"minecraft:hay_block":1,"minecraft:cherry_sign":3,"minecraft:stone_slab":8,"usefulbackpacks:backpack_large":2,"minecraft:iron_pickaxe":1,"minecraft:iron_block":117,"minecraft:gold_ingot":13,"minecraft:netherite_ingot":2,"minecraft:golden_carrot":279,"minecraft:prismarine":5,"minecraft:stone_shovel":10,"minecraft:smooth_stone_slab":114,"minecraft:diamond_hoe":2,"minecraft:red_terracotta":16,"minecraft:bone_meal":126,"minecraft:white_carpet":180,"minecraft:cherry_trapdoor":2,"minecraft:detector_rail":6,"minecraft:polished_diorite":4,"minecraft:ladder":6,"minecraft:stone_pickaxe":1,"minecraft:diamond_boots":2,"minecraft:redstone_block":111,"minecraft:wheat":27,"minecraft:enchanting_table":1,"minecraft:enchanted_book":9,"minecraft:raiser_armor_trim_smithing_template":8,"minecraft:acacia_sign":3,"minecraft:chainmail_boots":12,"minecraft:wooden_axe":1,"minecraft:grindstone":2,"minecraft:oak_planks":220,"minecraft:cobblestone_slab":1404,"usefulbackpacks:backpack_small":2,"minecraft:snow":10368,"minecraft:heavy_weighted_pressure_plate":2,"minecraft:wayfinder_armor_trim_smithing_template":2,"minecraft:cake":8,"minecraft:bow":13,"minecraft:iron_boots":10,"minecraft:chest":54,"minecraft:netherite_upgrade_smithing_template":36,"minecraft:stone_hoe":1,"minecraft:ender_eye":11,"minecraft:stone_bricks":284,"minecraft:cherry_fence":3,"minecraft:quartz_stairs":9212,"minecraft:oak_slab":6,"minecraft:arrow":532,"minecraft:cauldron":1,"minecraft:crafting_table":2,"minecraft:brush":5,"minecraft:cherry_button":1,"minecraft:chainmail_chestplate":12,"minecraft:hopper_minecart":21,"minecraft:brewing_stand":1,"minecraft:pumpkin_seeds":24,"minecraft:tnt":60,"minecraft:diamond_pickaxe":4,"minecraft:shield":10,"minecraft:stick":84,"minecraft:iron_ingot":3575,"minecraft:snow_block":7043,"minecraft:redstone_torch":8,"minecraft:shears":2,"minecraft:polished_andesite":8640,"minecraft:cherry_planks":5552,"minecraft:cookie":8,"minecraft:redstone":6213,"minecraft:fishing_rod":1,"minecraft:leather_boots":1,"minecraft:stone_button":2,"minecraft:furnace":1,"minecraft:blast_furnace":1,"minecraft:piston":1770,"minecraft:oak_trapdoor":4,"minecraft:flint_and_steel":2,"minecraft:scaffolding":60,"minecraft:polished_deepslate":162415,"minecraft:iron_axe":12,"minecraft:iron_hoe":1,"minecraft:slime_ball":201,"usefulbackpacks:backpack_medium":2,"minecraft:netherite_scrap":8,"minecraft:minecart":20,"minecraft:observer":1747,"minecraft:cherry_fence_gate":2,"minecraft:cooked_beef":21,"minecraft:sugar":3,"minecraft:diamond_sword":1,"minecraft:iron_trapdoor":6,"minecraft:bucket":27,"minecraft:air":0,"minecraft:blue_dye":1153,"minecraft:oak_boat":1,"minecraft:stonecutter":1,"minecraft:anvil":4,"minecraft:acacia_planks":16,"minecraft:end_crystal":8,"minecraft:lapis_lazuli":446912,"minecraft:clay":18,"minecraft:lapis_block":50138,"minecraft:diamond_chestplate":1,"minecraft:tide_armor_trim_smithing_template":10}}
+[22:02:04] [信息]: [清理] 掉落物清理将在 60 秒后进行
+[22:02:06] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/8a6a7f77-b79c-33bf-9d29-21eccd1f3006.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_enderchest":2}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_enderchest":1} missed input: {"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:clock":2,"minecraft:player_head":204,"usefulbackpacks:backpack_enderchest":1,"minecraft:shulker_box":1},"minecraft:picked_up":{"minecraft:crafting_table":1,"minecraft:wheat":9,"minecraft:clock":2,"minecraft:oak_log":1,"minecraft:spruce_log":15,"usefulbackpacks:backpack_large":2,"minecraft:shulker_box":9,"minecraft:wheat_seeds":22,"minecraft:spruce_planks":12,"minecraft:cherry_sign":3,"minecraft:player_head":85,"minecraft:enchanted_golden_apple":1,"minecraft:bamboo":8,"usefulbackpacks:backpack_enderchest":2,"minecraft:glow_berries":3}}
+[22:02:06] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/b8e390cf-10a5-391d-a96b-86de95a60a7b.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small missed input: {"usefulbackpacks:backpack_small":1,"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_medium":1} missed input: {"minecraft:crafted":{"minecraft:ward_armor_trim_smithing_template":18,"minecraft:diamond_sword":1,"minecraft:emerald":207,"minecraft:diamond_axe":1,"usefulbackpacks:backpack_small":1,"minecraft:air":0,"minecraft:netherite_chestplate":1,"minecraft:mace":1,"minecraft:diamond":36,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":1,"minecraft:diamond_pickaxe":1,"minecraft:stick":8,"usefulbackpacks:backpack_large":1,"minecraft:netherite_helmet":1,"minecraft:diamond_boots":1,"usefulbackpacks:backpack_medium":1,"minecraft:diamond_chestplate":1}}
+[22:02:06] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/d03a1047-d8b8-3a2a-90a5-b3722a3da430.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1} missed input: {"minecraft:picked_up":{"minecraft:tipped_arrow":1,"minecraft:birch_leaves":4,"minecraft:feather":2,"minecraft:stone":14,"minecraft:chicken":4,"minecraft:potato":1,"minecraft:oak_log":1,"minecraft:prismarine_crystals":47,"minecraft:gunpowder":4,"minecraft:grass_block":37,"minecraft:spruce_log":1,"minecraft:netherite_pickaxe":1,"minecraft:shulker_box":1,"minecraft:spider_eye":4,"minecraft:netherite_leggings":1,"minecraft:string":7,"usefulbackpacks:backpack_large":1,"minecraft:dirt":77,"minecraft:elytra":2,"minecraft:rotten_flesh":11,"minecraft:arrow":2,"minecraft:coal_ore":7,"minecraft:gold_nugget":16,"minecraft:netherite_sword":1,"minecraft:white_tulip":1,"minecraft:pink_tulip":4,"minecraft:netherite_axe":1,"minecraft:totem_of_undying":11,"minecraft:enchanted_golden_apple":64,"minecraft:netherite_chestplate":1,"minecraft:diamond_helmet":1,"minecraft:netherite_hoe":1,"minecraft:coal":8,"minecraft:oak_leaves":12,"minecraft:cobblestone":19,"minecraft:egg":1},"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:spruce_planks":4,"minecraft:chicken":2,"minecraft:elytra":2}}
+[22:02:14] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/169701d9-37f8-3785-ae88-310ad46dcb17.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_small":2,"usefulbackpacks:backpack_medium":2} missed input: {"minecraft:crafted":{"minecraft:oak_sign":3,"minecraft:cherry_pressure_plate":2,"minecraft:polished_deepslate_wall":6912,"minecraft:blaze_powder":16,"minecraft:iron_chain":81,"minecraft:wolf_armor":3,"minecraft:slime_block":21,"minecraft:diamond_shovel":2,"minecraft:lever":25,"minecraft:bookshelf":16,"minecraft:shulker_box":32,"minecraft:mace":1,"minecraft:repeater":3,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":3,"minecraft:melon_seeds":20,"minecraft:stone_pressure_plate":3,"minecraft:name_tag":1,"minecraft:blue_stained_glass":6912,"minecraft:target":1,"minecraft:emerald":825,"minecraft:diamond_axe":1,"minecraft:prismarine_bricks":5184,"minecraft:smithing_table":1,"minecraft:copper_ingot":9,"minecraft:sticky_piston":10,"minecraft:fletching_table":1,"minecraft:hay_block":1,"minecraft:cherry_sign":3,"minecraft:stone_slab":8,"usefulbackpacks:backpack_large":2,"minecraft:iron_pickaxe":1,"minecraft:iron_block":117,"minecraft:gold_ingot":13,"minecraft:netherite_ingot":2,"minecraft:golden_carrot":279,"minecraft:prismarine":5,"minecraft:stone_shovel":10,"minecraft:smooth_stone_slab":114,"minecraft:diamond_hoe":2,"minecraft:red_terracotta":16,"minecraft:bone_meal":126,"minecraft:white_carpet":180,"minecraft:cherry_trapdoor":2,"minecraft:detector_rail":6,"minecraft:polished_diorite":4,"minecraft:ladder":6,"minecraft:stone_pickaxe":1,"minecraft:diamond_boots":2,"minecraft:redstone_block":111,"minecraft:wheat":27,"minecraft:enchanting_table":1,"minecraft:enchanted_book":9,"minecraft:raiser_armor_trim_smithing_template":8,"minecraft:acacia_sign":3,"minecraft:chainmail_boots":12,"minecraft:wooden_axe":1,"minecraft:grindstone":2,"minecraft:oak_planks":220,"minecraft:cobblestone_slab":1404,"usefulbackpacks:backpack_small":2,"minecraft:snow":10368,"minecraft:heavy_weighted_pressure_plate":2,"minecraft:wayfinder_armor_trim_smithing_template":2,"minecraft:cake":8,"minecraft:bow":13,"minecraft:iron_boots":10,"minecraft:chest":54,"minecraft:netherite_upgrade_smithing_template":36,"minecraft:stone_hoe":1,"minecraft:ender_eye":11,"minecraft:stone_bricks":284,"minecraft:cherry_fence":3,"minecraft:quartz_stairs":9212,"minecraft:oak_slab":6,"minecraft:arrow":532,"minecraft:cauldron":1,"minecraft:crafting_table":2,"minecraft:brush":5,"minecraft:cherry_button":1,"minecraft:chainmail_chestplate":12,"minecraft:hopper_minecart":21,"minecraft:brewing_stand":1,"minecraft:pumpkin_seeds":24,"minecraft:tnt":60,"minecraft:diamond_pickaxe":4,"minecraft:shield":10,"minecraft:stick":84,"minecraft:iron_ingot":3575,"minecraft:snow_block":7043,"minecraft:redstone_torch":8,"minecraft:shears":2,"minecraft:polished_andesite":8640,"minecraft:cherry_planks":5552,"minecraft:cookie":8,"minecraft:redstone":6213,"minecraft:fishing_rod":1,"minecraft:leather_boots":1,"minecraft:stone_button":2,"minecraft:furnace":1,"minecraft:blast_furnace":1,"minecraft:piston":1770,"minecraft:oak_trapdoor":4,"minecraft:flint_and_steel":2,"minecraft:scaffolding":60,"minecraft:polished_deepslate":162415,"minecraft:iron_axe":12,"minecraft:iron_hoe":1,"minecraft:slime_ball":201,"usefulbackpacks:backpack_medium":2,"minecraft:netherite_scrap":8,"minecraft:minecart":20,"minecraft:observer":1747,"minecraft:cherry_fence_gate":2,"minecraft:cooked_beef":21,"minecraft:sugar":3,"minecraft:diamond_sword":1,"minecraft:iron_trapdoor":6,"minecraft:bucket":27,"minecraft:air":0,"minecraft:blue_dye":1153,"minecraft:oak_boat":1,"minecraft:stonecutter":1,"minecraft:anvil":4,"minecraft:acacia_planks":16,"minecraft:end_crystal":8,"minecraft:lapis_lazuli":446912,"minecraft:clay":18,"minecraft:lapis_block":50138,"minecraft:diamond_chestplate":1,"minecraft:tide_armor_trim_smithing_template":10}}
+[22:02:16] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/8a6a7f77-b79c-33bf-9d29-21eccd1f3006.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_enderchest":2}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_enderchest":1} missed input: {"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:clock":2,"minecraft:player_head":204,"usefulbackpacks:backpack_enderchest":1,"minecraft:shulker_box":1},"minecraft:picked_up":{"minecraft:crafting_table":1,"minecraft:wheat":9,"minecraft:clock":2,"minecraft:oak_log":1,"minecraft:spruce_log":15,"usefulbackpacks:backpack_large":2,"minecraft:shulker_box":9,"minecraft:wheat_seeds":22,"minecraft:spruce_planks":12,"minecraft:cherry_sign":3,"minecraft:player_head":85,"minecraft:enchanted_golden_apple":1,"minecraft:bamboo":8,"usefulbackpacks:backpack_enderchest":2,"minecraft:glow_berries":3}}
+[22:02:16] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/b8e390cf-10a5-391d-a96b-86de95a60a7b.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small missed input: {"usefulbackpacks:backpack_small":1,"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_medium":1} missed input: {"minecraft:crafted":{"minecraft:ward_armor_trim_smithing_template":18,"minecraft:diamond_sword":1,"minecraft:emerald":207,"minecraft:diamond_axe":1,"usefulbackpacks:backpack_small":1,"minecraft:air":0,"minecraft:netherite_chestplate":1,"minecraft:mace":1,"minecraft:diamond":36,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":1,"minecraft:diamond_pickaxe":1,"minecraft:stick":8,"usefulbackpacks:backpack_large":1,"minecraft:netherite_helmet":1,"minecraft:diamond_boots":1,"usefulbackpacks:backpack_medium":1,"minecraft:diamond_chestplate":1}}
+[22:02:16] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/d03a1047-d8b8-3a2a-90a5-b3722a3da430.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1} missed input: {"minecraft:picked_up":{"minecraft:tipped_arrow":1,"minecraft:birch_leaves":4,"minecraft:feather":2,"minecraft:stone":14,"minecraft:chicken":4,"minecraft:potato":1,"minecraft:oak_log":1,"minecraft:prismarine_crystals":47,"minecraft:gunpowder":4,"minecraft:grass_block":37,"minecraft:spruce_log":1,"minecraft:netherite_pickaxe":1,"minecraft:shulker_box":1,"minecraft:spider_eye":4,"minecraft:netherite_leggings":1,"minecraft:string":7,"usefulbackpacks:backpack_large":1,"minecraft:dirt":77,"minecraft:elytra":2,"minecraft:rotten_flesh":11,"minecraft:arrow":2,"minecraft:coal_ore":7,"minecraft:gold_nugget":16,"minecraft:netherite_sword":1,"minecraft:white_tulip":1,"minecraft:pink_tulip":4,"minecraft:netherite_axe":1,"minecraft:totem_of_undying":11,"minecraft:enchanted_golden_apple":64,"minecraft:netherite_chestplate":1,"minecraft:diamond_helmet":1,"minecraft:netherite_hoe":1,"minecraft:coal":8,"minecraft:oak_leaves":12,"minecraft:cobblestone":19,"minecraft:egg":1},"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:spruce_planks":4,"minecraft:chicken":2,"minecraft:elytra":2}}
+[22:02:24] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/169701d9-37f8-3785-ae88-310ad46dcb17.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_small":2,"usefulbackpacks:backpack_medium":2} missed input: {"minecraft:crafted":{"minecraft:oak_sign":3,"minecraft:cherry_pressure_plate":2,"minecraft:polished_deepslate_wall":6912,"minecraft:blaze_powder":16,"minecraft:iron_chain":81,"minecraft:wolf_armor":3,"minecraft:slime_block":21,"minecraft:diamond_shovel":2,"minecraft:lever":25,"minecraft:bookshelf":16,"minecraft:shulker_box":32,"minecraft:mace":1,"minecraft:repeater":3,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":3,"minecraft:melon_seeds":20,"minecraft:stone_pressure_plate":3,"minecraft:name_tag":1,"minecraft:blue_stained_glass":6912,"minecraft:target":1,"minecraft:emerald":825,"minecraft:diamond_axe":1,"minecraft:prismarine_bricks":5184,"minecraft:smithing_table":1,"minecraft:copper_ingot":9,"minecraft:sticky_piston":10,"minecraft:fletching_table":1,"minecraft:hay_block":1,"minecraft:cherry_sign":3,"minecraft:stone_slab":8,"usefulbackpacks:backpack_large":2,"minecraft:iron_pickaxe":1,"minecraft:iron_block":117,"minecraft:gold_ingot":13,"minecraft:netherite_ingot":2,"minecraft:golden_carrot":279,"minecraft:prismarine":5,"minecraft:stone_shovel":10,"minecraft:smooth_stone_slab":114,"minecraft:diamond_hoe":2,"minecraft:red_terracotta":16,"minecraft:bone_meal":126,"minecraft:white_carpet":180,"minecraft:cherry_trapdoor":2,"minecraft:detector_rail":6,"minecraft:polished_diorite":4,"minecraft:ladder":6,"minecraft:stone_pickaxe":1,"minecraft:diamond_boots":2,"minecraft:redstone_block":111,"minecraft:wheat":27,"minecraft:enchanting_table":1,"minecraft:enchanted_book":9,"minecraft:raiser_armor_trim_smithing_template":8,"minecraft:acacia_sign":3,"minecraft:chainmail_boots":12,"minecraft:wooden_axe":1,"minecraft:grindstone":2,"minecraft:oak_planks":220,"minecraft:cobblestone_slab":1404,"usefulbackpacks:backpack_small":2,"minecraft:snow":10368,"minecraft:heavy_weighted_pressure_plate":2,"minecraft:wayfinder_armor_trim_smithing_template":2,"minecraft:cake":8,"minecraft:bow":13,"minecraft:iron_boots":10,"minecraft:chest":54,"minecraft:netherite_upgrade_smithing_template":36,"minecraft:stone_hoe":1,"minecraft:ender_eye":11,"minecraft:stone_bricks":284,"minecraft:cherry_fence":3,"minecraft:quartz_stairs":9212,"minecraft:oak_slab":6,"minecraft:arrow":532,"minecraft:cauldron":1,"minecraft:crafting_table":2,"minecraft:brush":5,"minecraft:cherry_button":1,"minecraft:chainmail_chestplate":12,"minecraft:hopper_minecart":21,"minecraft:brewing_stand":1,"minecraft:pumpkin_seeds":24,"minecraft:tnt":60,"minecraft:diamond_pickaxe":4,"minecraft:shield":10,"minecraft:stick":84,"minecraft:iron_ingot":3575,"minecraft:snow_block":7043,"minecraft:redstone_torch":8,"minecraft:shears":2,"minecraft:polished_andesite":8640,"minecraft:cherry_planks":5552,"minecraft:cookie":8,"minecraft:redstone":6213,"minecraft:fishing_rod":1,"minecraft:leather_boots":1,"minecraft:stone_button":2,"minecraft:furnace":1,"minecraft:blast_furnace":1,"minecraft:piston":1770,"minecraft:oak_trapdoor":4,"minecraft:flint_and_steel":2,"minecraft:scaffolding":60,"minecraft:polished_deepslate":162415,"minecraft:iron_axe":12,"minecraft:iron_hoe":1,"minecraft:slime_ball":201,"usefulbackpacks:backpack_medium":2,"minecraft:netherite_scrap":8,"minecraft:minecart":20,"minecraft:observer":1747,"minecraft:cherry_fence_gate":2,"minecraft:cooked_beef":21,"minecraft:sugar":3,"minecraft:diamond_sword":1,"minecraft:iron_trapdoor":6,"minecraft:bucket":27,"minecraft:air":0,"minecraft:blue_dye":1153,"minecraft:oak_boat":1,"minecraft:stonecutter":1,"minecraft:anvil":4,"minecraft:acacia_planks":16,"minecraft:end_crystal":8,"minecraft:lapis_lazuli":446912,"minecraft:clay":18,"minecraft:lapis_block":50138,"minecraft:diamond_chestplate":1,"minecraft:tide_armor_trim_smithing_template":10}}
+[22:02:26] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/8a6a7f77-b79c-33bf-9d29-21eccd1f3006.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":2,"usefulbackpacks:backpack_enderchest":2}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_enderchest; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_enderchest":1} missed input: {"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:clock":2,"minecraft:player_head":204,"usefulbackpacks:backpack_enderchest":1,"minecraft:shulker_box":1},"minecraft:picked_up":{"minecraft:crafting_table":1,"minecraft:wheat":9,"minecraft:clock":2,"minecraft:oak_log":1,"minecraft:spruce_log":15,"usefulbackpacks:backpack_large":2,"minecraft:shulker_box":9,"minecraft:wheat_seeds":22,"minecraft:spruce_planks":12,"minecraft:cherry_sign":3,"minecraft:player_head":85,"minecraft:enchanted_golden_apple":1,"minecraft:bamboo":8,"usefulbackpacks:backpack_enderchest":2,"minecraft:glow_berries":3}}
+[22:02:26] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/b8e390cf-10a5-391d-a96b-86de95a60a7b.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_medium; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_small missed input: {"usefulbackpacks:backpack_small":1,"usefulbackpacks:backpack_large":1,"usefulbackpacks:backpack_medium":1} missed input: {"minecraft:crafted":{"minecraft:ward_armor_trim_smithing_template":18,"minecraft:diamond_sword":1,"minecraft:emerald":207,"minecraft:diamond_axe":1,"usefulbackpacks:backpack_small":1,"minecraft:air":0,"minecraft:netherite_chestplate":1,"minecraft:mace":1,"minecraft:diamond":36,"minecraft:diamond_helmet":1,"minecraft:diamond_leggings":1,"minecraft:diamond_pickaxe":1,"minecraft:stick":8,"usefulbackpacks:backpack_large":1,"minecraft:netherite_helmet":1,"minecraft:diamond_boots":1,"usefulbackpacks:backpack_medium":1,"minecraft:diamond_chestplate":1}}
+[22:02:26] [Server thread/ERROR]: Failed to parse statistics for ./world/stats/d03a1047-d8b8-3a2a-90a5-b3722a3da430.json: Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1}; Unknown registry key in ResourceKey[minecraft:root / minecraft:item]: usefulbackpacks:backpack_large missed input: {"usefulbackpacks:backpack_large":1} missed input: {"minecraft:picked_up":{"minecraft:tipped_arrow":1,"minecraft:birch_leaves":4,"minecraft:feather":2,"minecraft:stone":14,"minecraft:chicken":4,"minecraft:potato":1,"minecraft:oak_log":1,"minecraft:prismarine_crystals":47,"minecraft:gunpowder":4,"minecraft:grass_block":37,"minecraft:spruce_log":1,"minecraft:netherite_pickaxe":1,"minecraft:shulker_box":1,"minecraft:spider_eye":4,"minecraft:netherite_leggings":1,"minecraft:string":7,"usefulbackpacks:backpack_large":1,"minecraft:dirt":77,"minecraft:elytra":2,"minecraft:rotten_flesh":11,"minecraft:arrow":2,"minecraft:coal_ore":7,"minecraft:gold_nugget":16,"minecraft:netherite_sword":1,"minecraft:white_tulip":1,"minecraft:pink_tulip":4,"minecraft:netherite_axe":1,"minecraft:totem_of_undying":11,"minecraft:enchanted_golden_apple":64,"minecraft:netherite_chestplate":1,"minecraft:diamond_helmet":1,"minecraft:netherite_hoe":1,"minecraft:coal":8,"minecraft:oak_leaves":12,"minecraft:cobblestone":19,"minecraft:egg":1},"minecraft:dropped":{"usefulbackpacks:backpack_large":1,"minecraft:spruce_planks":4,"minecraft:chicken":2,"minecraft:elytra":2}}
+
+---
+
+## Development request 2026/9/1 23:07:26
+
+针对云储存吞物品，修复目标应是：**任何失败都保留原物品，任何成功都可追踪和恢复。**
+
+## 一、立即止损
+
+1. 暂时关闭云储存模块，或至少禁止存入带复杂组件的物品。
+2. 备份完整 `world/`，重点保留 `world/data/`。
+3. 保留日志，不要覆盖或清理。
+4. 为受影响玩家建立人工补偿登记：玩家、时间、页面、槽位、物品、数量、最后一次操作。
+
+## 二、修复原则
+
+现有风险是物品编码失败时被直接跳过，最终保存为空槽。必须改成“失败即拒绝保存”，绝不能写出部分成功的数据。
+
+```text
+错误做法：
+物品 A 编码失败
+→ 跳过 A
+→ 保存空槽
+→ 重启后 A 消失
+
+正确做法：
+物品 A 编码失败
+→ 整页保存失败
+→ 保留内存和旧存档数据
+→ 原物品退回玩家
+→ 提示管理员和玩家
+```
+
+## 三、安全存入事务
+
+每次玩家向云储存放入物品时，使用两阶段事务。
+
+```text
+1. 读取当前页面的旧快照
+2. 构造包含新物品的新页面副本
+3. 对新页面全部物品逐个编码验证
+4. 验证成功后，提交新页面
+5. 写入操作日志
+6. 最后才允许界面确认操作完成
+```
+
+只要任一物品无法编码：
+
+```text
+不写入云储存数据
+不移除玩家原物品
+恢复界面到旧快照
+向玩家提示“该物品暂不支持存入”
+记录错误日志
+```
+
+重点是：**验证必须在物品从玩家背包移除之前完成。**
+
+## 四、保存失败保护
+
+当前页保存时，应当序列化为完整临时数据，全部成功后再替换旧页面。
+
+```text
+旧页面快照
+    ↓
+新页面完整编码
+    ↓ 成功
+替换内存页面 + 标记脏数据
+    ↓ 失败
+保留旧页面，不修改存档
+```
+
+不要逐槽写入，更不能某一槽失败后继续保存其余槽位。
+
+## 五、关闭、翻页与断线处理
+
+这些路径必须统一走同一套安全提交逻辑：
+
+| 场景 | 正确处理 |
+|---|---|
+| 普通点击 | 事务提交成功才更新界面 |
+| Shift 点击 | 同样走完整验证 |
+| 翻页 | 当前页提交成功才能打开下一页 |
+| 点击关闭 | 提交失败则取消关闭并提示 |
+| ESC 关闭 | 提交失败时将未提交物品退回背包 |
+| 断线 | 将暂存容器物品退回背包；背包满则掉落或进入奖励邮箱 |
+| 模块重载/停服 | 禁止新操作，保存已验证页面，失败则写恢复队列 |
+
+任何关闭路径都不能因为模块被禁用、权限变化或配置重载而跳过保存或返还。
+
+## 六、异常物品策略
+
+为每个物品建立存储前校验：
+
+- `ItemStack` 不为空、数量合法。
+- 物品 ID 存在于注册表。
+- 可完整通过 `ItemStack.CODEC` 的编码和解码往返验证。
+- NBT/组件大小低于可配置上限。
+- 禁止嵌套容器、非法组件或黑名单物品。
+- 可选：只允许白名单物品进入云储存。
+
+推荐采用“编码-解码一致性验证”：
+
+```text
+原物品
+  ↓ 编码
+NBT
+  ↓ 解码
+恢复物品
+  ↓ 比较
+物品 ID、数量、组件、耐久、附魔必须一致
+```
+
+任意不一致就拒绝存入。
+
+## 七、审计与恢复账本
+
+新增不可覆盖的云储存账本，每次存取都写入：
+
+```text
+操作 ID
+玩家 UUID
+时间
+页面与槽位
+操作类型：存入 / 取出 / 移动 / 翻页提交
+操作前物品摘要
+操作后物品摘要
+事务状态：准备中 / 已提交 / 已回滚 / 待人工处理
+```
+
+事务建议状态机：
+
+```text
+PREPARED
+  ↓
+COMMITTED
+  或
+ROLLED_BACK
+  或
+QUARANTINED
+```
+
+服务端启动时扫描未完成记录：
+
+- `PREPARED`：按旧快照回滚。
+- `COMMITTED`：确认新页面存在。
+- 不可判断：进入 `QUARANTINED`，冻结该笔操作并提供管理员恢复命令。
+
+这样即使崩溃，也可以明确恢复到“存入前”或“存入后”，不会出现无证据丢失。
+
+## 八、持久化策略
+
+建议分成两个独立数据：
+
+- `cloud_storage.dat`：最终页面数据。
+- `cloud_storage_journal.dat`：操作日志和未完成事务。
+
+关键操作顺序：
+
+```text
+写入 PREPARED 日志并落盘
+→ 写入新页面数据并落盘
+→ 标记 COMMITTED 并落盘
+```
+
+只有全部完成，才能从玩家背包扣除对应物品。服务端崩溃后，按日志恢复。
+
+对于高价值物品，还可以在存入后立即请求一次强制世界保存；这会增加 IO，不建议对每次普通操作无条件执行，可改为批量或关键物品触发。
+
+## 九、上线验证
+
+至少覆盖：
+
+1. 原版工具、附魔工具、命名物品、潜影盒、带容器内容的物品。
+2. 复杂组件或无法序列化物品被拒绝且仍在玩家背包。
+3. 正常点击、Shift 点击、拖拽、双击、翻页、ESC 关闭。
+4. 背包满时取出。
+5. 存入中断线、服务端重启、配置热重载、权限撤销。
+6. 页面数据损坏、日志未提交、序列化异常。
+7. 恢复命令按操作 ID 找回物品。
+
+修复上线前应先以“只记录不拦截”的审计模式运行一段时间，收集哪些物品无法通过往返校验；确认白名单和异常物品处理策略后，再开启强制拒绝与事务保护。
+
+---
+
+## Development request 2026/9/1 23:11:11
+
+针对云储存吞物品，修复目标应是：**任何失败都保留原物品，任何成功都可追踪和恢复。**
+
+## 一、立即止损
+
+1. 暂时关闭云储存模块，或至少禁止存入带复杂组件的物品。
+2. 备份完整 `world/`，重点保留 `world/data/`。
+3. 保留日志，不要覆盖或清理。
+4. 为受影响玩家建立人工补偿登记：玩家、时间、页面、槽位、物品、数量、最后一次操作。
+
+## 二、修复原则
+
+现有风险是物品编码失败时被直接跳过，最终保存为空槽。必须改成“失败即拒绝保存”，绝不能写出部分成功的数据。
+
+```text
+错误做法：
+物品 A 编码失败
+→ 跳过 A
+→ 保存空槽
+→ 重启后 A 消失
+
+正确做法：
+物品 A 编码失败
+→ 整页保存失败
+→ 保留内存和旧存档数据
+→ 原物品退回玩家
+→ 提示管理员和玩家
+```
+
+## 三、安全存入事务
+
+每次玩家向云储存放入物品时，使用两阶段事务。
+
+```text
+1. 读取当前页面的旧快照
+2. 构造包含新物品的新页面副本
+3. 对新页面全部物品逐个编码验证
+4. 验证成功后，提交新页面
+5. 写入操作日志
+6. 最后才允许界面确认操作完成
+```
+
+只要任一物品无法编码：
+
+```text
+不写入云储存数据
+不移除玩家原物品
+恢复界面到旧快照
+向玩家提示“该物品暂不支持存入”
+记录错误日志
+```
+
+重点是：**验证必须在物品从玩家背包移除之前完成。**
+
+## 四、保存失败保护
+
+当前页保存时，应当序列化为完整临时数据，全部成功后再替换旧页面。
+
+```text
+旧页面快照
+    ↓
+新页面完整编码
+    ↓ 成功
+替换内存页面 + 标记脏数据
+    ↓ 失败
+保留旧页面，不修改存档
+```
+
+不要逐槽写入，更不能某一槽失败后继续保存其余槽位。
+
+## 五、关闭、翻页与断线处理
+
+这些路径必须统一走同一套安全提交逻辑：
+
+| 场景 | 正确处理 |
+|---|---|
+| 普通点击 | 事务提交成功才更新界面 |
+| Shift 点击 | 同样走完整验证 |
+| 翻页 | 当前页提交成功才能打开下一页 |
+| 点击关闭 | 提交失败则取消关闭并提示 |
+| ESC 关闭 | 提交失败时将未提交物品退回背包 |
+| 断线 | 将暂存容器物品退回背包；背包满则掉落或进入奖励邮箱 |
+| 模块重载/停服 | 禁止新操作，保存已验证页面，失败则写恢复队列 |
+
+任何关闭路径都不能因为模块被禁用、权限变化或配置重载而跳过保存或返还。
+
+## 六、异常物品策略
+
+为每个物品建立存储前校验：
+
+- `ItemStack` 不为空、数量合法。
+- 物品 ID 存在于注册表。
+- 可完整通过 `ItemStack.CODEC` 的编码和解码往返验证。
+- NBT/组件大小低于可配置上限。
+- 禁止嵌套容器、非法组件或黑名单物品。
+- 可选：只允许白名单物品进入云储存。
+
+推荐采用“编码-解码一致性验证”：
+
+```text
+原物品
+  ↓ 编码
+NBT
+  ↓ 解码
+恢复物品
+  ↓ 比较
+物品 ID、数量、组件、耐久、附魔必须一致
+```
+
+任意不一致就拒绝存入。
+
+## 七、审计与恢复账本
+
+新增不可覆盖的云储存账本，每次存取都写入：
+
+```text
+操作 ID
+玩家 UUID
+时间
+页面与槽位
+操作类型：存入 / 取出 / 移动 / 翻页提交
+操作前物品摘要
+操作后物品摘要
+事务状态：准备中 / 已提交 / 已回滚 / 待人工处理
+```
+
+事务建议状态机：
+
+```text
+PREPARED
+  ↓
+COMMITTED
+  或
+ROLLED_BACK
+  或
+QUARANTINED
+```
+
+服务端启动时扫描未完成记录：
+
+- `PREPARED`：按旧快照回滚。
+- `COMMITTED`：确认新页面存在。
+- 不可判断：进入 `QUARANTINED`，冻结该笔操作并提供管理员恢复命令。
+
+这样即使崩溃，也可以明确恢复到“存入前”或“存入后”，不会出现无证据丢失。
+
+## 八、持久化策略
+
+建议分成两个独立数据：
+
+- `cloud_storage.dat`：最终页面数据。
+- `cloud_storage_journal.dat`：操作日志和未完成事务。
+
+关键操作顺序：
+
+```text
+写入 PREPARED 日志并落盘
+→ 写入新页面数据并落盘
+→ 标记 COMMITTED 并落盘
+```
+
+只有全部完成，才能从玩家背包扣除对应物品。服务端崩溃后，按日志恢复。
+
+对于高价值物品，还可以在存入后立即请求一次强制世界保存；这会增加 IO，不建议对每次普通操作无条件执行，可改为批量或关键物品触发。
+
+## 九、上线验证
+
+至少覆盖：
+
+1. 原版工具、附魔工具、命名物品、潜影盒、带容器内容的物品。
+2. 复杂组件或无法序列化物品被拒绝且仍在玩家背包。
+3. 正常点击、Shift 点击、拖拽、双击、翻页、ESC 关闭。
+4. 背包满时取出。
+5. 存入中断线、服务端重启、配置热重载、权限撤销。
+6. 页面数据损坏、日志未提交、序列化异常。
+7. 恢复命令按操作 ID 找回物品。
+
+修复上线前应先以“只记录不拦截”的审计模式运行一段时间，收集哪些物品无法通过往返校验；确认白名单和异常物品处理策略后，再开启强制拒绝与事务保护。

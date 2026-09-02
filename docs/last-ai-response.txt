@@ -1,13 +1,8 @@
-已修复商店配置联动与模块管理界面问题。
+已完成云储存防吞物品修复。
 
-- 配置加载失败现在会保留具体模块 ID 并输出完整异常堆栈，见 [ConfigModuleRegistry.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/ConfigModuleRegistry.java:63) 和 [OmniToolsConfigManager.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/config/OmniToolsConfigManager.java:312)。
-- 模块管理页补齐了 `packages`、`skills` 图标，并为未来缺失映射提供罗盘回退，不会再构造 `new ItemStack(null)`，见 [ModuleManagerScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/ModuleManagerScreenHandler.java:37)。
-- 增加了模块加载诊断与全模块图标覆盖测试。
+- 整页物品在提交前执行 `ItemStack.CODEC` 编码、解码和组件一致性校验；失败会恢复界面和背包，[CloudStorageData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageData.java:117)。
+- 新增独立的持久化操作账本，保存前后页面快照及 `PREPARED/COMMITTED/ROLLED_BACK/QUARANTINED` 状态，并在启动时恢复核对，[CloudStorageJournalData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageJournalData.java:20)。
+- 普通点击、Shift 点击、翻页和关闭都走事务提交；坏的历史存储记录会被隔离并原样保留，避免再次覆盖为空，[CloudStorageScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageScreenHandler.java:275)。
+- 增加管理员恢复命令：`/omnitools storage recovery list|inspect <UUID>|resolve <UUID> commit|rollback`，权限为 `storage.recovery`。[cloud-storage.md](D:/mod/qiandao/docs/modules/cloud-storage.md:53)
 
-验证通过：内容校验、完整受管测试构建、受管产物构建、隔离服务端启动。服务端全量重载日志确认：
-
-```text
-packages=true, shop=true, permissions=true, sidebar=true
-```
-
-且未发现任何配置重载或模块更新被拒绝。
+验证已通过：ModMind 内容校验、受管 Gradle 构建，以及隔离服务端启动并稳定运行 15 秒。

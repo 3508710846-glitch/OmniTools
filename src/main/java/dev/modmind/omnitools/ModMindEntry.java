@@ -106,6 +106,12 @@ public final class ModMindEntry implements ModInitializer {
             TitleData.bind(server);
             TitleData.importLegacy(server);
             MODULE_CONTROL.reload(server);
+            CloudStorageJournalData.RecoveryReport storageRecovery = CloudStorageJournalData.get(server)
+                    .reconcileStartup(server, CloudStorageData.get(server));
+            if (storageRecovery.committed() > 0 || storageRecovery.quarantined() > 0) {
+                System.err.println("[omnitools] Cloud storage startup recovery: committed="
+                        + storageRecovery.committed() + ", quarantined=" + storageRecovery.quarantined());
+            }
             rewardGrantService().reconcileStartup(server);
             shopPurchaseService().reconcileStartup(server);
             PlaceholderBootstrap.registerIfAvailable();
@@ -234,6 +240,7 @@ public final class ModMindEntry implements ModInitializer {
                     .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
                             CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.SHOP_AUDIT, CommandAction.TITLE_OPEN,
                             CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
+                            CommandAction.STORAGE_RECOVERY,
                             CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                             CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                             CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR, CommandAction.CONFIG_RELOAD,
@@ -302,6 +309,7 @@ public final class ModMindEntry implements ModInitializer {
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CHECKIN_OPEN,
                         CommandAction.ONLINE_OPEN, CommandAction.SHOP_OPEN, CommandAction.SHOP_AUDIT, CommandAction.TITLE_OPEN,
                         CommandAction.TITLE_GRANT, CommandAction.TITLE_REVOKE, CommandAction.STORAGE_OPEN,
+                        CommandAction.STORAGE_RECOVERY,
                         CommandAction.ACHIEVEMENTS_OPEN, CommandAction.CURRENCY_BALANCE_SELF,
                         CommandAction.CURRENCY_BALANCE_OTHER, CommandAction.CURRENCY_ADD,
                         CommandAction.CURRENCY_REMOVE, CommandAction.CHECKIN_CLEAR,
@@ -586,11 +594,95 @@ public final class ModMindEntry implements ModInitializer {
 
     private static LiteralArgumentBuilder<CommandSourceStack> cloudStorageCommand(String literal) {
         return Commands.literal(literal)
-                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.STORAGE_OPEN)
-                        .and(source -> isModuleEnabled(ModuleId.CLOUD_STORAGE)))
+                .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.STORAGE_OPEN,
+                        CommandAction.STORAGE_RECOVERY))
                 .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open")
-                        .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())));
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.STORAGE_OPEN)
+                                .and(source -> isModuleEnabled(ModuleId.CLOUD_STORAGE)))
+                        .executes(context -> openCloudStorageMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("recovery")
+                        .requires(COMMAND_PERMISSIONS.requirement(CommandAction.STORAGE_RECOVERY))
+                        .then(Commands.literal("list")
+                                .executes(context -> listCloudStorageRecovery(context.getSource())))
+                        .then(Commands.literal("inspect")
+                                .then(Commands.argument("operation", StringArgumentType.word())
+                                        .executes(context -> inspectCloudStorageRecovery(context.getSource(),
+                                                StringArgumentType.getString(context, "operation")))))
+                        .then(Commands.literal("resolve")
+                                .then(Commands.argument("operation", StringArgumentType.word())
+                                        .then(Commands.literal("commit")
+                                                .executes(context -> resolveCloudStorageRecovery(context.getSource(),
+                                                        StringArgumentType.getString(context, "operation"),
+                                                        CloudStorageJournalData.Resolution.COMMIT)))
+                                        .then(Commands.literal("rollback")
+                                                .executes(context -> resolveCloudStorageRecovery(context.getSource(),
+                                                        StringArgumentType.getString(context, "operation"),
+                                                        CloudStorageJournalData.Resolution.ROLLBACK))))));
+    }
+
+    private static int listCloudStorageRecovery(CommandSourceStack source) {
+        List<CloudStorageJournalData.Entry> entries = CloudStorageJournalData.get(source.getServer()).entries();
+        long pending = entries.stream().filter(entry -> entry.status() == CloudStorageJournalData.Status.PREPARED
+                || entry.status() == CloudStorageJournalData.Status.QUARANTINED).count();
+        source.sendSuccess(() -> Component.literal("cloud storage operations=" + entries.size()
+                + ", awaiting recovery=" + pending), false);
+        entries.stream().filter(entry -> entry.status() == CloudStorageJournalData.Status.PREPARED
+                        || entry.status() == CloudStorageJournalData.Status.QUARANTINED)
+                .sorted(java.util.Comparator.comparingLong(CloudStorageJournalData.Entry::updatedAt).reversed())
+                .limit(10)
+                .forEach(entry -> source.sendSuccess(() -> Component.literal("operation=" + entry.operationId()
+                        + " status=" + entry.status() + " type=" + entry.operation() + " owner="
+                        + entry.ownerId() + " page=" + (entry.page() + 1) + " reason=" + entry.reason()), false));
+        return pending > 0 ? 1 : 0;
+    }
+
+    private static int inspectCloudStorageRecovery(CommandSourceStack source, String operationText) {
+        UUID operationId;
+        try {
+            operationId = UUID.fromString(operationText);
+        } catch (IllegalArgumentException exception) {
+            source.sendFailure(Component.literal("invalid cloud storage operation UUID"));
+            return 0;
+        }
+        CloudStorageJournalData.Entry entry = CloudStorageJournalData.get(source.getServer()).find(operationId)
+                .orElse(null);
+        if (entry == null) {
+            source.sendFailure(Component.literal("cloud storage operation not found"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("operation=" + entry.operationId() + " status=" + entry.status()
+                + " type=" + entry.operation() + " owner=" + entry.ownerId() + " page=" + (entry.page() + 1)
+                + " createdAt=" + entry.createdAt() + " updatedAt=" + entry.updatedAt() + " beforeItems="
+                + cloudStorageItemCount(entry.before()) + " afterItems=" + cloudStorageItemCount(entry.after())
+                + " reason=" + entry.reason()), false);
+        return 1;
+    }
+
+    private static int resolveCloudStorageRecovery(CommandSourceStack source, String operationText,
+                                                   CloudStorageJournalData.Resolution resolution) {
+        UUID operationId;
+        try {
+            operationId = UUID.fromString(operationText);
+        } catch (IllegalArgumentException exception) {
+            source.sendFailure(Component.literal("invalid cloud storage operation UUID"));
+            return 0;
+        }
+        CloudStorageJournalData.ResolutionResult result = CloudStorageJournalData.get(source.getServer()).resolve(
+                source.getServer(), CloudStorageData.get(source.getServer()), operationId, resolution,
+                source.getTextName());
+        if (!result.resolved()) {
+            source.sendFailure(Component.literal("cloud storage recovery rejected: " + result.reason()));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("cloud storage operation " + operationId + " resolved as "
+                + result.entry().status()), true);
+        return 1;
+    }
+
+    private static long cloudStorageItemCount(List<net.minecraft.world.item.ItemStack> items) {
+        return items.stream().filter(stack -> !stack.isEmpty()).mapToLong(net.minecraft.world.item.ItemStack::getCount)
+                .sum();
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> skillTreeCommand() {
@@ -2117,6 +2209,10 @@ public final class ModMindEntry implements ModInitializer {
         if (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
                 || !isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
             player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        if (CloudStorageData.get(player).isQuarantined(player.getUUID())) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.quarantined"), true);
             return 0;
         }
         player.openMenu(new SimpleMenuProvider(

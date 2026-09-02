@@ -247,6 +247,8 @@
   "message.omnitools.storage.insufficient": "Insufficient currency: need %d, current balance %d.",
   "message.omnitools.storage.expanded": "Cloud storage expanded to %d page(s), spent %d currency (balance: %d).",
   "message.omnitools.storage.maxed": "Cloud storage has reached its configured limit.",
+  "message.omnitools.storage.save_failed": "This item cannot be stored safely. Your inventory was restored.",
+  "message.omnitools.storage.quarantined": "Your cloud storage data needs administrator recovery before it can be opened.",
   "gui.omnitools.achievements.button": "View achievements",
   "gui.omnitools.achievements.button_hint": "Open the custom achievement menu",
   "gui.omnitools.achievement.title": "Custom Achievements",

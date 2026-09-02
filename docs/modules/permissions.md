@@ -48,6 +48,7 @@
     "title.open": "PLAYER",
     "achievements.open": "PLAYER",
     "storage.open": { "role": "ADMIN", "allow_native_node": true },
+    "storage.recovery": "ADMIN",
     "currency.balance.self": "PLAYER",
     "currency.balance.other": "ADMIN",
     "currency.add": "ADMIN",
@@ -89,7 +90,7 @@
 
 ## 8. 全部配置场景
 
-可只写需要覆盖的动作，未写的动作使用代码默认角色。`storage.open` 的对象写法用于控制原生命令节点授权；其他动作仅接受角色字符串。
+可只写需要覆盖的动作，未写的动作使用代码默认角色。`storage.open` 的对象写法用于控制原生命令节点授权；其他动作仅接受角色字符串。`storage.recovery` 控制云存储账本的查看和人工恢复。
 
 ## 9. 指令、权限与默认角色
 

@@ -3,6 +3,8 @@ package dev.modmind.omnitools;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -26,6 +28,8 @@ public final class CloudStorageData extends SavedData {
     private static final String PLAYERS_KEY = "players";
     private static final String UNLOCKED_PAGES_KEY = "unlocked_pages";
     private static final String PAGES_KEY = "pages";
+    static final int MAX_ITEM_BYTES = 32 * 1024;
+    private static final ThreadLocal<HolderLookup.Provider> LOADING_REGISTRIES = new ThreadLocal<>();
 
     public static final SavedDataType<CloudStorageData> TYPE = new SavedDataType<>(
             DATA_ID,
@@ -44,13 +48,23 @@ public final class CloudStorageData extends SavedData {
     }
 
     private final Map<UUID, StorageRecord> players = new HashMap<>();
+    /** Retains a corrupt player record byte-for-byte so later saves cannot silently erase it. */
+    private final Map<String, CompoundTag> malformedRecords = new HashMap<>();
+    private HolderLookup.Provider registries;
 
     public static CloudStorageData get(MinecraftServer server) {
         ServerLevel overworld = server.getLevel(Level.OVERWORLD);
         if (overworld == null) {
             throw new IllegalStateException("The overworld is not available while loading cloud storage data");
         }
-        return overworld.getDataStorage().computeIfAbsent(TYPE);
+        LOADING_REGISTRIES.set(server.registryAccess());
+        try {
+            CloudStorageData data = overworld.getDataStorage().computeIfAbsent(TYPE);
+            data.registries = server.registryAccess();
+            return data;
+        } finally {
+            LOADING_REGISTRIES.remove();
+        }
     }
 
     public static CloudStorageData get(ServerPlayer player) {
@@ -60,6 +74,10 @@ public final class CloudStorageData extends SavedData {
     public synchronized int unlockedPages(UUID playerId) {
         StorageRecord record = players.get(playerId);
         return record == null ? CloudStorageConfig.MIN_PAGES : record.unlockedPages;
+    }
+
+    public synchronized boolean isQuarantined(UUID playerId) {
+        return playerId != null && malformedRecords.containsKey(playerId.toString());
     }
 
     public synchronized List<ItemStack> page(UUID playerId, int page) {
@@ -78,20 +96,145 @@ public final class CloudStorageData extends SavedData {
             throw new IllegalArgumentException("Cloud storage page has an unexpected slot count");
         }
 
+        rejectQuarantinedRecord(playerId);
         StorageRecord record = players.computeIfAbsent(playerId, ignored -> new StorageRecord());
         if (page >= record.unlockedPages) {
             throw new IllegalStateException("Cannot write to a locked cloud storage page");
         }
-        if (ItemStack.listMatches(record.pages.get(page), items)) {
+        List<ItemStack> validated = validatePage(items, registries);
+        if (ItemStack.listMatches(record.pages.get(page), validated)) {
             return;
         }
-        record.pages.set(page, copyPage(items));
+        record.pages.set(page, validated);
         setDirty();
+    }
+
+    /**
+     * Persists a full validated page through a durable journal before the menu reports the move as
+     * successful. Once the page write may have reached disk, recovery keeps the operation evidence
+     * instead of guessing which player-inventory state survived a crash.
+     */
+    public CommitResult commitPage(MinecraftServer server, UUID playerId, int page, List<ItemStack> items) {
+        List<ItemStack> validated;
+        List<ItemStack> before;
+        try {
+            validated = validatePage(items, registries);
+            before = page(playerId, page);
+        } catch (RuntimeException exception) {
+            return CommitResult.rejected(describe(exception));
+        }
+        if (ItemStack.listMatches(before, validated)) {
+            return CommitResult.unchanged();
+        }
+
+        CloudStorageJournalData journal;
+        CloudStorageJournalData.Entry entry;
+        try {
+            journal = CloudStorageJournalData.get(server);
+            entry = journal.prepare(playerId, page, CloudStorageJournalData.operationFor(before, validated),
+                    before, validated, System.currentTimeMillis());
+            journal.flush(server);
+        } catch (RuntimeException exception) {
+            return CommitResult.rejected(describe(exception));
+        }
+
+        try {
+            replacePage(playerId, page, validated);
+            journal.flush(server);
+        } catch (RuntimeException exception) {
+            System.err.println("[omnitools] Cloud storage operation " + entry.operationId()
+                    + " requires recovery after page write: " + describe(exception));
+            return CommitResult.recoveryPending(entry.operationId(), describe(exception));
+        }
+
+        try {
+            journal.transition(entry.operationId(), CloudStorageJournalData.Status.COMMITTED, "page persisted");
+            journal.flush(server);
+            return CommitResult.committed(entry.operationId());
+        } catch (RuntimeException exception) {
+            System.err.println("[omnitools] Cloud storage operation " + entry.operationId()
+                    + " has a persisted page but an unconfirmed journal: " + describe(exception));
+            return CommitResult.recoveryPending(entry.operationId(), describe(exception));
+        }
+    }
+
+    synchronized void replacePage(UUID playerId, int page, List<ItemStack> items) {
+        if (page < 0 || page >= CloudStorageConfig.MAX_PAGES || items == null || items.size() != SLOTS_PER_PAGE) {
+            throw new IllegalArgumentException("Cloud storage page is out of range");
+        }
+        rejectQuarantinedRecord(playerId);
+        StorageRecord record = players.computeIfAbsent(playerId, ignored -> new StorageRecord());
+        if (page >= record.unlockedPages) {
+            throw new IllegalStateException("Cannot write to a locked cloud storage page");
+        }
+        List<ItemStack> validated = validatePage(items, registries);
+        if (!ItemStack.listMatches(record.pages.get(page), validated)) {
+            record.pages.set(page, validated);
+            setDirty();
+        }
+    }
+
+    static List<ItemStack> validatePage(List<ItemStack> items, HolderLookup.Provider registries) {
+        if (items == null || items.size() != SLOTS_PER_PAGE) {
+            throw new IllegalArgumentException("Cloud storage page has an unexpected slot count");
+        }
+        List<ItemStack> copy = new ArrayList<>(SLOTS_PER_PAGE);
+        for (ItemStack stack : items) {
+            if (stack == null || stack.isEmpty()) {
+                copy.add(ItemStack.EMPTY);
+                continue;
+            }
+            Tag encoded = encodeStack(stack, registries);
+            if (!(encoded instanceof CompoundTag itemTag) || itemTag.sizeInBytes() > MAX_ITEM_BYTES) {
+                throw new IllegalArgumentException("Cloud storage item cannot be serialized safely");
+            }
+            ItemStack decoded = decodeStack(itemTag, registries);
+            if (decoded.isEmpty() || decoded.getCount() != stack.getCount()
+                    || !ItemStack.isSameItemSameComponents(stack, decoded)) {
+                throw new IllegalArgumentException("Cloud storage item changed after serialization");
+            }
+            copy.add(stack.copy());
+        }
+        return List.copyOf(copy);
+    }
+
+    static CompoundTag encodePageSnapshot(List<ItemStack> items, HolderLookup.Provider registries) {
+        List<ItemStack> validated = validatePage(items, registries);
+        CompoundTag snapshot = new CompoundTag();
+        for (int slot = 0; slot < SLOTS_PER_PAGE; slot++) {
+            ItemStack stack = validated.get(slot);
+            if (!stack.isEmpty()) {
+                snapshot.put(Integer.toString(slot), encodeStack(stack, registries));
+            }
+        }
+        return snapshot;
+    }
+
+    static List<ItemStack> decodePageSnapshot(CompoundTag snapshot, HolderLookup.Provider registries) {
+        List<ItemStack> items = emptyPage();
+        for (String key : snapshot.keySet()) {
+            int slot;
+            try {
+                slot = Integer.parseInt(key);
+            } catch (NumberFormatException ignored) {
+                throw new IllegalArgumentException("Cloud storage snapshot has a non-numeric slot key");
+            }
+            if (slot < 0 || slot >= SLOTS_PER_PAGE) {
+                throw new IllegalArgumentException("Cloud storage snapshot has an out-of-range slot");
+            }
+            Tag rawItem = snapshot.get(key);
+            if (!(rawItem instanceof CompoundTag itemTag)) {
+                throw new IllegalArgumentException("Cloud storage snapshot item is not a compound");
+            }
+            items.set(slot, decodeStack(itemTag, registries));
+        }
+        return validatePage(items, registries);
     }
 
     public synchronized PageUnlockResult unlockNextPage(UUID playerId, int configuredMaximum) {
         int maximum = Math.max(CloudStorageConfig.MIN_PAGES,
                 Math.min(CloudStorageConfig.MAX_PAGES, configuredMaximum));
+        rejectQuarantinedRecord(playerId);
         StorageRecord record = players.computeIfAbsent(playerId, ignored -> new StorageRecord());
         if (record.unlockedPages >= maximum) {
             return new PageUnlockResult(false, record.unlockedPages);
@@ -103,7 +246,7 @@ public final class CloudStorageData extends SavedData {
         return new PageUnlockResult(true, record.unlockedPages);
     }
 
-    private static CloudStorageData fromTag(CompoundTag root) {
+    static CloudStorageData fromTag(CompoundTag root) {
         CloudStorageData data = new CloudStorageData();
         CompoundTag playerTags = root.getCompoundOrEmpty(PLAYERS_KEY);
         for (String key : playerTags.keySet()) {
@@ -115,35 +258,20 @@ public final class CloudStorageData extends SavedData {
                 StorageRecord record = new StorageRecord(unlockedPages);
                 CompoundTag pageTags = recordTag.getCompoundOrEmpty(PAGES_KEY);
                 for (int page = 0; page < record.unlockedPages; page++) {
-                    CompoundTag itemTags = pageTags.getCompoundOrEmpty(Integer.toString(page));
-                    for (String slotKey : itemTags.keySet()) {
-                        int slot;
-                        try {
-                            slot = Integer.parseInt(slotKey);
-                        } catch (NumberFormatException ignored) {
-                            continue;
-                        }
-                        if (slot < 0 || slot >= SLOTS_PER_PAGE) {
-                            continue;
-                        }
-                        ItemStack stack = ItemStack.CODEC.parse(NbtOps.INSTANCE,
-                                        itemTags.getCompoundOrEmpty(slotKey))
-                                .result()
-                                .orElse(ItemStack.EMPTY);
-                        if (!stack.isEmpty()) {
-                            record.pages.get(page).set(slot, stack);
-                        }
-                    }
+                    record.pages.set(page, decodePageSnapshot(pageTags.getCompoundOrEmpty(Integer.toString(page)),
+                            LOADING_REGISTRIES.get()));
                 }
                 data.players.put(playerId, record);
-            } catch (IllegalArgumentException ignored) {
-                // Ignore malformed player keys so one corrupted record cannot block world loading.
+            } catch (RuntimeException exception) {
+                System.err.println("[omnitools] Retaining malformed cloud storage record " + key + ": "
+                        + describe(exception));
+                data.malformedRecords.put(key, playerTags.getCompoundOrEmpty(key).copy());
             }
         }
         return data;
     }
 
-    private static CompoundTag toTag(CloudStorageData data) {
+    static CompoundTag toTag(CloudStorageData data) {
         CompoundTag root = new CompoundTag();
         CompoundTag playerTags = new CompoundTag();
         for (Map.Entry<UUID, StorageRecord> entry : data.players.entrySet()) {
@@ -152,27 +280,44 @@ public final class CloudStorageData extends SavedData {
             recordTag.putInt(UNLOCKED_PAGES_KEY, record.unlockedPages);
             CompoundTag pageTags = new CompoundTag();
             for (int page = 0; page < record.unlockedPages; page++) {
-                CompoundTag itemTags = new CompoundTag();
-                List<ItemStack> items = record.pages.get(page);
-                for (int slot = 0; slot < SLOTS_PER_PAGE; slot++) {
-                    ItemStack stack = items.get(slot);
-                    if (stack.isEmpty()) {
-                        continue;
-                    }
-                    Tag encoded = ItemStack.CODEC.encodeStart(NbtOps.INSTANCE, stack).result().orElse(null);
-                    if (encoded instanceof CompoundTag itemTag) {
-                        itemTags.put(Integer.toString(slot), itemTag);
-                    } else {
-                        System.err.println("[omnitools] Could not serialize a cloud storage item in slot " + slot);
-                    }
-                }
-                pageTags.put(Integer.toString(page), itemTags);
+                pageTags.put(Integer.toString(page), encodePageSnapshot(record.pages.get(page), data.registries));
             }
             recordTag.put(PAGES_KEY, pageTags);
             playerTags.put(entry.getKey().toString(), recordTag);
         }
+        for (Map.Entry<String, CompoundTag> entry : data.malformedRecords.entrySet()) {
+            if (!playerTags.contains(entry.getKey())) {
+                playerTags.put(entry.getKey(), entry.getValue().copy());
+            }
+        }
         root.put(PLAYERS_KEY, playerTags);
         return root;
+    }
+
+    private static Tag encodeStack(ItemStack stack, HolderLookup.Provider registries) {
+        return (registries == null ? ItemStack.CODEC.encodeStart(NbtOps.INSTANCE, stack)
+                : ItemStack.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE, registries), stack))
+                .result().orElseThrow(() -> new IllegalArgumentException("Cloud storage item cannot be encoded"));
+    }
+
+    private static ItemStack decodeStack(CompoundTag tag, HolderLookup.Provider registries) {
+        return (registries == null ? ItemStack.CODEC.parse(NbtOps.INSTANCE, tag)
+                : ItemStack.CODEC.parse(RegistryOps.create(NbtOps.INSTANCE, registries), tag))
+                .result().orElseThrow(() -> new IllegalArgumentException("Cloud storage item cannot be decoded"));
+    }
+
+    private static String describe(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private void rejectQuarantinedRecord(UUID playerId) {
+        if (playerId == null) {
+            throw new IllegalArgumentException("Cloud storage player id is required");
+        }
+        if (malformedRecords.containsKey(playerId.toString())) {
+            throw new IllegalStateException("Cloud storage record is quarantined for manual recovery");
+        }
     }
 
     private static int clampPageCount(int value) {
@@ -197,6 +342,35 @@ public final class CloudStorageData extends SavedData {
     }
 
     public record PageUnlockResult(boolean unlocked, int unlockedPages) {
+    }
+
+    public record CommitResult(Status status, UUID operationId, String reason) {
+        public boolean accepted() {
+            return status != Status.REJECTED;
+        }
+
+        static CommitResult unchanged() {
+            return new CommitResult(Status.UNCHANGED, null, "");
+        }
+
+        static CommitResult committed(UUID operationId) {
+            return new CommitResult(Status.COMMITTED, operationId, "");
+        }
+
+        static CommitResult recoveryPending(UUID operationId, String reason) {
+            return new CommitResult(Status.RECOVERY_PENDING, operationId, reason);
+        }
+
+        static CommitResult rejected(String reason) {
+            return new CommitResult(Status.REJECTED, null, reason);
+        }
+    }
+
+    public enum Status {
+        UNCHANGED,
+        COMMITTED,
+        RECOVERY_PENDING,
+        REJECTED
     }
 
     private static final class StorageRecord {

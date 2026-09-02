@@ -50,7 +50,7 @@
 
 ## 9. 指令、权限与默认角色
 
-`/omnitools storage` 默认 `ADMIN`。权限配置的 `storage.open` 可用字符串角色或对象完整写法；见[权限](permissions.md)。
+`/omnitools storage` 默认 `ADMIN`。`/omnitools storage recovery list|inspect <操作UUID>|resolve <操作UUID> commit|rollback` 使用独立的 `storage.recovery` 管理员权限；即使模块临时关闭，该恢复入口仍可使用。权限配置的 `storage.open` 可用字符串角色或对象完整写法；见[权限](permissions.md)。
 
 ## 10. 占位符
 
@@ -58,7 +58,9 @@
 
 ## 11. 数据与升级
 
-物品与已解锁页数保存在世界 SavedData。禁用模块不删除物品；升级或恢复必须一并备份世界数据。
+物品与已解锁页数保存在世界 SavedData，并且每个改变页面的存入、取出或移动都保留操作前后快照于独立账本。提交前会对整页逐项做 `ItemStack.CODEC` 编码、解码和组件一致性校验；任何一项失败都会拒绝整页提交并恢复界面和背包。
+
+启动时若账本与页面快照无法证明结果，操作会进入 `QUARANTINED`，对应玩家存储将保持关闭，直到管理员检查账本后显式选择 `commit`（恢复操作后页面）或 `rollback`（恢复操作前页面）。恢复命令只替换云存储页面，管理员应先核对玩家背包，避免跨存档边界的重复发放。
 
 ## 12. 验收与排错
 

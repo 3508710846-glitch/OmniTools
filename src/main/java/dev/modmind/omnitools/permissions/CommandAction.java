@@ -15,6 +15,7 @@ public enum CommandAction {
     TITLE_OPEN("title.open", CommandRole.PLAYER),
     ACHIEVEMENTS_OPEN("achievements.open", CommandRole.PLAYER),
     STORAGE_OPEN("storage.open", CommandRole.ADMIN),
+    STORAGE_RECOVERY("storage.recovery", CommandRole.ADMIN),
     CURRENCY_BALANCE_SELF("currency.balance.self", CommandRole.PLAYER),
     CURRENCY_BALANCE_OTHER("currency.balance.other", CommandRole.ADMIN),
     CURRENCY_ADD("currency.add", CommandRole.ADMIN),
