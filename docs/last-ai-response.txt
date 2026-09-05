@@ -1,8 +1,9 @@
-已完成云储存防吞物品修复。
+当前不支持自动渐变或动态流光效果。
 
-- 整页物品在提交前执行 `ItemStack.CODEC` 编码、解码和组件一致性校验；失败会恢复界面和背包，[CloudStorageData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageData.java:117)。
-- 新增独立的持久化操作账本，保存前后页面快照及 `PREPARED/COMMITTED/ROLLED_BACK/QUARANTINED` 状态，并在启动时恢复核对，[CloudStorageJournalData.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageJournalData.java:20)。
-- 普通点击、Shift 点击、翻页和关闭都走事务提交；坏的历史存储记录会被隔离并原样保留，避免再次覆盖为空，[CloudStorageScreenHandler.java](D:/mod/qiandao/src/main/java/dev/modmind/omnitools/CloudStorageScreenHandler.java:275)。
-- 增加管理员恢复命令：`/omnitools storage recovery list|inspect <UUID>|resolve <UUID> commit|rollback`，权限为 `storage.recovery`。[cloud-storage.md](D:/mod/qiandao/docs/modules/cloud-storage.md:53)
+称号文本支持传统颜色码与 `§x` 六位 HEX 颜色，因此可用逐字指定不同颜色来手工模拟静态渐变，例如：
 
-验证已通过：ModMind 内容校验、受管 Gradle 构建，以及隔离服务端启动并稳定运行 15 秒。
+```json
+"display": "&x&F&F&4&5&4&5星&x&F&F&8&0&8&0耀&x&C&0&7&0&F&F者&r "
+```
+
+`&` 会自动转换为 `§`。但目前没有 `<gradient:#...:#...>` 这类自动插值语法，也没有按时间变化的动态渐变。实现位置见 [LegacyTitleText.java](/D:/mod/qiandao/src/main/java/dev/modmind/omnitools/LegacyTitleText.java:25)。

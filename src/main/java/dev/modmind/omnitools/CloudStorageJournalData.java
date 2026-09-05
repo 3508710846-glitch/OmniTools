@@ -106,19 +106,26 @@ public final class CloudStorageJournalData extends SavedData {
      * saved before the server stopped.
      */
     public RecoveryReport reconcileStartup(MinecraftServer server, CloudStorageData storage) {
+        RecoveryReport report = reconcile(storage);
+        if (report.committed() > 0 || report.quarantined() > 0) {
+            flush(server);
+        }
+        return report;
+    }
+
+    /** Reconciles journal entries against storage without requiring a live server flush. */
+    synchronized RecoveryReport reconcile(CloudStorageData storage) {
         int committed = 0;
         int quarantined = 0;
         for (Entry entry : entries()) {
-            if (entry.status() != Status.PREPARED && entry.status() != Status.COMMITTED) {
+            if (entry.status() != Status.PREPARED) {
                 continue;
             }
             try {
                 List<ItemStack> current = storage.page(entry.ownerId(), entry.page());
-                if (entry.status() == Status.PREPARED && ItemStack.listMatches(current, entry.after())) {
+                if (ItemStack.listMatches(current, entry.after())) {
                     transition(entry.operationId(), Status.COMMITTED, "startup confirmed storage post-image");
                     committed++;
-                } else if (entry.status() == Status.COMMITTED && ItemStack.listMatches(current, entry.after())) {
-                    // The durable page is already the committed outcome.
                 } else {
                     transition(entry.operationId(), Status.QUARANTINED,
                             "startup could not prove both storage and player-inventory outcome");
@@ -129,9 +136,6 @@ public final class CloudStorageJournalData extends SavedData {
                         "startup inspection failed: " + describe(exception));
                 quarantined++;
             }
-        }
-        if (committed > 0 || quarantined > 0) {
-            flush(server);
         }
         return new RecoveryReport(committed, quarantined);
     }

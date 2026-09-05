@@ -364,6 +364,8 @@
   "message.omnitools.command_menu.player_only": "This command can only be used by an in-game player.",
   "gui.omnitools.modules.module.sidebar": "Sidebar",
   "gui.omnitools.modules.module.leaderboards": "Leaderboards",
+  "gui.omnitools.modules.module.packages": "Packages",
+  "gui.omnitools.modules.module.skills": "Skills",
   "gui.omnitools.leaderboard.title": "Leaderboards",
   "gui.omnitools.leaderboard.profile": "Leaderboard profile",
   "gui.omnitools.leaderboard.my_ranking": "My ranking",

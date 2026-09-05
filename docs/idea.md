@@ -5053,3 +5053,163 @@ QUARANTINED
 7. 恢复命令按操作 ID 找回物品。
 
 修复上线前应先以“只记录不拦截”的审计模式运行一段时间，收集哪些物品无法通过往返校验；确认白名单和异常物品处理策略后，再开启强制拒绝与事务保护。
+
+---
+
+## Development request 2026/9/2 11:02:31
+
+[11:01:01] [信息]: [STDERR]: [omnitools] Could not load ./config/omnitools/cloud_storage/config.json: maxPages must be an integer between 1 and 2. The configuration snapshot will not be replaced.
+[11:01:01] [信息]: [STDERR]: [omnitools] Configuration reload rejected; keeping the previous snapshot: Could not load configuration module cloud_storage
+[11:01:01] [信息]: [STDERR]: java.lang.IllegalStateException: Could not load configuration module cloud_storage
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:124)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.reload(OmniToolsConfigManager.java:50)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModuleControlService.reload(ModuleControlService.java:21)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModMindEntry.reloadRewards(ModMindEntry.java:1627)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModMindEntry.lambda$onInitialize$12(ModMindEntry.java:288)
+[11:01:01] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.runExecutable$mixinextras$wrapped$10(ContextChain.java:73)
+[11:01:01] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.mixinextras$bridge$runExecutable$mixinextras$wrapped$10$11(ContextChain.java)
+[11:01:01] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.wrapMethod$eag000$fabric-entity-events-v1$onRunExecutable(ContextChain.java:1057)
+[11:01:01] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.runExecutable(ContextChain.java)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8865.method_54416(class_8865.java:29)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8865.execute(class_8865.java:13)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8856.method_54405(class_8856.java:8)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.method_54388$mixinextras$wrapped$8(class_8847.java:8)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.mixinextras$bridge$method_54388$mixinextras$wrapped$8$9(class_8847.java)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.wrapMethod$eaf000$fabric-entity-events-v1$onExecute(class_8847.java:549)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.method_54388(class_8847.java)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_8854.method_54390(class_8854.java:106)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_2170.method_54313(class_2170.java:430)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_2170.method_9249(class_2170.java:362)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_3244.method_58590(class_3244.java:1568)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_3244.method_44356(class_3244.java:1556)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_3738.run(class_3738.java:18)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_18859(class_1255.java:169)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.mixinextras$bridge$method_18859$5(class_4093.java)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.wrapOperation$dha000$carpet-tis-addition$yeetUpdateSuppressionCrash_implForThreadExecutorTaskExecuting(class_4093.java:578)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.method_18859(class_4093.java:23)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_24306(MinecraftServer.java:948)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_18859(MinecraftServer.java:191)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_16075(class_1255.java:143)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_20415(MinecraftServer.java:930)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_16075(MinecraftServer.java:924)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_18857(class_1255.java:152)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_18857(MinecraftServer.java:884)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_16208(MinecraftServer.java:895)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_29741(MinecraftServer.java:777)
+[11:01:01] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_29739(MinecraftServer.java:301)
+[11:01:01] [信息]: [STDERR]:    at java.base/java.lang.Thread.run(Thread.java:1474)
+[11:01:01] [信息]: [STDERR]: Caused by: dev.modmind.omnitools.config.ConfigModuleRegistry$ModuleLoadException: Could not load configuration module cloud_storage
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:58)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.loadAll(ConfigModuleRegistry.java:45)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:122)
+[11:01:01] [信息]: [STDERR]:    ... 36 more
+[11:01:01] [信息]: [STDERR]: Caused by: java.lang.IllegalStateException: Invalid cloud storage configuration
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.load(CloudStorageConfig.java:54)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$8.load(OmniToolsConfigManager.java:241)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$8.load(OmniToolsConfigManager.java:238)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:90)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:54)
+[11:01:01] [信息]: [STDERR]:    ... 38 more
+[11:01:01] [信息]: [STDERR]: Caused by: com.google.gson.JsonParseException: maxPages must be an integer between 1 and 2
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.parse(CloudStorageConfig.java:83)
+[11:01:01] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.load(CloudStorageConfig.java:50)
+[11:01:01] [信息]: [STDERR]:    ... 42 more
+[11:01:24] [信息]: [STDERR]: [omnitools] Missing server translation key: gui.omnitools.modules.module.packages
+[11:01:24] [信息]: [STDERR]: [omnitools] Missing server translation key: gui.omnitools.modules.module.skills
+[11:01:43] [信息]: [STDERR]: [omnitools] Could not load ./config/omnitools/cloud_storage/config.json: maxPages must be an integer between 1 and 2. The configuration snapshot will not be replaced.
+[11:01:43] [信息]: [STDERR]: [omnitools] Configuration reload rejected; keeping the previous snapshot: Could not load configuration module cloud_storage
+[11:01:43] [信息]: [STDERR]: java.lang.IllegalStateException: Could not load configuration module cloud_storage
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:124)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.reload(OmniToolsConfigManager.java:50)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModuleControlService.reload(ModuleControlService.java:21)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModMindEntry.reloadRewards(ModMindEntry.java:1627)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.ModMindEntry.lambda$onInitialize$12(ModMindEntry.java:288)
+[11:01:43] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.runExecutable$mixinextras$wrapped$10(ContextChain.java:73)
+[11:01:43] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.mixinextras$bridge$runExecutable$mixinextras$wrapped$10$11(ContextChain.java)
+[11:01:43] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.wrapMethod$eag000$fabric-entity-events-v1$onRunExecutable(ContextChain.java:1057)
+[11:01:43] [信息]: [STDERR]:    at knot//com.mojang.brigadier.context.ContextChain.runExecutable(ContextChain.java)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8865.method_54416(class_8865.java:29)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8865.execute(class_8865.java:13)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8856.method_54405(class_8856.java:8)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.method_54388$mixinextras$wrapped$8(class_8847.java:8)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.mixinextras$bridge$method_54388$mixinextras$wrapped$8$9(class_8847.java)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.wrapMethod$eaf000$fabric-entity-events-v1$onExecute(class_8847.java:549)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8847.method_54388(class_8847.java)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_8854.method_54390(class_8854.java:106)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_2170.method_54313(class_2170.java:430)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_2170.method_9249(class_2170.java:362)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_3244.method_58590(class_3244.java:1568)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_3244.method_44356(class_3244.java:1556)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_3738.run(class_3738.java:18)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_18859(class_1255.java:169)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.mixinextras$bridge$method_18859$5(class_4093.java)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.wrapOperation$dha000$carpet-tis-addition$yeetUpdateSuppressionCrash_implForThreadExecutorTaskExecuting(class_4093.java:578)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_4093.method_18859(class_4093.java:23)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_24306(MinecraftServer.java:948)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_18859(MinecraftServer.java:191)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_16075(class_1255.java:143)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_20415(MinecraftServer.java:930)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_16075(MinecraftServer.java:924)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.class_1255.method_18857(class_1255.java:152)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_18857(MinecraftServer.java:884)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_16208(MinecraftServer.java:895)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_29741(MinecraftServer.java:777)
+[11:01:43] [信息]: [STDERR]:    at knot//net.minecraft.server.MinecraftServer.method_29739(MinecraftServer.java:301)
+[11:01:43] [信息]: [STDERR]:    at java.base/java.lang.Thread.run(Thread.java:1474)
+[11:01:43] [信息]: [STDERR]: Caused by: dev.modmind.omnitools.config.ConfigModuleRegistry$ModuleLoadException: Could not load configuration module cloud_storage
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:58)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.loadAll(ConfigModuleRegistry.java:45)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager.buildCandidate(OmniToolsConfigManager.java:122)
+[11:01:43] [信息]: [STDERR]:    ... 36 more
+[11:01:43] [信息]: [STDERR]: Caused by: java.lang.IllegalStateException: Invalid cloud storage configuration
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.load(CloudStorageConfig.java:54)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$8.load(OmniToolsConfigManager.java:241)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.OmniToolsConfigManager$8.load(OmniToolsConfigManager.java:238)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:90)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.config.ConfigModuleRegistry.load(ConfigModuleRegistry.java:54)
+[11:01:43] [信息]: [STDERR]:    ... 38 more
+[11:01:43] [信息]: [STDERR]: Caused by: com.google.gson.JsonParseException: maxPages must be an integer between 1 and 2
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.parse(CloudStorageConfig.java:83)
+[11:01:43] [信息]: [STDERR]:    at knot//dev.modmind.omnitools.CloudStorageConfig.load(CloudStorageConfig.java:50)
+[11:01:43] [信息]: [STDERR]:    ... 42 more
+
+---
+
+## Development request 2026/9/5 14:56:06
+
+这是云端储存日志恢复逻辑的状态机错误，不是世界区块或玩家数据本身损坏。
+
+日志显示：
+
+```text
+COMMITTED -> QUARANTINED
+```
+
+`COMMITTED` 表示事务已经成功提交，属于终态；启动恢复时却试图把它改成 `QUARANTINED`，因此触发 `IllegalStateException`，服务器在初始化阶段直接停止。
+
+建议按以下顺序处理：
+
+1. 完全停止服务器，并备份整个世界目录，特别是 `world/data/`。
+2. 不要直接删除云储存日志或世界数据。
+3. 检查云储存 journal 中对应记录：
+   - `COMMITTED`：视为已完成，启动时跳过，不再转为隔离。
+   - `PREPARED`：根据新旧页面数据决定提交或回滚。
+   - 无法判断的记录：才允许进入 `QUARANTINED`。
+4. 如果有最近备份，优先恢复 journal 和云储存数据的一致版本。
+5. 修复代码时应让启动恢复具备幂等性：
+
+```java
+if (state == COMMITTED || state == ROLLED_BACK || state == QUARANTINED) {
+    return; // 终态不再转换
+}
+```
+
+同时，`reconcileStartup()` 不应对已提交事务再次执行隔离操作。只有数据缺失、校验失败且事务状态仍为 `PREPARED` 时，才应转入 `QUARANTINED`。
+
+临时恢复的核心原则是：保留 `COMMITTED` 记录并跳过它，而不是清空日志。否则可能导致已经提交的物品无法恢复。修复后应测试“正常提交后重启”和“提交过程中崩溃后重启”两种场景。
+
+---
+
+## Development request 2026/9/5 20:04:38
+
+当前称号支持渐变效果吗

@@ -363,6 +363,8 @@
   "message.omnitools.command_menu.player_only": "\u8be5\u547d\u4ee4\u53ea\u80fd\u7531\u6e38\u620f\u5185\u73a9\u5bb6\u6267\u884c\u3002",
   "gui.omnitools.modules.module.sidebar": "\u4fa7\u8fb9\u680f",
   "gui.omnitools.modules.module.leaderboards": "\u6392\u884c\u699c",
+  "gui.omnitools.modules.module.packages": "\u5305\u88f9",
+  "gui.omnitools.modules.module.skills": "\u6280\u80fd",
   "gui.omnitools.leaderboard.title": "\u6392\u884c\u699c",
   "gui.omnitools.leaderboard.profile": "\u6392\u884c\u699c\u4fe1\u606f",
   "gui.omnitools.leaderboard.my_ranking": "\u6211\u7684\u6392\u540d",

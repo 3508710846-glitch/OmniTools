@@ -61,6 +61,68 @@ class CloudStorageJournalDataTest {
                 CloudStorageJournalData.operationFor(before, moved));
     }
 
+    @Test
+    void terminalStatesCannotBeReclassifiedDuringRecovery() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(0, new ItemStack(Items.DIAMOND, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 100L);
+        journal.transition(prepared.operationId(), CloudStorageJournalData.Status.COMMITTED, "page persisted");
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> journal.transition(prepared.operationId(), CloudStorageJournalData.Status.QUARANTINED,
+                        "startup inspection failed"));
+        assertEquals(CloudStorageJournalData.Status.COMMITTED,
+                journal.find(prepared.operationId()).orElseThrow().status());
+    }
+
+    @Test
+    void normalCommitRemainsCommittedAfterJournalAndPageRestart() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(4, new ItemStack(Items.DIAMOND, 3));
+        CloudStorageData storage = new CloudStorageData();
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 200L);
+        storage.replacePage(OWNER, 0, after);
+        journal.transition(prepared.operationId(), CloudStorageJournalData.Status.COMMITTED, "page persisted");
+
+        CloudStorageJournalData restoredJournal = CloudStorageJournalData.fromTag(
+                CloudStorageJournalData.toTag(journal));
+        CloudStorageData restoredStorage = CloudStorageData.fromTag(CloudStorageData.toTag(storage));
+        CloudStorageJournalData.RecoveryReport report = restoredJournal.reconcile(restoredStorage);
+
+        assertEquals(new CloudStorageJournalData.RecoveryReport(0, 0), report);
+        CloudStorageJournalData.Entry recovered = restoredJournal.find(prepared.operationId()).orElseThrow();
+        assertEquals(CloudStorageJournalData.Status.COMMITTED, recovered.status());
+        assertEquals(3, restoredStorage.page(OWNER, 0).get(4).getCount());
+    }
+
+    @Test
+    void inFlightCommitIsCommittedAfterCrashAndRestart() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(7, new ItemStack(Items.EMERALD, 2));
+        CloudStorageData storage = new CloudStorageData();
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 300L);
+        storage.replacePage(OWNER, 0, after);
+
+        CloudStorageJournalData restoredJournal = CloudStorageJournalData.fromTag(
+                CloudStorageJournalData.toTag(journal));
+        CloudStorageData restoredStorage = CloudStorageData.fromTag(CloudStorageData.toTag(storage));
+        CloudStorageJournalData.RecoveryReport report = restoredJournal.reconcile(restoredStorage);
+
+        assertEquals(new CloudStorageJournalData.RecoveryReport(1, 0), report);
+        CloudStorageJournalData.Entry recovered = restoredJournal.find(prepared.operationId()).orElseThrow();
+        assertEquals(CloudStorageJournalData.Status.COMMITTED, recovered.status());
+        assertEquals(2, restoredStorage.page(OWNER, 0).get(7).getCount());
+    }
+
     private static List<ItemStack> emptyPage() {
         List<ItemStack> page = new ArrayList<>(CloudStorageData.SLOTS_PER_PAGE);
         for (int slot = 0; slot < CloudStorageData.SLOTS_PER_PAGE; slot++) {
