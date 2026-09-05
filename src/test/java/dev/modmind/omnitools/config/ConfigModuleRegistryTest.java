@@ -67,4 +67,37 @@ class ConfigModuleRegistryTest {
         assertEquals(cause, exception.getCause());
         assertEquals("Could not load configuration module packages", exception.getMessage());
     }
+
+    @Test
+    void isolatedLoadKeepsHealthyModulesWhenAnotherModuleFails() {
+        ConfigModuleRegistry registry = new ConfigModuleRegistry();
+        registry.register(new ConfigurableModule<String>() {
+            @Override
+            public ModuleId id() {
+                return ModuleId.CDK;
+            }
+
+            @Override
+            public String load(LoadContext context) {
+                return "healthy";
+            }
+        });
+        registry.register(new ConfigurableModule<String>() {
+            @Override
+            public ModuleId id() {
+                return ModuleId.CLOUD_STORAGE;
+            }
+
+            @Override
+            public String load(LoadContext context) {
+                throw new IllegalStateException("invalid storage configuration");
+            }
+        });
+
+        ConfigModuleRegistry.LoadReport report = registry.loadAllIsolated(null);
+
+        assertEquals("healthy", report.loaded().get(ModuleId.CDK));
+        assertEquals(ModuleId.CLOUD_STORAGE, report.failures().get(ModuleId.CLOUD_STORAGE).module());
+        org.junit.jupiter.api.Assertions.assertFalse(report.loaded().containsKey(ModuleId.CLOUD_STORAGE));
+    }
 }

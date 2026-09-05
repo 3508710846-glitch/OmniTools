@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.reward.RewardDefinition;
@@ -64,6 +65,15 @@ public final class OnlineTimeRewardScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.ONLINE_REWARD, "menu_click", serverPlayer,
+                    "reward_claim_ledger_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.ONLINE_REWARD)
                 || (player instanceof ServerPlayer serverPlayerForPermission
                 && !ModMindEntry.hasCommandPermission(serverPlayerForPermission, CommandAction.ONLINE_OPEN))) {

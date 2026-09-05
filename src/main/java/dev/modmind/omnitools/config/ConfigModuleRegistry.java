@@ -47,6 +47,25 @@ public final class ConfigModuleRegistry {
         return Map.copyOf(loaded);
     }
 
+    /**
+     * Loads every module independently so one malformed optional module cannot prevent unrelated
+     * modules from receiving a valid snapshot.
+     */
+    public synchronized LoadReport loadAllIsolated(LoadContext context) {
+        Map<ModuleId, Object> loaded = new LinkedHashMap<>();
+        Map<ModuleId, ModuleLoadException> failures = new EnumMap<>(ModuleId.class);
+        for (ModuleId module : modules.keySet()) {
+            try {
+                loaded.put(module, load(module, context));
+            } catch (ModuleLoadException exception) {
+                failures.put(module, exception);
+            } catch (Exception exception) {
+                failures.put(module, new ModuleLoadException(module, exception));
+            }
+        }
+        return new LoadReport(loaded, failures);
+    }
+
     /** Loads one module through the same typed lifecycle used by full snapshot reloads. */
     public synchronized Object load(ModuleId id, LoadContext context) throws Exception {
         ConfigurableModule<?> module = require(id);
@@ -56,6 +75,18 @@ public final class ConfigModuleRegistry {
             throw exception;
         } catch (Exception exception) {
             throw new ModuleLoadException(id, exception);
+        }
+    }
+
+    public record LoadReport(Map<ModuleId, Object> loaded,
+                             Map<ModuleId, ModuleLoadException> failures) {
+        public LoadReport {
+            loaded = Map.copyOf(loaded == null ? Map.of() : loaded);
+            failures = Map.copyOf(failures == null ? Map.of() : failures);
+        }
+
+        public boolean failed(ModuleId module) {
+            return failures.containsKey(module);
         }
     }
 

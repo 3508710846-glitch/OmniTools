@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -68,6 +69,16 @@ public final class CloudStorageScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE, "menu_click",
+                    serverPlayer, "storage_snapshot_restored_or_journal_retained",
+                    () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE)
                 || !(player instanceof ServerPlayer serverPlayerForPermission)
                 || !ModMindEntry.hasCloudStoragePermissionForPlayer(serverPlayerForPermission)) {
@@ -100,12 +111,29 @@ public final class CloudStorageScreenHandler extends ChestMenu {
             return;
         }
         MenuSnapshot before = captureSnapshot();
-        super.clicked(slotId, button, clickType, player);
-        commitStorageMutation(before);
+        try {
+            super.clicked(slotId, button, clickType, player);
+            commitStorageMutation(before);
+        } catch (RuntimeException exception) {
+            restoreSnapshot(before);
+            throw exception;
+        }
     }
 
     @Override
     public ItemStack quickMoveStack(Player player, int slotIndex) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ItemStack[] result = {ItemStack.EMPTY};
+            boolean completed = ModuleFaultBoundary.runPlayerAction(
+                    dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE, "menu_quick_move", serverPlayer,
+                    "storage_snapshot_restored_or_journal_retained",
+                    () -> result[0] = quickMoveStackInternal(player, slotIndex));
+            return completed ? result[0] : ItemStack.EMPTY;
+        }
+        return quickMoveStackInternal(player, slotIndex);
+    }
+
+    private ItemStack quickMoveStackInternal(Player player, int slotIndex) {
         if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE)
                 || !(player instanceof ServerPlayer serverPlayerForPermission)
                 || !ModMindEntry.hasCloudStoragePermissionForPlayer(serverPlayerForPermission)) {
@@ -120,32 +148,37 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         }
 
         MenuSnapshot before = captureSnapshot();
-        Slot sourceSlot = slots.get(slotIndex);
-        if (!sourceSlot.hasItem()) {
-            return ItemStack.EMPTY;
-        }
+        try {
+            Slot sourceSlot = slots.get(slotIndex);
+            if (!sourceSlot.hasItem()) {
+                return ItemStack.EMPTY;
+            }
 
-        ItemStack sourceStack = sourceSlot.getItem();
-        ItemStack originalStack = sourceStack.copy();
-        boolean moved;
-        if (slotIndex < STORAGE_SLOT_COUNT) {
-            moved = moveItemStackTo(sourceStack, CONTAINER_SIZE, slots.size(), true);
-        } else {
-            moved = moveItemStackTo(sourceStack, 0, STORAGE_SLOT_COUNT, false);
-        }
-        if (!moved) {
-            return ItemStack.EMPTY;
-        }
+            ItemStack sourceStack = sourceSlot.getItem();
+            ItemStack originalStack = sourceStack.copy();
+            boolean moved;
+            if (slotIndex < STORAGE_SLOT_COUNT) {
+                moved = moveItemStackTo(sourceStack, CONTAINER_SIZE, slots.size(), true);
+            } else {
+                moved = moveItemStackTo(sourceStack, 0, STORAGE_SLOT_COUNT, false);
+            }
+            if (!moved) {
+                return ItemStack.EMPTY;
+            }
 
-        if (sourceStack.isEmpty()) {
-            sourceSlot.set(ItemStack.EMPTY);
-        } else {
-            sourceSlot.setChanged();
+            if (sourceStack.isEmpty()) {
+                sourceSlot.set(ItemStack.EMPTY);
+            } else {
+                sourceSlot.setChanged();
+            }
+            if (!commitStorageMutation(before)) {
+                return ItemStack.EMPTY;
+            }
+            return originalStack;
+        } catch (RuntimeException exception) {
+            restoreSnapshot(before);
+            throw exception;
         }
-        if (!commitStorageMutation(before)) {
-            return ItemStack.EMPTY;
-        }
-        return originalStack;
     }
 
     @Override
@@ -167,7 +200,8 @@ public final class CloudStorageScreenHandler extends ChestMenu {
     @Override
     public void removed(Player player) {
         if (player instanceof ServerPlayer serverPlayer && ownerId != null && ownerId.equals(serverPlayer.getUUID())) {
-            saveStoragePage();
+            ModuleFaultBoundary.run(dev.modmind.omnitools.config.ModuleId.CLOUD_STORAGE, "menu_close_flush",
+                    "storage_snapshot_retained_for_recovery", this::saveStoragePage);
         }
         super.removed(player);
     }
@@ -262,10 +296,6 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         CloudStorageData.CommitResult result = CloudStorageData.get(owner).commitPage(owner.level().getServer(),
                 ownerId, page, currentStoragePage());
         if (result.accepted()) {
-            if (result.status() == CloudStorageData.Status.RECOVERY_PENDING) {
-                System.err.println("[omnitools] Cloud storage operation " + result.operationId()
-                        + " is awaiting startup recovery: " + result.reason());
-            }
             return true;
         }
         notifyCommitFailure(result.reason());
@@ -279,10 +309,6 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         CloudStorageData.CommitResult result = CloudStorageData.get(owner).commitPage(owner.level().getServer(),
                 ownerId, page, currentStoragePage());
         if (result.accepted()) {
-            if (result.status() == CloudStorageData.Status.RECOVERY_PENDING) {
-                System.err.println("[omnitools] Cloud storage operation " + result.operationId()
-                        + " is awaiting startup recovery: " + result.reason());
-            }
             return true;
         }
         restoreSnapshot(before);

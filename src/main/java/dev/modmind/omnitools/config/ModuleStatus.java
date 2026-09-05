@@ -4,5 +4,7 @@ package dev.modmind.omnitools.config;
 public enum ModuleStatus {
     ENABLED,
     DISABLED,
+    /** Configuration or startup failed; services are kept out of the active runtime snapshot. */
+    DEGRADED,
     INVALID
 }

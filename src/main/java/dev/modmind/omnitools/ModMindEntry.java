@@ -66,6 +66,11 @@ import dev.modmind.omnitools.packages.PackageAuditLog;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
 import dev.modmind.omnitools.skills.SkillTreeService;
 import dev.modmind.omnitools.skills.SkillXpSource;
+import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
+import dev.modmind.omnitools.diagnostics.ModuleHealthRegistry;
+import dev.modmind.omnitools.diagnostics.ModuleResourceBudget;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 
 public final class ModMindEntry implements ModInitializer {
     public static final String MOD_ID = "omnitools";
@@ -100,138 +105,250 @@ public final class ModMindEntry implements ModInitializer {
             SKILL_TREE_SERVICE.replace(SkillTreeConfig.empty());
             CDK_SERVICE.replace(CdkConfig.empty());
             LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
+            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_starting")
+                            .withState("INITIALIZING")
+                            .withRecoveryAction("module_services_reset"),
+                    "initializing module services");
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LegacySavedDataMigration.migrate(server);
             TitleData.bind(server);
             TitleData.importLegacy(server);
             MODULE_CONTROL.reload(server);
-            CloudStorageJournalData.RecoveryReport storageRecovery = CloudStorageJournalData.get(server)
-                    .reconcileStartup(server, CloudStorageData.get(server));
-            if (storageRecovery.committed() > 0 || storageRecovery.quarantined() > 0) {
-                System.err.println("[omnitools] Cloud storage startup recovery: committed="
-                        + storageRecovery.committed() + ", quarantined=" + storageRecovery.quarantined());
+            if (isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+                ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "journal_reconcile",
+                        "journal_retained_for_manual_recovery", () -> {
+                            CloudStorageJournalData.RecoveryReport storageRecovery = CloudStorageJournalData.get(server)
+                                    .reconcileStartup(server, CloudStorageData.get(server));
+                            if (storageRecovery.committed() > 0 || storageRecovery.quarantined() > 0) {
+                                OperationalErrorReporter.global().info(OperationalErrorReporter.Context
+                                                .forModule(ModuleId.CLOUD_STORAGE, "journal_reconcile")
+                                                .withState("RECOVERY_APPLIED")
+                                                .withParameters(java.util.Map.of(
+                                                        "committed", Integer.toString(storageRecovery.committed()),
+                                                        "quarantined", Integer.toString(storageRecovery.quarantined())))
+                                                .withRecoveryAction("journal_checkpoint_flushed"),
+                                        "cloud storage startup recovery completed");
+                            }
+                        });
             }
-            rewardGrantService().reconcileStartup(server);
-            shopPurchaseService().reconcileStartup(server);
-            PlaceholderBootstrap.registerIfAvailable();
+            if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
+                ModuleFaultBoundary.run(ModuleId.DAILY_CHECKIN, "reward_reconcile", "ledger_retained_for_recovery",
+                        () -> rewardGrantService().reconcileStartup(server));
+            }
+            if (isModuleEnabled(ModuleId.SHOP)) {
+                ModuleFaultBoundary.run(ModuleId.SHOP, "purchase_reconcile", "purchase_journal_retained",
+                        () -> shopPurchaseService().reconcileStartup(server));
+            }
+            ModuleFaultBoundary.run(null, "placeholder_bootstrap", "placeholders_unavailable",
+                    PlaceholderBootstrap::registerIfAvailable);
+            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_started")
+                            .withDataVersion("config:" + configSnapshot.root().formatVersion())
+                            .withState("ACTIVE")
+                            .withParameters(java.util.Map.of("revision", Long.toString(configSnapshot.revision()),
+                                    "modules", formatModuleStates(configSnapshot)))
+                            .withRecoveryAction("enabled_modules_available"),
+                    "module startup completed");
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            onlineTimeRewardService().flushAll(server);
-            TIMED_ENTITLEMENTS.flush(server);
-            TitleEffectService.removeAll(server);
-            SKILL_TREE_SERVICE.removeAll(server);
-            TitleDisplayService.clearAll(server);
-            TitleData.unbind(server);
-        });
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            if (isModuleEnabled(ModuleId.PACKAGES)) {
-                packageService().tick(server);
-                if (server.getTickCount() % 1200 == 0) {
-                    PackageData.get(server).cleanupHistory(server,
-                            configSnapshot.packages().settings().historyRetentionDays());
-                }
-            }
-            if (isModuleEnabled(ModuleId.SKILLS)) {
-                SKILL_TREE_SERVICE.tick(server);
-            }
+            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
+                            .withState("FLUSHING")
+                            .withRecoveryAction("module_state_flush_started"),
+                    "saving active module state");
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
-                onlineTimeRewardService().tick(server);
+                ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_stop_flush", "online_reward_state_retained",
+                        () -> onlineTimeRewardService().flushAll(server));
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
-                TIMED_ENTITLEMENTS.tickTitles(server);
+                ModuleFaultBoundary.run(ModuleId.TITLES, "server_stop_flush", "title_entitlements_retained",
+                        () -> TIMED_ENTITLEMENTS.flush(server));
+                ModuleFaultBoundary.run(ModuleId.TITLES, "server_stop_cleanup", "title_display_cleanup_skipped",
+                        () -> TitleDisplayService.clearAll(server));
             }
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-                TitleEffectService.tick(server);
+                ModuleFaultBoundary.run(ModuleId.TITLE_EFFECTS, "server_stop_cleanup", "title_effect_cleanup_skipped",
+                        () -> TitleEffectService.removeAll(server));
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                ModuleFaultBoundary.run(ModuleId.SKILLS, "server_stop_cleanup", "skill_attribute_cleanup_skipped",
+                        () -> SKILL_TREE_SERVICE.removeAll(server));
+            }
+            ModuleFaultBoundary.run(null, "server_stop_audit_flush", "audit_records_may_remain_queued",
+                    () -> {
+                        if (!AsyncAuditLogWriter.global().flush(java.time.Duration.ofSeconds(3L))) {
+                            throw new IllegalStateException("Timed out waiting for asynchronous audit records");
+                        }
+                    });
+            ModuleFaultBoundary.run(null, "server_stop_unbind", "title_data_unbind_skipped",
+                    () -> TitleData.unbind(server));
+            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
+                            .withState("COMPLETE")
+                            .withRecoveryAction("module_state_flush_finished"),
+                    "module shutdown completed");
+        });
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            OperationalErrorReporter.global().flushExpiredSummaries();
+            if (isModuleEnabled(ModuleId.PACKAGES)) {
+                ModuleFaultBoundary.run(ModuleId.PACKAGES, "server_tick", "skip_current_tick", () -> {
+                    packageService().tick(server);
+                    if (server.getTickCount() % 1200 == 0) {
+                        PackageData.get(server).cleanupHistory(server,
+                                configSnapshot.packages().settings().historyRetentionDays());
+                    }
+                });
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                ModuleFaultBoundary.run(ModuleId.SKILLS, "server_tick", "skip_current_tick",
+                        () -> SKILL_TREE_SERVICE.tick(server));
+            }
+            if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
+                ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_tick", "skip_current_tick",
+                        () -> onlineTimeRewardService().tick(server));
+            }
+            if (isModuleEnabled(ModuleId.TITLES)) {
+                ModuleFaultBoundary.run(ModuleId.TITLES, "server_tick", "skip_current_tick",
+                        () -> TIMED_ENTITLEMENTS.tickTitles(server));
+            }
+            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
+                ModuleFaultBoundary.run(ModuleId.TITLE_EFFECTS, "server_tick", "skip_current_tick",
+                        () -> TitleEffectService.tick(server));
             }
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
-                achievementService().tick(server);
+                ModuleFaultBoundary.run(ModuleId.ACHIEVEMENTS, "server_tick", "skip_current_tick",
+                        () -> achievementService().tick(server));
             }
             if (isModuleEnabled(ModuleId.LEADERBOARDS)) {
-                leaderboardService().tick(server);
+                ModuleFaultBoundary.run(ModuleId.LEADERBOARDS, "server_tick", "skip_current_tick",
+                        () -> leaderboardService().tick(server));
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
-                sidebarService().tick(server);
+                ModuleFaultBoundary.run(ModuleId.SIDEBAR, "server_tick", "skip_current_tick",
+                        () -> sidebarService().tick(server));
             }
         });
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
             if (player instanceof ServerPlayer serverPlayer && isModuleEnabled(ModuleId.SKILLS)) {
-                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "gathering", 5L, SkillXpSource.BLOCK_BREAK);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "block_break_xp", serverPlayer,
+                        "skip_current_xp_event", () -> SKILL_TREE_SERVICE.addSkillXp(
+                                serverPlayer, "gathering", 5L, SkillXpSource.BLOCK_BREAK));
             }
         });
         ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((world, entity, killedEntity, damageSource) -> {
             if (entity instanceof ServerPlayer player && isModuleEnabled(ModuleId.SKILLS)) {
-                SKILL_TREE_SERVICE.addSkillXp(player, "combat", 15L, SkillXpSource.ENTITY_KILL);
-                SKILL_TREE_SERVICE.addSkillXp(player, "defense", 8L, SkillXpSource.ENTITY_KILL);
-                SKILL_TREE_SERVICE.addSkillXp(player, "hunting", 20L, SkillXpSource.ENTITY_KILL);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "entity_kill_xp", player,
+                        "skip_current_xp_event", () -> {
+                            SKILL_TREE_SERVICE.addSkillXp(player, "combat", 15L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.addSkillXp(player, "defense", 8L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.addSkillXp(player, "hunting", 20L, SkillXpSource.ENTITY_KILL);
+                        });
             }
         });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.getPlayer();
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
-                onlineTimeRewardService().onJoin(player);
-                onlineTimeRewardService().retryPending(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.ONLINE_REWARD, "player_join", player,
+                        "online_reward_recovery_deferred", () -> {
+                            onlineTimeRewardService().onJoin(player);
+                            onlineTimeRewardService().retryPending(player);
+                        });
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
-                titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
-                TitleDisplayService.refreshPlayer(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLES, "player_join", player,
+                        "title_display_refresh_deferred", () -> {
+                            titleConfig().rememberPlayer(player.getUUID(), player.getGameProfile().name());
+                            TitleDisplayService.refreshPlayer(player);
+                        });
             }
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-                TitleEffectService.refresh(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLE_EFFECTS, "player_join", player,
+                        "title_effect_refresh_deferred", () -> TitleEffectService.refresh(player));
             }
             if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
-                achievementService().check(player);
-                achievementService().retryPending(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.ACHIEVEMENTS, "player_join", player,
+                        "achievement_recovery_deferred", () -> {
+                            achievementService().check(player);
+                            achievementService().retryPending(player);
+                        });
             }
             if (isModuleEnabled(ModuleId.SKILLS)) {
-                SKILL_TREE_SERVICE.refreshAttributes(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "player_join", player,
+                        "skill_attribute_refresh_deferred", () -> SKILL_TREE_SERVICE.refreshAttributes(player));
             }
             if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
-                CheckinData.get(player).ensureFirstSeen(player.getUUID(),
-                        CheckinData.today(server).toEpochDay(), player.getGameProfile().name());
-                rewardService().retryPending(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.DAILY_CHECKIN, "player_join", player,
+                        "checkin_reward_recovery_deferred", () -> {
+                            CheckinData.get(player).ensureFirstSeen(player.getUUID(),
+                                    CheckinData.today(server).toEpochDay(), player.getGameProfile().name());
+                            rewardService().retryPending(player);
+                            LocalDate date = CheckinData.today(server);
+                            if (!CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
+                                sendCheckinReminder(player);
+                            }
+                        });
             }
             if (isModuleEnabled(ModuleId.CDK)) {
-                CDK_SERVICE.retryPending(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.CDK, "player_join", player,
+                        "cdk_reward_recovery_deferred", () -> CDK_SERVICE.retryPending(player));
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
-                sidebarService().onJoin(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SIDEBAR, "player_join", player,
+                        "sidebar_refresh_deferred", () -> sidebarService().onJoin(player));
             }
             if (isModuleEnabled(ModuleId.LEADERBOARDS)) {
-                leaderboardService().onJoin(player);
-            }
-            LocalDate date = CheckinData.today(server);
-            if (isModuleEnabled(ModuleId.DAILY_CHECKIN)
-                    && !CheckinData.get(server).hasSigned(player.getUUID(), date.toEpochDay())) {
-                sendCheckinReminder(player);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.LEADERBOARDS, "player_join", player,
+                        "leaderboard_refresh_deferred", () -> leaderboardService().onJoin(player));
             }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            TIMED_ENTITLEMENTS.flush(server);
-            TitleDisplayService.onDisconnect(handler.getPlayer());
-            achievementService().forgetMenuSnapshot(handler.getPlayer());
-            SKILL_TREE_SERVICE.forget(handler.getPlayer());
+            ServerPlayer player = handler.getPlayer();
+            if (isModuleEnabled(ModuleId.TITLES)) {
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLES, "player_disconnect", player,
+                        "title_state_retained", () -> {
+                            TIMED_ENTITLEMENTS.flush(server);
+                            TitleDisplayService.onDisconnect(player);
+                        });
+            }
+            if (isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.ACHIEVEMENTS, "player_disconnect", player,
+                        "achievement_menu_snapshot_cleanup_skipped",
+                        () -> achievementService().forgetMenuSnapshot(player));
+            }
+            if (isModuleEnabled(ModuleId.SKILLS)) {
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "player_disconnect", player,
+                        "skill_cache_cleanup_skipped", () -> SKILL_TREE_SERVICE.forget(player));
+            }
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-                TitleEffectService.remove(handler.getPlayer());
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLE_EFFECTS, "player_disconnect", player,
+                        "title_effect_cleanup_skipped", () -> TitleEffectService.remove(player));
             }
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
-                onlineTimeRewardService().onDisconnect(handler.getPlayer());
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.ONLINE_REWARD, "player_disconnect", player,
+                        "online_reward_state_retained", () -> onlineTimeRewardService().onDisconnect(player));
             }
-            sidebarService().onDisconnect(handler.getPlayer());
+            if (isModuleEnabled(ModuleId.SIDEBAR)) {
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SIDEBAR, "player_disconnect", player,
+                        "sidebar_cleanup_skipped", () -> sidebarService().onDisconnect(player));
+            }
         });
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
             if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-                TitleEffectService.forget(oldPlayer);
-                TitleEffectService.refresh(newPlayer);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLE_EFFECTS, "player_respawn", newPlayer,
+                        "title_effect_refresh_deferred", () -> {
+                            TitleEffectService.forget(oldPlayer);
+                            TitleEffectService.refresh(newPlayer);
+                        });
             }
             if (isModuleEnabled(ModuleId.TITLES)) {
-                TitleDisplayService.refreshPlayer(newPlayer);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLES, "player_respawn", newPlayer,
+                        "title_display_refresh_deferred", () -> TitleDisplayService.refreshPlayer(newPlayer));
             }
             if (isModuleEnabled(ModuleId.SKILLS)) {
-                SKILL_TREE_SERVICE.refreshAttributes(newPlayer);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "player_respawn", newPlayer,
+                        "skill_attribute_refresh_deferred", () -> SKILL_TREE_SERVICE.refreshAttributes(newPlayer));
             }
             if (isModuleEnabled(ModuleId.SIDEBAR)) {
-                sidebarService().onJoin(newPlayer);
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.SIDEBAR, "player_respawn", newPlayer,
+                        "sidebar_refresh_deferred", () -> sidebarService().onJoin(newPlayer));
             }
         });
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(ModMindEntry::broadcastTitledChatMessage);
@@ -429,7 +546,11 @@ public final class ModMindEntry implements ModInitializer {
     }
 
     public static boolean isModuleEnabled(ModuleId module) {
-        return configSnapshot.enabled(module);
+        return configSnapshot.enabled(module) && ModuleHealthRegistry.global().available(module);
+    }
+
+    static boolean isModuleRuntimeDegraded(ModuleId module) {
+        return module != null && configSnapshot.enabled(module) && !ModuleHealthRegistry.global().available(module);
     }
 
     public static ZoneId configuredZone() {
@@ -442,6 +563,8 @@ public final class ModMindEntry implements ModInitializer {
 
     private static void applySnapshot(OmniToolsConfigSnapshot snapshot) {
         configSnapshot = snapshot;
+        ModuleHealthRegistry.global().reset(snapshot);
+        ModuleResourceBudget.global().reset();
         ServerText.setLanguage(snapshot.root().language());
         ServerText.setCommonTexts(snapshot.common().texts());
         COMMAND_PERMISSIONS.update(snapshot.commandPermissions());
@@ -1683,14 +1806,40 @@ public final class ModMindEntry implements ModInitializer {
         SidebarService.DiagnosticStatus sidebar = sidebarService().diagnosticStatus();
         source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.sidebar_conflicts",
                 sidebar.policy().serializedName(), sidebar.skippedByConflict()), false);
+        OperationalErrorReporter.Summary errors = OperationalErrorReporter.global().summary();
+        source.sendSuccess(() -> Component.literal("Recent operational errors: " + errors.recentReports()
+                + " (" + errors.concise() + ")"), false);
+        java.util.Map<ModuleId, ModuleHealthRegistry.Metrics> health = ModuleHealthRegistry.global().metrics();
+        String healthSummary = health.isEmpty() ? "none" : health.entrySet().stream()
+                .map(entry -> entry.getKey().id() + ":calls=" + entry.getValue().invocations()
+                        + ",failures=" + entry.getValue().failures()
+                        + ",avgUs=" + entry.getValue().averageMicros())
+                .collect(java.util.stream.Collectors.joining("; "));
+        source.sendSuccess(() -> Component.literal("Module callback health: " + healthSummary), false);
+        java.util.Map<ModuleId, ModuleResourceBudget.Metrics> budgets = ModuleResourceBudget.global().metrics();
+        String budgetSummary = budgets.isEmpty() ? "none" : budgets.entrySet().stream()
+                .map(entry -> entry.getKey().id() + ":accepted=" + entry.getValue().admitted()
+                        + ",rejected=" + entry.getValue().rejected()
+                        + ",active=" + entry.getValue().activeWindowTasks()
+                        + ",limit=" + entry.getValue().limits().maxTasksPerSecond()
+                        + "/" + entry.getValue().limits().maxTasksPerPlayerPerSecond())
+                .collect(java.util.stream.Collectors.joining("; "));
+        source.sendSuccess(() -> Component.literal("Module resource budgets: " + budgetSummary), false);
+        AsyncAuditLogWriter.Metrics audit = AsyncAuditLogWriter.global().metrics();
+        source.sendSuccess(() -> Component.literal("Audit queue: accepted=" + audit.accepted()
+                + ", rejected=" + audit.rejected() + ", completed=" + audit.completed()
+                + ", failed=" + audit.failed() + ", depth=" + audit.queueDepth()
+                + "/" + audit.queueCapacity()), false);
         return 1;
     }
 
     private static String formatModuleStates(OmniToolsConfigSnapshot snapshot) {
         java.util.List<String> states = new java.util.ArrayList<>();
         for (ModuleId module : ModuleId.values()) {
-            states.add(module.id() + "=" + ServerText.translatable(snapshot.enabled(module)
-                    ? "command.omnitools.diagnose.enabled" : "command.omnitools.diagnose.disabled").getString());
+            String state = snapshot.degraded(module) || isModuleRuntimeDegraded(module) ? "degraded"
+                    : ServerText.translatable(snapshot.enabled(module)
+                    ? "command.omnitools.diagnose.enabled" : "command.omnitools.diagnose.disabled").getString();
+            states.add(module.id() + "=" + state);
         }
         return String.join(", ", states);
     }

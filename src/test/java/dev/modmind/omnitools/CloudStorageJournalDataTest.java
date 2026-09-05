@@ -79,6 +79,24 @@ class CloudStorageJournalDataTest {
     }
 
     @Test
+    void repeatedTerminalTransitionPreservesOriginalRecoveryEvidence() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(0, new ItemStack(Items.DIAMOND, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 100L);
+        CloudStorageJournalData.Entry committed = journal.transition(prepared.operationId(),
+                CloudStorageJournalData.Status.COMMITTED, "page persisted");
+
+        CloudStorageJournalData.Entry retried = journal.transition(prepared.operationId(),
+                CloudStorageJournalData.Status.COMMITTED, "duplicate completion");
+
+        assertEquals(committed, retried);
+        assertEquals("page persisted", retried.reason());
+    }
+
+    @Test
     void normalCommitRemainsCommittedAfterJournalAndPageRestart() {
         List<ItemStack> before = emptyPage();
         List<ItemStack> after = emptyPage();

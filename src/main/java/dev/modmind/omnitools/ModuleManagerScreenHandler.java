@@ -1,6 +1,8 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
+import dev.modmind.omnitools.config.ModuleStatus;
 import dev.modmind.omnitools.config.ConfigPaths;
 import dev.modmind.omnitools.config.OmniToolsConfigManager;
 import dev.modmind.omnitools.config.OmniToolsConfigSnapshot;
@@ -78,6 +80,15 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.PERMISSIONS, "module_manager_click", serverPlayer,
+                    "previous_configuration_snapshot_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null || !ownerId.equals(serverPlayer.getUUID())) {
             return;
         }
@@ -212,10 +223,12 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
         int first = page * GuiSlots.CONTENT_SLOT_COUNT_27;
         for (int index = 0; index < GuiSlots.CONTENT_SLOT_COUNT_27 && first + index < MODULES.size(); index++) {
             ModuleId module = MODULES.get(first + index);
-            boolean enabled = snapshot.enabled(module);
+            ModuleStatus status = ModMindEntry.isModuleRuntimeDegraded(module)
+                    ? ModuleStatus.DEGRADED : snapshot.status(module);
+            boolean enabled = status == ModuleStatus.ENABLED;
             Optional<ModuleControlService.DependencyBlock> block = ModMindEntry.moduleControlService()
                     .dependencyBlock(snapshot, module, !enabled);
-            moduleContainer.setItem(GuiSlots.contentSlot27(index), moduleItem(module, enabled, block));
+            moduleContainer.setItem(GuiSlots.contentSlot27(index), moduleItem(module, status, block));
         }
         if (page > 0) {
             moduleContainer.setItem(PREVIOUS_PAGE_SLOT, GuiNavigationService.previous());
@@ -229,10 +242,18 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
 
     static ItemStack moduleItem(ModuleId module, boolean enabled,
                                 Optional<ModuleControlService.DependencyBlock> block) {
+        return moduleItem(module, enabled ? ModuleStatus.ENABLED : ModuleStatus.DISABLED, block);
+    }
+
+    static ItemStack moduleItem(ModuleId module, ModuleStatus status,
+                                Optional<ModuleControlService.DependencyBlock> block) {
+        boolean enabled = status == ModuleStatus.ENABLED;
+        boolean degraded = status == ModuleStatus.DEGRADED;
         ChatFormatting color = block.isPresent() ? ChatFormatting.YELLOW
-                : enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY;
+                : degraded ? ChatFormatting.RED : enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY;
         List<Component> lore = new java.util.ArrayList<>();
-        lore.add(ServerText.translatable("gui.omnitools.modules.status", stateName(enabled)).withStyle(color));
+        Component statusName = degraded ? Component.literal("DEGRADED").withStyle(ChatFormatting.RED) : stateName(enabled);
+        lore.add(ServerText.translatable("gui.omnitools.modules.status", statusName).withStyle(color));
         lore.add(ServerText.translatable("gui.omnitools.modules.id", module.id()).withStyle(ChatFormatting.DARK_GRAY));
         lore.add(ServerText.translatable("gui.omnitools.modules.path", ConfigPaths.moduleConfig(module).toString())
                 .withStyle(ChatFormatting.DARK_GRAY));
@@ -240,6 +261,7 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             lore.add(ServerText.translatable("gui.omnitools.modules.blocked").withStyle(ChatFormatting.YELLOW));
         }
         GuiStatusItem.State state = block.isPresent() ? GuiStatusItem.State.PENDING
+                : degraded ? GuiStatusItem.State.BLOCKED
                 : enabled ? GuiStatusItem.State.ACTIONABLE : GuiStatusItem.State.INACTIVE;
         return GuiStatusItem.create(new ItemStack(moduleIcon(module)), moduleName(module), state,
                 GuiTextService.cardLore(lore, block.isPresent()

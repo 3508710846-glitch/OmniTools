@@ -14,6 +14,7 @@ import dev.modmind.omnitools.cdk.CdkData;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.packages.PackageConfig;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 import net.minecraft.server.MinecraftServer;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
 
@@ -44,9 +45,9 @@ public final class OmniToolsConfigManager {
 
     /** Reloads all administrator-managed files, publishing them only after complete validation. */
     public synchronized ReloadResult reload(MinecraftServer server) {
-        ConfigMigration.migrate();
         OmniToolsConfigSnapshot previous = snapshot;
         try {
+            ConfigMigration.migrate();
             OmniToolsConfigSnapshot candidate = buildCandidate(server, OmniToolsRootConfig.load(ConfigPaths.rootConfig()));
             OmniToolsConfigSnapshot published = publish(candidate);
             logReloadApplied(published);
@@ -98,6 +99,10 @@ public final class OmniToolsConfigManager {
         try {
             OmniToolsRootConfig updatedRoot = previous.root().withModuleEnabled(module, enabled);
             OmniToolsConfigSnapshot candidate = buildCandidate(server, updatedRoot);
+            if (candidate.enabled(module) != enabled) {
+                return new ModuleUpdateResult(false, module, enabled,
+                        "Module configuration could not be initialized", previous, previous);
+            }
             writeRootAtomically(updatedRoot);
             OmniToolsConfigSnapshot published = publish(candidate);
             return new ModuleUpdateResult(true, module, enabled, "", previous, published);
@@ -117,19 +122,46 @@ public final class OmniToolsConfigManager {
             throws IOException {
         CommonConfig common = CommonConfig.load(server.registryAccess());
         LoadContext loadContext = new LoadContext(server, server.registryAccess(), root, common);
-        java.util.Map<ModuleId, Object> loaded;
-        try {
-            loaded = moduleRegistry.loadAll(loadContext);
-        } catch (ConfigModuleRegistry.ModuleLoadException exception) {
-            throw new IllegalStateException("Could not load configuration module " + exception.module().id(), exception);
-        } catch (Exception exception) {
-            throw new IllegalStateException("Could not load configuration modules", exception);
+        ConfigModuleRegistry.LoadReport report = moduleRegistry.loadAllIsolated(loadContext);
+        java.util.Map<ModuleId, Object> loaded = new EnumMap<>(ModuleId.class);
+        loaded.putAll(report.loaded());
+        java.util.Set<ModuleId> retainedModules = java.util.EnumSet.noneOf(ModuleId.class);
+        java.util.Map<ModuleId, Object> previousModules = snapshotModules(snapshot);
+        for (java.util.Map.Entry<ModuleId, ConfigModuleRegistry.ModuleLoadException> failure
+                : report.failures().entrySet()) {
+            ModuleId module = failure.getKey();
+            if (snapshot.enabled(module)) {
+                loaded.put(module, previousModules.get(module));
+                retainedModules.add(module);
+            }
+            OperationalErrorReporter.global().error(
+                    OperationalErrorReporter.Context.forModule(module, "config_load")
+                            .withParameters(java.util.Map.of("path", ConfigPaths.moduleConfig(module).toString()))
+                            .withRecoveryAction(retainedModules.contains(module)
+                                    ? "previous_valid_configuration_retained" : "module_marked_degraded"),
+                    failure.getValue());
         }
-        return buildSnapshot(server, root, common, loaded);
+        return buildSnapshot(server, root, common, loaded, report.failures(), retainedModules);
     }
 
     private OmniToolsConfigSnapshot buildSnapshot(MinecraftServer server, OmniToolsRootConfig root,
                                                   CommonConfig common, java.util.Map<ModuleId, Object> loaded) {
+        return buildSnapshot(server, root, common, loaded, java.util.Map.of(), java.util.Set.of());
+    }
+
+    private OmniToolsConfigSnapshot buildSnapshot(MinecraftServer server, OmniToolsRootConfig root,
+                                                  CommonConfig common, java.util.Map<ModuleId, Object> loaded,
+                                                  java.util.Map<ModuleId, ConfigModuleRegistry.ModuleLoadException> failures) {
+        return buildSnapshot(server, root, common, loaded, failures, java.util.Set.of());
+    }
+
+    private OmniToolsConfigSnapshot buildSnapshot(MinecraftServer server, OmniToolsRootConfig root,
+                                                  CommonConfig common, java.util.Map<ModuleId, Object> loaded,
+                                                  java.util.Map<ModuleId, ConfigModuleRegistry.ModuleLoadException> failures,
+                                                  java.util.Set<ModuleId> retainedModules) {
+        java.util.Map<ModuleId, ConfigModuleRegistry.ModuleLoadException> isolatedFailures =
+                new EnumMap<>(ModuleId.class);
+        isolatedFailures.putAll(failures);
         CheckinRewardConfig dailyRewards = moduleConfig(loaded, ModuleId.DAILY_CHECKIN, CheckinRewardConfig.empty());
         OnlineRewardConfig onlineRewards = moduleConfig(loaded, ModuleId.ONLINE_REWARD, OnlineRewardConfig.empty());
         CheckinRewardConfig rewards = CheckinRewardConfig.withOnlineRewards(dailyRewards, onlineRewards);
@@ -139,8 +171,17 @@ public final class OmniToolsConfigManager {
         CloudStorageConfig storage = moduleConfig(loaded, ModuleId.CLOUD_STORAGE, CloudStorageConfig.defaultConfig());
         AchievementConfig achievements = moduleConfig(loaded, ModuleId.ACHIEVEMENTS, AchievementConfig.empty());
         CdkConfig cdk = moduleConfig(loaded, ModuleId.CDK, CdkConfig.empty());
-        if (root.enabled(ModuleId.CDK)) {
-            CdkData.get(server).validateConfiguration(cdk);
+        if (root.enabled(ModuleId.CDK) && !isolatedFailures.containsKey(ModuleId.CDK)) {
+            try {
+                CdkData.get(server).validateConfiguration(cdk);
+            } catch (RuntimeException exception) {
+                isolatedFailures.put(ModuleId.CDK,
+                        new ConfigModuleRegistry.ModuleLoadException(ModuleId.CDK, exception));
+                cdk = CdkConfig.empty();
+                OperationalErrorReporter.global().error(
+                        OperationalErrorReporter.Context.forModule(ModuleId.CDK, "configuration_history_check")
+                                .withRecoveryAction("module_marked_degraded;persisted_cdk_data_retained"), exception);
+            }
         }
         CommandMenuConfig commandMenus = moduleConfig(loaded, ModuleId.COMMAND_MENU, CommandMenuConfig.empty());
         SidebarConfig sidebar = moduleConfig(loaded, ModuleId.SIDEBAR, SidebarConfig.empty());
@@ -151,8 +192,12 @@ public final class OmniToolsConfigManager {
                 CommandPermissionConfig.defaults());
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
         for (ModuleId configuredModule : ModuleId.values()) {
-            statuses.put(configuredModule, root.enabled(configuredModule)
-                    ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
+            if (isolatedFailures.containsKey(configuredModule) && !retainedModules.contains(configuredModule)) {
+                statuses.put(configuredModule, ModuleStatus.DEGRADED);
+            } else {
+                statuses.put(configuredModule, root.enabled(configuredModule)
+                        ? ModuleStatus.ENABLED : ModuleStatus.DISABLED);
+            }
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
                 storage, achievements, cdk, commandMenus, sidebar, leaderboards, packages, skills, commandPermissions, statuses, revisions.get() + 1L,
@@ -310,16 +355,24 @@ public final class OmniToolsConfigManager {
     }
 
     private static void logFailure(String action, Exception exception) {
-        System.err.println("[omnitools] " + action + ": " + message(exception));
-        exception.printStackTrace(System.err);
+        OperationalErrorReporter.global().error(
+                OperationalErrorReporter.Context.forFeature("config_reload")
+                        .withParameters(java.util.Map.of("action", action))
+                        .withRecoveryAction("previous_snapshot_retained"), exception);
     }
 
     private static void logReloadApplied(OmniToolsConfigSnapshot snapshot) {
-        System.err.println("[omnitools] Configuration reload applied: revision=" + snapshot.revision()
-                + ", packages=" + snapshot.enabled(ModuleId.PACKAGES)
-                + ", shop=" + snapshot.enabled(ModuleId.SHOP)
-                + ", permissions=" + snapshot.enabled(ModuleId.PERMISSIONS)
-                + ", sidebar=" + snapshot.enabled(ModuleId.SIDEBAR));
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("config_reload")
+                        .withDataVersion("config:" + snapshot.root().formatVersion())
+                        .withState("APPLIED")
+                        .withParameters(java.util.Map.of(
+                                "revision", Long.toString(snapshot.revision()),
+                                "packages", Boolean.toString(snapshot.enabled(ModuleId.PACKAGES)),
+                                "shop", Boolean.toString(snapshot.enabled(ModuleId.SHOP)),
+                                "permissions", Boolean.toString(snapshot.enabled(ModuleId.PERMISSIONS)),
+                                "sidebar", Boolean.toString(snapshot.enabled(ModuleId.SIDEBAR))))
+                        .withRecoveryAction("validated_snapshot_published"),
+                "configuration reload applied");
     }
 
     public record ReloadResult(boolean success, String message, OmniToolsConfigSnapshot previous,

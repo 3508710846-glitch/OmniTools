@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.packages.PackageData;
 import dev.modmind.omnitools.packages.PackageInstance;
 import dev.modmind.omnitools.packages.PackageService;
@@ -60,6 +61,15 @@ public final class PackageConfirmScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.PACKAGES, "package_open_confirm", serverPlayer,
+                    "package_delivery_state_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null || !ownerId.equals(serverPlayer.getUUID())
                 || clickType != ClickType.PICKUP || button != 0) {
             return;

@@ -1,6 +1,7 @@
 package dev.modmind.omnitools.commandmenu;
 
 import dev.modmind.omnitools.ModMindEntry;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.GuiTheme;
 import dev.modmind.omnitools.ServerText;
 import dev.modmind.omnitools.config.ModuleId;
@@ -55,6 +56,15 @@ public final class CommandMenuScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.COMMAND_MENU, "menu_action", serverPlayer,
+                    "command_action_stopped_before_next_action", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
                 || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP
                 || (button != 0 && button != 1) || slotId < 0 || slotId >= size) {

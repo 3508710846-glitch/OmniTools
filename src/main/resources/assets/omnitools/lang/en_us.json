@@ -193,6 +193,8 @@
   "command.omnitools.reload.module_failed": "Could not reload %s configuration; the previous valid snapshot is still active.",
   "command.omnitools.reload.unknown_module": "Unknown OmniTools module: %s",
   "message.omnitools.module_disabled": "This feature module is currently disabled.",
+  "message.omnitools.operation_throttled": "This operation is being performed too frequently. Please try again shortly.",
+  "message.omnitools.operation_failed": "This operation was stopped safely. An administrator can use /omnitools diagnose for details.",
   "gui.omnitools.title.menu_title": "My Titles",
   "gui.omnitools.packages.title": "My Packages",
   "gui.omnitools.title.empty_title": "No titles unlocked",

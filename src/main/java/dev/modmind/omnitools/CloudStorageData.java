@@ -13,6 +13,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
+import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -121,6 +123,7 @@ public final class CloudStorageData extends SavedData {
             validated = validatePage(items, registries);
             before = page(playerId, page);
         } catch (RuntimeException exception) {
+            reportCommitFailure(playerId, page, null, "REJECTED", "reject_before_mutation", exception);
             return CommitResult.rejected(describe(exception));
         }
         if (ItemStack.listMatches(before, validated)) {
@@ -135,6 +138,7 @@ public final class CloudStorageData extends SavedData {
                     before, validated, System.currentTimeMillis());
             journal.flush(server);
         } catch (RuntimeException exception) {
+            reportCommitFailure(playerId, page, null, "REJECTED", "journal_write_failed_before_mutation", exception);
             return CommitResult.rejected(describe(exception));
         }
 
@@ -142,8 +146,8 @@ public final class CloudStorageData extends SavedData {
             replacePage(playerId, page, validated);
             journal.flush(server);
         } catch (RuntimeException exception) {
-            System.err.println("[omnitools] Cloud storage operation " + entry.operationId()
-                    + " requires recovery after page write: " + describe(exception));
+            reportCommitFailure(playerId, page, entry.operationId(), "RECOVERY_PENDING",
+                    "journal_retained_for_startup_recovery", exception);
             return CommitResult.recoveryPending(entry.operationId(), describe(exception));
         }
 
@@ -152,10 +156,22 @@ public final class CloudStorageData extends SavedData {
             journal.flush(server);
             return CommitResult.committed(entry.operationId());
         } catch (RuntimeException exception) {
-            System.err.println("[omnitools] Cloud storage operation " + entry.operationId()
-                    + " has a persisted page but an unconfirmed journal: " + describe(exception));
+            reportCommitFailure(playerId, page, entry.operationId(), "RECOVERY_PENDING",
+                    "persisted_page_retained_for_startup_recovery", exception);
             return CommitResult.recoveryPending(entry.operationId(), describe(exception));
         }
+    }
+
+    private static void reportCommitFailure(UUID playerId, int page, UUID operationId, String state,
+                                            String recoveryAction, RuntimeException exception) {
+        OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                        .forModule(ModuleId.CLOUD_STORAGE, "commit_page")
+                        .withPlayer(playerId)
+                        .withOperation(operationId)
+                        .withState(state)
+                        .withParameters(Map.of("page", Integer.toString(page)))
+                        .withRecoveryAction(recoveryAction),
+                exception);
     }
 
     synchronized void replacePage(UUID playerId, int page, List<ItemStack> items) {

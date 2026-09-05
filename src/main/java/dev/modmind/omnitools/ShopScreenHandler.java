@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
@@ -66,6 +67,16 @@ public final class ShopScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(dev.modmind.omnitools.config.ModuleId.SHOP, "menu_click",
+                    serverPlayer, "purchase_journal_or_currency_state_retained",
+                    () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.SHOP)
                 || (player instanceof ServerPlayer serverPlayerForPermission
                 && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,
@@ -150,6 +161,7 @@ public final class ShopScreenHandler extends ChestMenu {
             return;
         }
 
+        ItemStack purchasedStack = product.createStack();
         long removed = data.removeCurrency(player.getUUID(), product.price(), player.getGameProfile().name());
         if (removed != product.price()) {
             GuiFeedbackService.failure(player);
@@ -158,7 +170,6 @@ public final class ShopScreenHandler extends ChestMenu {
             return;
         }
 
-        ItemStack purchasedStack = product.createStack();
         player.getInventory().add(purchasedStack);
         if (!purchasedStack.isEmpty()) {
             player.drop(purchasedStack, false);

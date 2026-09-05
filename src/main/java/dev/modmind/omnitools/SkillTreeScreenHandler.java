@@ -1,6 +1,7 @@
 package dev.modmind.omnitools;
 
 import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
 import dev.modmind.omnitools.skills.SkillTreeData;
@@ -60,6 +61,15 @@ public final class SkillTreeScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.SKILLS, "menu_click", serverPlayer,
+                    "skill_progress_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.SKILLS) || (player instanceof ServerPlayer serverPlayer
                 && !ModMindEntry.hasCommandPermission(serverPlayer, CommandAction.SKILLS_OPEN))) {
             if (player instanceof ServerPlayer serverPlayer) serverPlayer.closeContainer();

@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.permissions.CommandAction;
 import net.minecraft.ChatFormatting;
@@ -58,6 +59,15 @@ public final class CheckinMakeupConfirmScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.DAILY_CHECKIN, "makeup_menu_confirm", serverPlayer,
+                    "makeup_transaction_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!(player instanceof ServerPlayer serverPlayer) || !serverPlayer.getUUID().equals(ownerId)
                 || clickType != ClickType.PICKUP || button != 0) {
             return;

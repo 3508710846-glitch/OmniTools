@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.text.TextTemplateRenderer;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 import net.minecraft.ChatFormatting;
@@ -65,6 +66,15 @@ public final class TitleScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(dev.modmind.omnitools.config.ModuleId.TITLES, "menu_click",
+                    serverPlayer, "title_selection_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(dev.modmind.omnitools.config.ModuleId.TITLES)
                 || (player instanceof ServerPlayer serverPlayerForPermission
                 && !ModMindEntry.hasCommandPermission(serverPlayerForPermission,

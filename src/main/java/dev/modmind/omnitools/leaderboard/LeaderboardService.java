@@ -1,5 +1,7 @@
 package dev.modmind.omnitools.leaderboard;
 
+import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 import dev.modmind.omnitools.statistics.StatisticQuery;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -96,7 +98,10 @@ public final class LeaderboardService {
             scanFiles = paths.filter(path -> path.getFileName().toString().endsWith(".json"))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString())).toList();
         } catch (IOException exception) {
-            System.err.println("[omnitools] Could not enumerate offline statistic files: " + exception.getMessage());
+            OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                    .forModule(ModuleId.LEADERBOARDS, "enumerate_offline_statistics")
+                    .withParameters(Map.of("path", statistics.toString()))
+                    .withRecoveryAction("offline_scan_skipped"), exception);
             scanFiles = List.of();
         }
         scanIndex = 0;
@@ -119,7 +124,10 @@ public final class LeaderboardService {
                 String name = knownNames.getOrDefault(playerId, shortUuid(playerId));
                 stagedScores.put(playerId, scores(playerId, name, stats));
             } catch (RuntimeException exception) {
-                System.err.println("[omnitools] Skipped unreadable statistic file " + file.getFileName());
+                OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                        .forModule(ModuleId.LEADERBOARDS, "read_offline_statistics")
+                        .withParameters(Map.of("file", file.getFileName().toString()))
+                        .withRecoveryAction("file_skipped"), exception);
             }
         }
         if (scanIndex >= scanFiles.size()) {

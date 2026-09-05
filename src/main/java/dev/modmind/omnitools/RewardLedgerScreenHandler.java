@@ -1,5 +1,7 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.permissions.CommandAction;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.reward.RewardEvent;
@@ -72,6 +74,15 @@ public final class RewardLedgerScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.DAILY_CHECKIN, "reward_ledger_click", serverPlayer,
+                    "reward_claim_ledger_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
                 || !ownerId.equals(serverPlayer.getUUID()) || clickType != ClickType.PICKUP) {
             return;

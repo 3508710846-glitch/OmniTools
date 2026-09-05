@@ -1,5 +1,7 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
+import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.reward.RewardEvent;
 import dev.modmind.omnitools.reward.RewardGrantResult;
@@ -124,8 +126,15 @@ public final class OnlineTimeRewardService {
                         player.getGameProfile().name());
             }
             return true;
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException exception) {
             // A malformed or stale event is retained for administrator inspection.
+            OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                    .forModule(ModuleId.ONLINE_REWARD, "retry_reward_event")
+                    .withPlayer(player.getUUID())
+                    .withWorld(player.level().dimension().identifier().toString())
+                    .withOperation(null)
+                    .withParameters(Map.of("eventId", eventId == null ? "" : eventId))
+                    .withRecoveryAction("event_retained_for_administrator"), exception);
             return false;
         }
     }

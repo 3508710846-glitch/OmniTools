@@ -9,6 +9,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
+import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -81,6 +83,10 @@ public final class CloudStorageJournalData extends SavedData {
         if (current == null) {
             throw new IllegalArgumentException("Unknown cloud storage operation: " + operationId);
         }
+        // Retries of a completed state transition must not change the recovery evidence.
+        if (current.status() == status) {
+            return current;
+        }
         if (!current.status().canTransitionTo(status)) {
             throw new IllegalStateException("Invalid cloud storage journal transition: " + current.status()
                     + " -> " + status);
@@ -132,6 +138,13 @@ public final class CloudStorageJournalData extends SavedData {
                     quarantined++;
                 }
             } catch (RuntimeException exception) {
+                OperationalErrorReporter.global().warn(
+                        OperationalErrorReporter.Context.forModule(ModuleId.CLOUD_STORAGE, "journal_reconcile")
+                                .withPlayer(entry.ownerId())
+                                .withOperation(entry.operationId())
+                                .withState(entry.status().name())
+                                .withParameters(Map.of("page", Integer.toString(entry.page())))
+                                .withRecoveryAction("prepared_operation_quarantined"), exception);
                 transition(entry.operationId(), Status.QUARANTINED,
                         "startup inspection failed: " + describe(exception));
                 quarantined++;

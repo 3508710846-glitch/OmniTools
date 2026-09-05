@@ -91,6 +91,14 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         return statuses.getOrDefault(module, ModuleStatus.INVALID) == ModuleStatus.ENABLED;
     }
 
+    public boolean degraded(ModuleId module) {
+        return statuses.getOrDefault(module, ModuleStatus.INVALID) == ModuleStatus.DEGRADED;
+    }
+
+    public ModuleStatus status(ModuleId module) {
+        return statuses.getOrDefault(module, ModuleStatus.INVALID);
+    }
+
     public ZoneId zoneId() {
         return ZoneId.of(root.timezone());
     }

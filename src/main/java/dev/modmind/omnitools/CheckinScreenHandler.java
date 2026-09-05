@@ -1,5 +1,6 @@
 package dev.modmind.omnitools;
 
+import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.permissions.CommandAction;
 import net.minecraft.network.chat.Component;
@@ -73,6 +74,15 @@ public final class CheckinScreenHandler extends ChestMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            ModuleFaultBoundary.runPlayerAction(ModuleId.DAILY_CHECKIN, "menu_click", serverPlayer,
+                    "sign_in_and_reward_ledger_retained", () -> handleClick(slotId, button, clickType, player));
+            return;
+        }
+        handleClick(slotId, button, clickType, player);
+    }
+
+    private void handleClick(int slotId, int button, ClickType clickType, Player player) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.DAILY_CHECKIN)
                 || (player instanceof ServerPlayer permissionPlayer
                 && !ModMindEntry.hasCommandPermission(permissionPlayer, CommandAction.CHECKIN_OPEN))) {
