@@ -24,6 +24,7 @@ import net.minecraft.network.chat.ChatType;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.tags.BlockTags;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -229,17 +230,30 @@ public final class ModMindEntry implements ModInitializer {
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
             if (player instanceof ServerPlayer serverPlayer && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "block_break_xp", serverPlayer,
-                        "skip_current_xp_event", () -> SKILL_TREE_SERVICE.addSkillXp(
-                                serverPlayer, "gathering", 5L, SkillXpSource.BLOCK_BREAK));
+                        "skip_current_xp_event", () -> {
+                            SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "miner", 5L, SkillXpSource.BLOCK_BREAK);
+                            if (state.is(BlockTags.LOGS)) {
+                                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "lumberjack", 5L, SkillXpSource.BLOCK_BREAK);
+                            }
+                            if (state.is(BlockTags.CROPS)) {
+                                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "farmer", 5L, SkillXpSource.SURVIVAL);
+                            }
+                            if (world instanceof net.minecraft.server.level.ServerLevel serverWorld) {
+                                SKILL_TREE_SERVICE.settleBlockPassive(serverPlayer, serverWorld, state, pos, blockEntity);
+                                SKILL_TREE_SERVICE.settleLumberjackChain(serverPlayer, serverWorld, pos, state);
+                            }
+                        });
             }
         });
         ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((world, entity, killedEntity, damageSource) -> {
             if (entity instanceof ServerPlayer player && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "entity_kill_xp", player,
                         "skip_current_xp_event", () -> {
-                            SKILL_TREE_SERVICE.addSkillXp(player, "combat", 15L, SkillXpSource.ENTITY_KILL);
-                            SKILL_TREE_SERVICE.addSkillXp(player, "defense", 8L, SkillXpSource.ENTITY_KILL);
-                            SKILL_TREE_SERVICE.addSkillXp(player, "hunting", 20L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.addSkillXp(player, "warrior", 15L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.addSkillXp(player, "guardian", 8L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.addSkillXp(player, "hunter", 20L, SkillXpSource.ENTITY_KILL);
+                            SKILL_TREE_SERVICE.settleCombatPassive(player, killedEntity instanceof net.minecraft.world.entity.LivingEntity living ? living : null,
+                                    "kill:" + player.getUUID() + ":" + killedEntity.getUUID() + ":" + world.getGameTime());
                         });
             }
         });

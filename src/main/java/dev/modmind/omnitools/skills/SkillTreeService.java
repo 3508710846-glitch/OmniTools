@@ -4,6 +4,8 @@ import dev.modmind.omnitools.ModMindEntry;
 import dev.modmind.omnitools.CheckinData;
 import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
+import dev.modmind.omnitools.config.ModuleId;
+import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.Holder;
 import net.minecraft.ChatFormatting;
@@ -18,6 +20,16 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -26,6 +38,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Collections;
+import java.util.ArrayDeque;
+import java.nio.file.Path;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 
 /** Server-authoritative skill progression and native-attribute synchronization. */
 public final class SkillTreeService {
@@ -34,6 +51,9 @@ public final class SkillTreeService {
     private final Map<RateLimitKey, Long> latestSourceTick = new HashMap<>();
     private final Map<UUID, LastPosition> lastPositions = new HashMap<>();
     private final Map<UUID, Long> lastCraftedTotals = new HashMap<>();
+    private final Set<UUID> lumberChainsInProgress = new HashSet<>();
+    private final Set<String> settledOperations = new java.util.LinkedHashSet<>();
+    private final Map<String, Long> passiveTriggerCounts = new HashMap<>();
 
     public SkillTreeService(SkillTreeConfig config) {
         this.config = config == null ? SkillTreeConfig.empty() : config;
@@ -51,7 +71,43 @@ public final class SkillTreeService {
     public long revision() { return revision; }
 
     public SkillTreeData.Progress progress(ServerPlayer player, String treeId) {
-        return SkillTreeData.get(player).progress(player.getUUID(), normalized(treeId));
+        String id = normalized(treeId);
+        SkillTreeData data = SkillTreeData.get(player);
+        SkillTreeData.Progress current = data.progress(player.getUUID(), id);
+        SkillTreeConfig.TreeDefinition tree = config.tree(id).orElse(null);
+        if (tree != null && current.level() == 0 && current.totalXp() == 0L) {
+            String legacyId = switch (id) {
+                case "miner" -> "gathering";
+                case "warrior" -> "combat";
+                case "guardian" -> "defense";
+                case "hunter" -> "hunting";
+                case "smithing" -> "crafting";
+                case "exploration" -> "survival";
+                default -> "";
+            };
+            if (!legacyId.isBlank()) {
+                SkillTreeData.Progress legacy = data.progress(player.getUUID(), legacyId);
+                if (legacy.level() > 0 || legacy.totalXp() > 0L) {
+                    current = new SkillTreeData.Progress(Math.min(config.settings().maxLevel(), legacy.level()), legacy.currentXp(),
+                            legacy.totalXp(), legacy.availablePoints(), legacy.attributePoints(), legacy.skillPoints(), legacy.rewardPoints(),
+                            legacy.masteryPoints(), legacy.unlockedSkills(), legacy.overflowXp(), legacy.dailyXp(), legacy.dailyEpochDay(),
+                            legacy.ultimateCooldownUntilEpochMillis(), legacy.skillLevels(), legacy.activeCooldownUntilEpochMillis(),
+                            legacy.skillResetCooldownUntilEpochMillis());
+                    data.replace(player.getUUID(), id, current);
+                }
+            }
+        }
+        if (tree == null || config.settings().maxLevel() >= SkillTreeConfig.LEGACY_MAX_LEVEL || current.level() <= config.settings().maxLevel()) {
+            return current;
+        }
+        int clamped = config.settings().maxLevel();
+        Set<String> unlocked = autoUnlockedSkills(tree, current.unlockedSkills(), clamped);
+        SkillTreeData.Progress migrated = new SkillTreeData.Progress(clamped, current.currentXp(), current.totalXp(),
+                current.availablePoints(), current.attributePoints(), current.skillPoints(), current.rewardPoints(), current.masteryPoints(),
+                unlocked, current.overflowXp(), current.dailyXp(), current.dailyEpochDay(), current.ultimateCooldownUntilEpochMillis(),
+                current.skillLevels(), current.activeCooldownUntilEpochMillis(), current.skillResetCooldownUntilEpochMillis());
+        data.replace(player.getUUID(), id, migrated);
+        return migrated;
     }
 
     public int totalLevel(ServerPlayer player) {
@@ -63,6 +119,141 @@ public final class SkillTreeService {
         if (progress == null) return 0L;
         long remaining = progress.ultimateCooldownUntilEpochMillis() - System.currentTimeMillis();
         return remaining <= 0L ? 0L : (remaining + 999L) / 1_000L;
+    }
+
+    /** Remaining cooldown for the modern active skill, exposed to GUI and diagnostics. */
+    public long activeCooldownRemainingSeconds(SkillTreeData.Progress progress) {
+        if (progress == null) return 0L;
+        long remaining = progress.activeCooldownUntilEpochMillis() - System.currentTimeMillis();
+        return remaining <= 0L ? 0L : (remaining + 999L) / 1_000L;
+    }
+
+    public long activeRemainingSeconds(ServerPlayer player, String treeId) {
+        if (player == null) return 0L;
+        MobEffectInstance effect = player.getEffect(activeEffect(normalized(treeId)));
+        return effect == null ? 0L : Math.max(0L, (effect.getDuration() + 19L) / 20L);
+    }
+
+    public int skillLevel(SkillTreeData.Progress progress, String skillId) {
+        if (progress == null || skillId == null) return 0;
+        String id = normalized(skillId);
+        int stored = progress.skillLevels().getOrDefault(id, 0);
+        return stored > 0 || progress.unlockedSkills().contains(id) ? Math.max(1, stored) : 0;
+    }
+
+    /** Spend one point to raise an unlocked modern active/passive skill, up to its configured cap. */
+    public synchronized PointResult upgradeSkill(ServerPlayer player, String treeId, String skillId) {
+        Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
+        if (player == null || target.isEmpty()) return PointResult.rejected(target.isEmpty() ? Status.UNKNOWN_TREE : Status.INVALID_REQUEST);
+        SkillTreeConfig.SkillDefinition skill = target.get().skills().stream().filter(s -> s.id().equals(normalized(skillId))).findFirst().orElse(null);
+        if (skill == null) return PointResult.rejected(Status.UNKNOWN_SKILL);
+        SkillTreeData data = SkillTreeData.get(player);
+        SkillTreeData.Progress progress = data.progress(player.getUUID(), target.get().id());
+        if (progress.level() < skill.unlockLevel()) return PointResult.rejected(Status.LEVEL_REQUIRED);
+        boolean firstFreeLevel = !progress.unlockedSkills().contains(skill.id());
+        int current = skillLevel(progress, skill.id());
+        if (!firstFreeLevel && current >= skill.maxLevel()) return PointResult.rejected(Status.SKILL_CAP_REACHED);
+        if (!firstFreeLevel && progress.availablePoints() < 1) return PointResult.rejected(Status.NO_POINTS);
+        Map<String, Integer> levels = new java.util.HashMap<>(progress.skillLevels());
+        levels.put(skill.id(), firstFreeLevel ? 1 : current + 1);
+        Set<String> unlocked = new java.util.HashSet<>(progress.unlockedSkills());
+        unlocked.add(skill.id());
+        int spent = firstFreeLevel ? 0 : 1;
+        SkillTreeData.Progress updated = copy(progress, progress.availablePoints() - spent, progress.attributePoints(),
+                progress.skillPoints() + spent, unlocked, levels, progress.activeCooldownUntilEpochMillis(), progress.skillResetCooldownUntilEpochMillis());
+        data.replace(player.getUUID(), target.get().id(), updated);
+        return new PointResult(Status.GRANTED, updated);
+    }
+
+    /** Reset modern skill allocations; reset cooldown prevents combat-time respec abuse. */
+    public synchronized PointResult resetSkills(ServerPlayer player, String treeId) {
+        Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
+        if (player == null || target.isEmpty()) return PointResult.rejected(target.isEmpty() ? Status.UNKNOWN_TREE : Status.INVALID_REQUEST);
+        SkillTreeData data = SkillTreeData.get(player);
+        SkillTreeData.Progress progress = data.progress(player.getUUID(), target.get().id());
+        long now = System.currentTimeMillis();
+        if (now < progress.skillResetCooldownUntilEpochMillis()) return PointResult.rejected(Status.RESET_COOLDOWN);
+        if (progress.masteryPoints() < 1) return PointResult.rejected(Status.RESET_RESOURCE_REQUIRED);
+        int spent = 0;
+        Set<String> unlocked = new java.util.HashSet<>(progress.unlockedSkills());
+        Map<String, Integer> levels = new java.util.HashMap<>();
+        for (SkillTreeConfig.SkillDefinition skill : target.get().skills()) {
+            if (skill.kind() == SkillTreeConfig.SkillKind.ACTIVE || skill.kind() == SkillTreeConfig.SkillKind.PASSIVE) {
+                int level = skillLevel(progress, skill.id());
+                spent += Math.max(0, level - (progress.unlockedSkills().contains(skill.id()) ? 1 : 0));
+                if (level > 0 && progress.unlockedSkills().contains(skill.id())) {
+                    levels.put(skill.id(), 1);
+                } else unlocked.remove(skill.id());
+            } else if (skill.pointCost() > 0) {
+                unlocked.remove(skill.id());
+            }
+        }
+        SkillTreeData.Progress updated = new SkillTreeData.Progress(progress.level(), progress.currentXp(), progress.totalXp(),
+                progress.availablePoints() + spent, progress.attributePoints(), 0, progress.rewardPoints(),
+                progress.masteryPoints() - 1, unlocked, progress.overflowXp(), progress.dailyXp(), progress.dailyEpochDay(),
+                progress.ultimateCooldownUntilEpochMillis(), levels, progress.activeCooldownUntilEpochMillis(), now + 10 * 60_000L);
+        data.replace(player.getUUID(), target.get().id(), updated);
+        return new PointResult(Status.GRANTED, updated);
+    }
+
+    /** Server-authoritative active skill activation. Effects are applied on the server thread only. */
+    public synchronized PointResult activateSkill(ServerPlayer player, String treeId) {
+        Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
+        if (player == null || target.isEmpty()) return PointResult.rejected(target.isEmpty() ? Status.UNKNOWN_TREE : Status.INVALID_REQUEST);
+        SkillTreeConfig.TreeDefinition tree = target.get();
+        SkillTreeConfig.SkillDefinition active = tree.skills().stream().filter(s -> s.kind() == SkillTreeConfig.SkillKind.ACTIVE).findFirst().orElse(null);
+        if (active == null) return PointResult.rejected(Status.UNKNOWN_SKILL);
+        SkillTreeData data = SkillTreeData.get(player);
+        SkillTreeData.Progress progress = data.progress(player.getUUID(), tree.id());
+        int level = skillLevel(progress, active.id());
+        if (progress.level() < active.unlockLevel() || level <= 0) return PointResult.rejected(Status.LEVEL_REQUIRED);
+        if (activeCooldownRemainingSeconds(progress) > 0L) return PointResult.rejected(Status.ACTIVE_COOLDOWN);
+        int durationSeconds = tunedInt(active.tuning().minDurationSeconds(), active.tuning().maxDurationSeconds(), level);
+        long cooldown = tunedInt(active.tuning().maxCooldownSeconds(), active.tuning().minCooldownSeconds(), level) * 1000L;
+        if (tree.id().equals("warrior")) {
+            net.minecraft.world.phys.Vec3 step = player.getLookAngle().normalize().scale(1.5D + level * 0.25D);
+            if (!player.level().noCollision(player, player.getBoundingBox().move(step))) {
+                return PointResult.rejected(Status.BLOCKED_BY_COLLISION);
+            }
+            player.setDeltaMovement(step.x, Math.max(0.15D, step.y), step.z);
+        }
+        if (tree.id().equals("exploration")) {
+            double radius = 32D + (level - 1) * (64D / 9D);
+            net.minecraft.world.entity.LivingEntity nearest = player.level().getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
+                    player.getBoundingBox().inflate(radius), entity -> entity != player && entity.isAlive()).stream()
+                    .min(java.util.Comparator.comparingDouble(player::distanceToSqr)).orElse(null);
+            if (nearest != null) {
+                player.sendSystemMessage(Component.literal("[远见侦察] 最近目标：" + Math.round(player.distanceTo(nearest)) + " 格"));
+                nearest.addEffect(new MobEffectInstance(MobEffects.GLOWING, Math.min(20 * durationSeconds, 20 * 10), 0, false, false, true), player);
+            }
+        }
+        if (tree.id().equals("farmer") && player.level() instanceof ServerLevel serverLevel) {
+            int processed = 0;
+            int radius = (int) Math.round(4D + (level - 1) * (6D / 9D));
+            BlockPos center = player.blockPosition();
+            for (BlockPos scan : BlockPos.betweenClosed(center.offset(-radius, -2, -radius), center.offset(radius, 2, radius))) {
+                if (processed >= 32 + (level - 1) * 128 / 9) break;
+                BlockState crop = serverLevel.getBlockState(scan);
+                if (crop.getBlock() instanceof CropBlock cropBlock && cropBlock.isMaxAge(crop)
+                        && serverLevel.destroyBlock(scan, true, player)) {
+                    serverLevel.setBlock(scan, cropBlock.getStateForAge(0), 3);
+                    processed++;
+                }
+            }
+        }
+        player.addEffect(new MobEffectInstance(activeEffect(tree.id()), durationSeconds * 20,
+                Math.min(4, Math.max(0, (level - 1) / 2)), false, true, true), player);
+        SkillTreeData.Progress updated = copy(progress, progress.availablePoints(), progress.attributePoints(), progress.skillPoints(),
+                progress.unlockedSkills(), progress.skillLevels(), System.currentTimeMillis() + cooldown, progress.skillResetCooldownUntilEpochMillis());
+        data.replace(player.getUUID(), tree.id(), updated);
+        return new PointResult(Status.GRANTED, updated);
+    }
+
+    private static SkillTreeData.Progress copy(SkillTreeData.Progress p, int available, int attributes, int skillPoints,
+                                               Set<String> unlocked, Map<String, Integer> levels, long activeCooldown, long resetCooldown) {
+        return new SkillTreeData.Progress(p.level(), p.currentXp(), p.totalXp(), available, attributes, skillPoints,
+                p.rewardPoints(), p.masteryPoints(), unlocked, p.overflowXp(), p.dailyXp(), p.dailyEpochDay(),
+                p.ultimateCooldownUntilEpochMillis(), levels, activeCooldown, resetCooldown);
     }
 
     /** The only supported XP mutation path for behavior events, rewards, commands and future modules. */
@@ -160,6 +351,177 @@ public final class SkillTreeService {
         return new PointResult(Status.GRANTED, updated);
     }
 
+    /** Grants bonus professional points from quests, bosses or achievements. */
+    public synchronized PointResult grantSkillPoints(ServerPlayer player, String treeId, int amount) {
+        Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
+        if (player == null || target.isEmpty() || amount <= 0 || amount > 1000) {
+            return PointResult.rejected(target.isEmpty() ? Status.UNKNOWN_TREE : Status.INVALID_REQUEST);
+        }
+        SkillTreeData data = SkillTreeData.get(player);
+        SkillTreeData.Progress progress = data.progress(player.getUUID(), target.get().id());
+        int updatedAvailable = progress.availablePoints() > Integer.MAX_VALUE - amount
+                ? Integer.MAX_VALUE : progress.availablePoints() + amount;
+        SkillTreeData.Progress updated = copy(progress, updatedAvailable, progress.attributePoints(), progress.skillPoints(),
+                progress.unlockedSkills(), progress.skillLevels(), progress.activeCooldownUntilEpochMillis(), progress.skillResetCooldownUntilEpochMillis());
+        data.replace(player.getUUID(), target.get().id(), updated);
+        return new PointResult(Status.GRANTED, updated);
+    }
+
+    /**
+     * Server-side only passive drop settlement. It deliberately regenerates the block's normal
+     * loot with the original player/tool context, then spawns it once; spawned items never route
+     * back through a block-break event, so a passive cannot recursively award itself.
+     */
+    public synchronized boolean settleBlockPassive(ServerPlayer player, ServerLevel world, BlockState state,
+                                                   net.minecraft.core.BlockPos pos, BlockEntity blockEntity) {
+        if (player == null || world == null || state == null || player.getAbilities().instabuild || hasSilkTouch(player)) return false;
+        String treeId = state.is(BlockTags.LOGS) ? "lumberjack"
+                : state.is(BlockTags.CROPS) ? "farmer"
+                : state.is(BlockTags.MINEABLE_WITH_PICKAXE) ? "miner" : "";
+        if (treeId.isBlank()) return false;
+        SkillTreeData.Progress progress = progress(player, treeId);
+        int level = skillLevel(progress, "passive");
+        String operationId = "block:" + player.getUUID() + ":" + pos.asLong() + ":" + world.getGameTime();
+        if (level <= 0 || player.getRandom().nextDouble() >= passiveChance(config.tree(treeId).orElseThrow(), level)) {
+            audit("passive_drop", operationId, "not_triggered");
+            return false;
+        }
+        for (net.minecraft.world.item.ItemStack drop : Block.getDrops(state, world, pos, blockEntity, player, player.getMainHandItem())) {
+            if (!drop.isEmpty()) Block.popResource(world, pos, drop.copy());
+        }
+        countPassive(treeId, "extra_drop");
+        audit("passive_drop", operationId, "granted");
+        return true;
+    }
+
+    /** Bounded same-log chain breaking; the guard prevents nested AFTER events from restarting it. */
+    public synchronized int settleLumberjackChain(ServerPlayer player, ServerLevel world, BlockPos origin, BlockState source) {
+        if (player == null || world == null || source == null || !source.is(BlockTags.LOGS)
+                || activeRemainingSeconds(player, "lumberjack") <= 0L || !lumberChainsInProgress.add(player.getUUID())) return 0;
+        try {
+            int level = skillLevel(progress(player, "lumberjack"), "active");
+            int cap = 16 + (Math.max(1, level) - 1) * 80 / 9;
+            int broken = 0;
+            Set<BlockPos> visited = new HashSet<>();
+            ArrayDeque<BlockPos> pending = new ArrayDeque<>();
+            pending.add(origin);
+            visited.add(origin);
+            while (!pending.isEmpty() && broken < cap) {
+                BlockPos current = pending.removeFirst();
+                for (Direction direction : Direction.values()) {
+                    BlockPos next = current.relative(direction);
+                    if (!visited.add(next) || next.distSqr(origin) > 18D * 18D) continue;
+                    BlockState candidate = world.getBlockState(next);
+                    if (!candidate.is(source.getBlock()) || !candidate.is(BlockTags.LOGS)) continue;
+                    if (world.destroyBlock(next, true, player)) {
+                        broken++;
+                        pending.addLast(next);
+                    }
+                    if (broken >= cap) break;
+                }
+            }
+            return broken;
+        } finally {
+            lumberChainsInProgress.remove(player.getUUID());
+        }
+    }
+
+    /** Server-side combat passive: applies bounded defensive/offensive effects once per operation. */
+    public synchronized void settleCombatPassive(ServerPlayer player, net.minecraft.world.entity.LivingEntity target,
+                                                  String operationId) {
+        if (player == null || target == null || operationId == null || !settledOperations.add(operationId)) return;
+        try {
+            int warrior = skillLevel(progress(player, "warrior"), "passive");
+            int hunter = skillLevel(progress(player, "hunter"), "passive");
+            if (warrior > 0 && player.getRandom().nextDouble() < Math.min(0.20D, warrior * 0.02D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.STRENGTH, 40, 0, false, true, true), player);
+                countPassive("warrior", "critical_rhythm");
+            }
+            if (hunter > 0 && player.getRandom().nextDouble() < Math.min(0.25D, hunter * 0.025D)) {
+                target.addEffect(new MobEffectInstance(MobEffects.GLOWING, 100, 0, false, false, true), player);
+                countPassive("hunter", "loot_intuition");
+            }
+            int guardian = skillLevel(progress(player, "guardian"), "passive");
+            if (guardian > 0 && player.getRandom().nextDouble() < Math.min(0.30D, guardian * 0.03D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 40, 0, false, true, true), player);
+                countPassive("guardian", "steadfast_counter");
+            }
+        } finally {
+            if (settledOperations.size() > 8192) settledOperations.clear();
+        }
+    }
+
+    /** Server-side crafting passive. It never mutates recipe inputs; it only grants a bounded haste window. */
+    public synchronized void settleCraftPassive(ServerPlayer player, long craftedDelta, String operationId) {
+        if (player == null || craftedDelta <= 0L || operationId == null || !settledOperations.add(operationId)) return;
+        try {
+            int smithing = skillLevel(progress(player, "smithing"), "passive");
+            int alchemy = skillLevel(progress(player, "alchemy"), "passive");
+            if (smithing > 0 && player.getRandom().nextDouble() < Math.min(0.30D, smithing * 0.03D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.HASTE, 60, 0, false, true, true), player);
+                countPassive("smithing", "material_saving");
+            }
+            if (alchemy > 0 && player.getRandom().nextDouble() < Math.min(0.25D, alchemy * 0.025D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.LUCK, 60, 0, false, true, true), player);
+                countPassive("alchemy", "recipe_mastery");
+            }
+        } finally {
+            if (settledOperations.size() > 8192) settledOperations.clear();
+        }
+    }
+
+    /** Server-side exploration/farming support effects with bounded frequency. */
+    public synchronized void settleSurvivalPassive(ServerPlayer player, String operationId) {
+        if (player == null || operationId == null || !settledOperations.add(operationId)) return;
+        try {
+            int farmer = skillLevel(progress(player, "farmer"), "passive");
+            int exploration = skillLevel(progress(player, "exploration"), "passive");
+            if (farmer > 0 && player.getRandom().nextDouble() < Math.min(0.30D, farmer * 0.03D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.SATURATION, 20, 0, false, true, true), player);
+                countPassive("farmer", "natural_gift");
+            }
+            if (exploration > 0 && player.getRandom().nextDouble() < Math.min(0.25D, exploration * 0.025D)) {
+                player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 40, 0, false, true, true), player);
+                countPassive("exploration", "adventure_intuition");
+            }
+        } finally {
+            if (settledOperations.size() > 8192) settledOperations.clear();
+        }
+    }
+
+    public synchronized Map<String, Long> passiveTriggerCounts() { return Map.copyOf(passiveTriggerCounts); }
+    private void countPassive(String tree, String effect) { passiveTriggerCounts.merge(tree + "." + effect, 1L, Long::sum); }
+    private void audit(String action, String operationId, String outcome) {
+        AsyncAuditLogWriter.global().submit(ModuleId.SKILLS, "skill_" + action,
+                Path.of("logs", "omnitools-skills-audit.log"),
+                System.currentTimeMillis() + " action=" + action + " operationId=" + operationId + " outcome=" + outcome + System.lineSeparator());
+    }
+
+    private static double passiveChance(SkillTreeConfig.TreeDefinition tree, int level) {
+        SkillTreeConfig.SkillDefinition passive = tree.skills().stream()
+                .filter(skill -> skill.kind() == SkillTreeConfig.SkillKind.PASSIVE).findFirst().orElse(null);
+        if (passive == null) return 0D;
+        return tunedDouble(passive.tuning().minValue(), passive.tuning().maxValue(), level);
+    }
+
+    private static boolean hasSilkTouch(ServerPlayer player) {
+        try {
+            Holder<Enchantment> silkTouch = player.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                    .getOrThrow(Enchantments.SILK_TOUCH);
+            return player.getMainHandItem().getEnchantments().getLevel(silkTouch) > 0;
+        } catch (RuntimeException ignored) {
+            // Fail closed: an unavailable registry must not create an accidental duplicate drop.
+            return true;
+        }
+    }
+
+    private static int tunedInt(int levelOne, int levelTen, int level) {
+        return (int) Math.round(levelOne + (levelTen - levelOne) * ((Math.max(1, Math.min(10, level)) - 1) / 9.0D));
+    }
+    private static double tunedDouble(double levelOne, double levelTen, int level) {
+        return levelOne + (levelTen - levelOne) * ((Math.max(1, Math.min(10, level)) - 1) / 9.0D);
+    }
+
     public synchronized PointResult unlockSkill(ServerPlayer player, String treeId, String skillId) {
         Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
         if (player == null || target.isEmpty()) return PointResult.rejected(target.isEmpty() ? Status.UNKNOWN_TREE : Status.INVALID_REQUEST);
@@ -243,6 +605,11 @@ public final class SkillTreeService {
     public synchronized void tick(MinecraftServer server) {
         if (server == null) return;
         flushMilestoneAnnouncements(server);
+        if (server.getTickCount() % 20 == 0) {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                healActiveField(player);
+            }
+        }
         if (server.getTickCount() % 100 != 0) return;
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             LastPosition previous = lastPositions.put(player.getUUID(), new LastPosition(player.getX(), player.getY(), player.getZ()));
@@ -250,11 +617,31 @@ public final class SkillTreeService {
             double dx = player.getX() - previous.x();
             double dy = player.getY() - previous.y();
             double dz = player.getZ() - previous.z();
-            if (dx * dx + dy * dy + dz * dz >= 64.0D) addSkillXp(player, "survival", 10L, SkillXpSource.SURVIVAL);
+            if (dx * dx + dy * dy + dz * dz >= 64.0D) {
+                addSkillXp(player, "exploration", 10L, SkillXpSource.SURVIVAL);
+                settleSurvivalPassive(player, "move:" + player.getUUID() + ":" + server.getTickCount());
+            }
             long craftedTotal = craftedTotal(player);
             Long priorCraftedTotal = lastCraftedTotals.put(player.getUUID(), craftedTotal);
             if (priorCraftedTotal != null && craftedTotal > priorCraftedTotal) {
-                addSkillXp(player, "crafting", Math.min(1_000L, (craftedTotal - priorCraftedTotal) * 5L), SkillXpSource.CRAFT);
+                long craftedXp = Math.min(1_000L, (craftedTotal - priorCraftedTotal) * 5L);
+                addSkillXp(player, "smithing", craftedXp, SkillXpSource.CRAFT);
+                addSkillXp(player, "alchemy", craftedXp, SkillXpSource.CRAFT);
+                settleCraftPassive(player, craftedTotal - priorCraftedTotal, "craft:" + player.getUUID() + ":" + craftedTotal);
+            }
+        }
+    }
+
+    /** Healing field is intentionally server-only and small: no client side world mutation or instant burst heal. */
+    private void healActiveField(ServerPlayer healer) {
+        SkillTreeData.Progress progress = progress(healer, "healing");
+        int level = skillLevel(progress, "active");
+        if (level <= 0 || activeRemainingSeconds(healer, "healing") <= 0L) return;
+        double radius = 4D + (level - 1) * (3D / 9D);
+        for (ServerPlayer target : healer.level().getEntitiesOfClass(ServerPlayer.class, healer.getBoundingBox().inflate(radius))) {
+            if (target.getHealth() < target.getMaxHealth()) target.heal(0.5F + level * 0.1F);
+            if (target.getHealth() / target.getMaxHealth() <= 0.35F) {
+                target.addEffect(new MobEffectInstance(MobEffects.REGENERATION, 40, 0, false, false, true), healer);
             }
         }
     }
@@ -322,7 +709,14 @@ public final class SkillTreeService {
     /** Efficiency and yield specializations apply only to normal gameplay sources, never packages or commands. */
     private long applyPassiveXpBonus(SkillTreeConfig.TreeDefinition tree, SkillTreeData.Progress progress,
                                     long raw, SkillXpSource source) {
-        if (!source.rateLimited() || progress == null || tree.skills().size() < 3) return raw;
+        if (!source.rateLimited() || progress == null || tree.skills().size() < 2) return raw;
+        if (tree.skills().size() == 2) {
+            SkillTreeConfig.SkillDefinition passive = tree.skills().stream().filter(s -> s.kind() == SkillTreeConfig.SkillKind.PASSIVE).findFirst().orElse(null);
+            int level = passive == null ? 0 : skillLevel(progress, passive.id());
+            if (level <= 0) return raw;
+            double result = raw * (1.0D + Math.min(0.40D, level * 0.03D));
+            return result >= Long.MAX_VALUE ? Long.MAX_VALUE : Math.max(1L, Math.round(result));
+        }
         double bonus = 0.0D;
         if (progress.unlockedSkills().contains(tree.skills().get(1).id())) bonus += 0.10D;
         if (progress.unlockedSkills().contains(tree.skills().get(2).id())) bonus += 0.15D;
@@ -348,7 +742,7 @@ public final class SkillTreeService {
     private SkillTreeData.Progress triggerUltimate(ServerPlayer player, SkillTreeData data,
                                                    SkillTreeConfig.TreeDefinition tree, SkillXpSource source,
                                                    SkillTreeData.Progress progress) {
-        if (!source.rateLimited() || tree.skills().size() != SkillTreeConfig.REQUIRED_SKILL_COUNT) return progress;
+        if (!source.rateLimited() || tree.skills().size() != 4) return progress;
         SkillTreeConfig.SkillDefinition ultimate = tree.skills().getLast();
         if (!progress.unlockedSkills().contains(ultimate.id())) return progress;
         long now = System.currentTimeMillis();
@@ -372,6 +766,21 @@ public final class SkillTreeService {
             case "hunting" -> MobEffects.LUCK;
             case "survival" -> MobEffects.REGENERATION;
             default -> MobEffects.SPEED;
+        };
+    }
+
+    private static Holder<MobEffect> activeEffect(String treeId) {
+        return switch (treeId) {
+            case "warrior", "hunter" -> MobEffects.STRENGTH;
+            case "guardian" -> MobEffects.RESISTANCE;
+            case "healing" -> MobEffects.REGENERATION;
+            case "exploration" -> MobEffects.SPEED;
+            case "farmer" -> MobEffects.SATURATION;
+            case "alchemy" -> MobEffects.LUCK;
+            case "smithing" -> MobEffects.HASTE;
+            case "lumberjack" -> MobEffects.HASTE;
+            case "miner" -> MobEffects.HASTE;
+            default -> MobEffects.HASTE;
         };
     }
 
@@ -505,7 +914,7 @@ public final class SkillTreeService {
     private static String normalized(String id) { return id == null ? "" : id.trim().toLowerCase(java.util.Locale.ROOT); }
     private static long saturatedAdd(long left, long right) { return right > 0L && left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right; }
 
-    public enum Status { GRANTED, INVALID_REQUEST, UNKNOWN_TREE, UNKNOWN_SKILL, SOURCE_NOT_ALLOWED, RATE_LIMITED, DAILY_LIMIT_REACHED, NO_POINTS, ATTRIBUTE_CAP_REACHED, LEVEL_REQUIRED, ALREADY_UNLOCKED, REWARD_DISABLED, CURRENCY_OVERFLOW }
+    public enum Status { GRANTED, INVALID_REQUEST, UNKNOWN_TREE, UNKNOWN_SKILL, SOURCE_NOT_ALLOWED, RATE_LIMITED, DAILY_LIMIT_REACHED, NO_POINTS, ATTRIBUTE_CAP_REACHED, LEVEL_REQUIRED, ALREADY_UNLOCKED, REWARD_DISABLED, CURRENCY_OVERFLOW, SKILL_CAP_REACHED, ACTIVE_COOLDOWN, RESET_COOLDOWN, RESET_RESOURCE_REQUIRED, BLOCKED_BY_COLLISION }
     public record XpResult(Status status, long acceptedXp, int levelsGained, SkillTreeData.Progress progress, long dailyRemaining) {
         static XpResult rejected(Status status) { return new XpResult(status, 0L, 0, SkillTreeData.Progress.empty(), 0L); }
         public boolean granted() { return status == Status.GRANTED; }

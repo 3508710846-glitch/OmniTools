@@ -40,6 +40,17 @@ class SkillTreeConfigTest {
     }
 
     @Test
+    void tuningBoundsSupportConfiguredActiveCooldownAndPassiveChanceCurves() {
+        SkillTreeConfig.Tuning active = new SkillTreeConfig.Tuning(30, 120, 1800, 600, 0.0D, 0.0D);
+        SkillTreeConfig.Tuning passive = new SkillTreeConfig.Tuning(0, 0, 0, 0, 0.05D, 0.40D);
+
+        assertEquals(30, active.minDurationSeconds());
+        assertEquals(600, active.minCooldownSeconds());
+        assertEquals(0.40D, passive.maxValue());
+        assertThrows(JsonParseException.class, () -> new SkillTreeConfig.Tuning(120, 30, 600, 1800, 0.4D, 0.05D));
+    }
+
+    @Test
     void treeRequiresFixedFourSkillStages() {
         assertThrows(JsonParseException.class, () -> new SkillTreeConfig.TreeDefinition("test", "测试", "minecraft:stone",
                 Items.STONE, SkillAttribute.ATTACK_DAMAGE, Set.of(SkillXpSource.COMMAND),

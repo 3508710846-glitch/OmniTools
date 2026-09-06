@@ -15,6 +15,7 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,6 +37,9 @@ public final class SkillTreeData extends SavedData {
     private static final String DAILY_XP_KEY = "daily_xp";
     private static final String DAILY_EPOCH_DAY_KEY = "daily_epoch_day";
     private static final String ULTIMATE_COOLDOWN_UNTIL_KEY = "ultimate_cooldown_until";
+    private static final String SKILL_LEVELS_KEY = "skill_levels";
+    private static final String ACTIVE_COOLDOWN_UNTIL_KEY = "active_cooldown_until";
+    private static final String RESET_COOLDOWN_UNTIL_KEY = "skill_reset_cooldown_until";
     private static final String ANNOUNCEMENTS_KEY = "announcements";
     private static final String LAST_ANNOUNCEMENT_AT_KEY = "last_announcement_at";
     private static final String PENDING_TREE_ID_KEY = "pending_tree_id";
@@ -111,7 +115,10 @@ public final class SkillTreeData extends SavedData {
                         Math.max(0, tag.getIntOr(MASTERY_POINTS_KEY, 0)), unlocked,
                         Math.max(0L, tag.getLongOr(OVERFLOW_XP_KEY, 0L)), Math.max(0L, tag.getLongOr(DAILY_XP_KEY, 0L)),
                         tag.getLongOr(DAILY_EPOCH_DAY_KEY, Long.MIN_VALUE),
-                        Math.max(0L, tag.getLongOr(ULTIMATE_COOLDOWN_UNTIL_KEY, 0L)));
+                        Math.max(0L, tag.getLongOr(ULTIMATE_COOLDOWN_UNTIL_KEY, 0L)),
+                        readSkillLevels(tag.getCompoundOrEmpty(SKILL_LEVELS_KEY)),
+                        Math.max(0L, tag.getLongOr(ACTIVE_COOLDOWN_UNTIL_KEY, 0L)),
+                        Math.max(0L, tag.getLongOr(RESET_COOLDOWN_UNTIL_KEY, 0L)));
                 trees.put(treeId, progress);
             }
             if (!trees.isEmpty()) data.players.put(playerId, trees);
@@ -152,6 +159,11 @@ public final class SkillTreeData extends SavedData {
                 tag.putLong(DAILY_XP_KEY, progress.dailyXp());
                 tag.putLong(DAILY_EPOCH_DAY_KEY, progress.dailyEpochDay());
                 tag.putLong(ULTIMATE_COOLDOWN_UNTIL_KEY, progress.ultimateCooldownUntilEpochMillis());
+                CompoundTag skillLevels = new CompoundTag();
+                progress.skillLevels().forEach((id, level) -> skillLevels.putInt(id, level));
+                tag.put(SKILL_LEVELS_KEY, skillLevels);
+                tag.putLong(ACTIVE_COOLDOWN_UNTIL_KEY, progress.activeCooldownUntilEpochMillis());
+                tag.putLong(RESET_COOLDOWN_UNTIL_KEY, progress.skillResetCooldownUntilEpochMillis());
                 treeTags.put(entry.getKey(), tag);
             }
             playerTag.put(TREES_KEY, treeTags);
@@ -175,7 +187,9 @@ public final class SkillTreeData extends SavedData {
     /** Immutable progression snapshot; all updates pass through SkillTreeService validation. */
     public record Progress(int level, long currentXp, long totalXp, int availablePoints, int attributePoints,
                            int skillPoints, int rewardPoints, int masteryPoints, Set<String> unlockedSkills, long overflowXp, long dailyXp,
-                           long dailyEpochDay, long ultimateCooldownUntilEpochMillis) {
+                           long dailyEpochDay, long ultimateCooldownUntilEpochMillis,
+                           Map<String, Integer> skillLevels, long activeCooldownUntilEpochMillis,
+                           long skillResetCooldownUntilEpochMillis) {
         public Progress {
             level = Math.max(0, level);
             currentXp = Math.max(0L, currentXp);
@@ -189,13 +203,26 @@ public final class SkillTreeData extends SavedData {
             overflowXp = Math.max(0L, overflowXp);
             dailyXp = Math.max(0L, dailyXp);
             ultimateCooldownUntilEpochMillis = Math.max(0L, ultimateCooldownUntilEpochMillis);
+            Map<String, Integer> normalizedLevels = new HashMap<>();
+            if (skillLevels != null) skillLevels.forEach((id, value) -> {
+                if (id != null && !id.isBlank() && value != null && value > 0) normalizedLevels.put(id, Math.min(10, value));
+            });
+            skillLevels = Collections.unmodifiableMap(normalizedLevels);
+            activeCooldownUntilEpochMillis = Math.max(0L, activeCooldownUntilEpochMillis);
+            skillResetCooldownUntilEpochMillis = Math.max(0L, skillResetCooldownUntilEpochMillis);
+        }
+        public Progress(int level, long currentXp, long totalXp, int availablePoints, int attributePoints,
+                        int skillPoints, int rewardPoints, int masteryPoints, Set<String> unlockedSkills, long overflowXp,
+                        long dailyXp, long dailyEpochDay, long ultimateCooldownUntilEpochMillis) {
+            this(level, currentXp, totalXp, availablePoints, attributePoints, skillPoints, rewardPoints, masteryPoints,
+                    unlockedSkills, overflowXp, dailyXp, dailyEpochDay, ultimateCooldownUntilEpochMillis, Map.of(), 0L, 0L);
         }
         /** Compatibility constructor for worlds saved before reward and mastery point accounting. */
         public Progress(int level, long currentXp, long totalXp, int availablePoints, int attributePoints,
                         int skillPoints, Set<String> unlockedSkills, long overflowXp, long dailyXp,
                         long dailyEpochDay) {
             this(level, currentXp, totalXp, availablePoints, attributePoints, skillPoints, 0, 0, unlockedSkills,
-                    overflowXp, dailyXp, dailyEpochDay, 0L);
+                    overflowXp, dailyXp, dailyEpochDay, 0L, Map.of(), 0L, 0L);
         }
         public long masteryXp() { return overflowXp; }
         /** Compatibility constructor for progress snapshots that predate ultimate cooldown persistence. */
@@ -203,9 +230,18 @@ public final class SkillTreeData extends SavedData {
                         int skillPoints, int rewardPoints, int masteryPoints, Set<String> unlockedSkills, long overflowXp,
                         long dailyXp, long dailyEpochDay) {
             this(level, currentXp, totalXp, availablePoints, attributePoints, skillPoints, rewardPoints, masteryPoints,
-                    unlockedSkills, overflowXp, dailyXp, dailyEpochDay, 0L);
+                    unlockedSkills, overflowXp, dailyXp, dailyEpochDay, 0L, Map.of(), 0L, 0L);
         }
-        public static Progress empty() { return new Progress(0, 0L, 0L, 0, 0, 0, 0, 0, Set.of(), 0L, 0L, Long.MIN_VALUE, 0L); }
+        public static Progress empty() { return new Progress(0, 0L, 0L, 0, 0, 0, 0, 0, Set.of(), 0L, 0L, Long.MIN_VALUE, 0L, Map.of(), 0L, 0L); }
+    }
+
+    private static Map<String, Integer> readSkillLevels(CompoundTag tag) {
+        Map<String, Integer> levels = new HashMap<>();
+        for (String id : tag.keySet()) {
+            int level = tag.getIntOr(id, 0);
+            if (level > 0) levels.put(id, Math.min(10, level));
+        }
+        return levels;
     }
 
     /** Persisted announcement throttle and merged milestone payload for one player. */
