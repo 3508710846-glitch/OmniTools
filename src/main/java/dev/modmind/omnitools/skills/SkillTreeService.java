@@ -6,13 +6,11 @@ import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.Holder;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
-import net.minecraft.stats.Stats;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffect;
@@ -50,7 +48,7 @@ public final class SkillTreeService {
     private volatile long revision;
     private final Map<RateLimitKey, Long> latestSourceTick = new HashMap<>();
     private final Map<UUID, LastPosition> lastPositions = new HashMap<>();
-    private final Map<UUID, Long> lastCraftedTotals = new HashMap<>();
+    private final Map<UUID, Long> craftOperationSequences = new HashMap<>();
     private final Set<UUID> lumberChainsInProgress = new HashSet<>();
     private final Set<String> settledOperations = new java.util.LinkedHashSet<>();
     private final Map<String, Long> passiveTriggerCounts = new HashMap<>();
@@ -64,7 +62,7 @@ public final class SkillTreeService {
         revision++;
         latestSourceTick.clear();
         lastPositions.clear();
-        lastCraftedTotals.clear();
+        craftOperationSequences.clear();
     }
 
     public SkillTreeConfig config() { return config; }
@@ -470,6 +468,26 @@ public final class SkillTreeService {
         }
     }
 
+    /**
+     * Called from the crafting-result slot after vanilla has accepted the output.  This is the
+     * authoritative, event-driven replacement for the old five-second scan of every registered
+     * item statistic.  Unsupported machine/automation menus deliberately grant no skill XP until
+     * they expose an explicit server-side adapter, which is safer than sampling unbounded state.
+     */
+    public synchronized void recordCrafted(ServerPlayer player, int craftedCount) {
+        if (player == null || craftedCount <= 0 || player.getAbilities().instabuild) {
+            return;
+        }
+        long boundedCount = Math.min(1_000L, craftedCount);
+        long sequence = craftOperationSequences.merge(player.getUUID(), 1L, Long::sum);
+        String operationId = "craft:" + player.getUUID() + ":" + player.level().getGameTime() + ":" + sequence;
+        long craftedXp = Math.min(1_000L, boundedCount * 5L);
+        addSkillXp(player, "smithing", craftedXp, SkillXpSource.CRAFT);
+        addSkillXp(player, "alchemy", craftedXp, SkillXpSource.CRAFT);
+        settleCraftPassive(player, boundedCount, operationId);
+        audit("craft_recorded", operationId, "count=" + boundedCount);
+    }
+
     /** Server-side exploration/farming support effects with bounded frequency. */
     public synchronized void settleSurvivalPassive(ServerPlayer player, String operationId) {
         if (player == null || operationId == null || !settledOperations.add(operationId)) return;
@@ -621,14 +639,6 @@ public final class SkillTreeService {
                 addSkillXp(player, "exploration", 10L, SkillXpSource.SURVIVAL);
                 settleSurvivalPassive(player, "move:" + player.getUUID() + ":" + server.getTickCount());
             }
-            long craftedTotal = craftedTotal(player);
-            Long priorCraftedTotal = lastCraftedTotals.put(player.getUUID(), craftedTotal);
-            if (priorCraftedTotal != null && craftedTotal > priorCraftedTotal) {
-                long craftedXp = Math.min(1_000L, (craftedTotal - priorCraftedTotal) * 5L);
-                addSkillXp(player, "smithing", craftedXp, SkillXpSource.CRAFT);
-                addSkillXp(player, "alchemy", craftedXp, SkillXpSource.CRAFT);
-                settleCraftPassive(player, craftedTotal - priorCraftedTotal, "craft:" + player.getUUID() + ":" + craftedTotal);
-            }
         }
     }
 
@@ -649,7 +659,7 @@ public final class SkillTreeService {
     public synchronized void forget(ServerPlayer player) {
         if (player != null) {
             lastPositions.remove(player.getUUID());
-            lastCraftedTotals.remove(player.getUUID());
+            craftOperationSequences.remove(player.getUUID());
         }
     }
 
@@ -782,15 +792,6 @@ public final class SkillTreeService {
             case "miner" -> MobEffects.HASTE;
             default -> MobEffects.HASTE;
         };
-    }
-
-    private static long craftedTotal(ServerPlayer player) {
-        long total = 0L;
-        for (net.minecraft.world.item.Item item : BuiltInRegistries.ITEM) {
-            int value = player.getStats().getValue(Stats.ITEM_CRAFTED.get(item));
-            total = saturatedAdd(total, Math.max(0, value));
-        }
-        return total;
     }
 
     private int totalLevel(SkillTreeData data, UUID playerId) {

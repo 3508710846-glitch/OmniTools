@@ -99,94 +99,7 @@ public final class ModMindEntry implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
-            rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
-            onlineTimeRewardService = new OnlineTimeRewardService();
-            achievementService = AchievementService.empty();
-            SKILL_TREE_SERVICE.replace(SkillTreeConfig.empty());
-            CDK_SERVICE.replace(CdkConfig.empty());
-            LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
-            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_starting")
-                            .withState("INITIALIZING")
-                            .withRecoveryAction("module_services_reset"),
-                    "initializing module services");
-        });
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            LegacySavedDataMigration.migrate(server);
-            TitleData.bind(server);
-            TitleData.importLegacy(server);
-            MODULE_CONTROL.reload(server);
-            if (isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
-                ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "journal_reconcile",
-                        "journal_retained_for_manual_recovery", () -> {
-                            CloudStorageJournalData.RecoveryReport storageRecovery = CloudStorageJournalData.get(server)
-                                    .reconcileStartup(server, CloudStorageData.get(server));
-                            if (storageRecovery.committed() > 0 || storageRecovery.quarantined() > 0) {
-                                OperationalErrorReporter.global().info(OperationalErrorReporter.Context
-                                                .forModule(ModuleId.CLOUD_STORAGE, "journal_reconcile")
-                                                .withState("RECOVERY_APPLIED")
-                                                .withParameters(java.util.Map.of(
-                                                        "committed", Integer.toString(storageRecovery.committed()),
-                                                        "quarantined", Integer.toString(storageRecovery.quarantined())))
-                                                .withRecoveryAction("journal_checkpoint_flushed"),
-                                        "cloud storage startup recovery completed");
-                            }
-                        });
-            }
-            if (isModuleEnabled(ModuleId.DAILY_CHECKIN)) {
-                ModuleFaultBoundary.run(ModuleId.DAILY_CHECKIN, "reward_reconcile", "ledger_retained_for_recovery",
-                        () -> rewardGrantService().reconcileStartup(server));
-            }
-            if (isModuleEnabled(ModuleId.SHOP)) {
-                ModuleFaultBoundary.run(ModuleId.SHOP, "purchase_reconcile", "purchase_journal_retained",
-                        () -> shopPurchaseService().reconcileStartup(server));
-            }
-            ModuleFaultBoundary.run(null, "placeholder_bootstrap", "placeholders_unavailable",
-                    PlaceholderBootstrap::registerIfAvailable);
-            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_started")
-                            .withDataVersion("config:" + configSnapshot.root().formatVersion())
-                            .withState("ACTIVE")
-                            .withParameters(java.util.Map.of("revision", Long.toString(configSnapshot.revision()),
-                                    "modules", formatModuleStates(configSnapshot)))
-                            .withRecoveryAction("enabled_modules_available"),
-                    "module startup completed");
-        });
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
-                            .withState("FLUSHING")
-                            .withRecoveryAction("module_state_flush_started"),
-                    "saving active module state");
-            if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
-                ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_stop_flush", "online_reward_state_retained",
-                        () -> onlineTimeRewardService().flushAll(server));
-            }
-            if (isModuleEnabled(ModuleId.TITLES)) {
-                ModuleFaultBoundary.run(ModuleId.TITLES, "server_stop_flush", "title_entitlements_retained",
-                        () -> TIMED_ENTITLEMENTS.flush(server));
-                ModuleFaultBoundary.run(ModuleId.TITLES, "server_stop_cleanup", "title_display_cleanup_skipped",
-                        () -> TitleDisplayService.clearAll(server));
-            }
-            if (isModuleEnabled(ModuleId.TITLE_EFFECTS)) {
-                ModuleFaultBoundary.run(ModuleId.TITLE_EFFECTS, "server_stop_cleanup", "title_effect_cleanup_skipped",
-                        () -> TitleEffectService.removeAll(server));
-            }
-            if (isModuleEnabled(ModuleId.SKILLS)) {
-                ModuleFaultBoundary.run(ModuleId.SKILLS, "server_stop_cleanup", "skill_attribute_cleanup_skipped",
-                        () -> SKILL_TREE_SERVICE.removeAll(server));
-            }
-            ModuleFaultBoundary.run(null, "server_stop_audit_flush", "audit_records_may_remain_queued",
-                    () -> {
-                        if (!AsyncAuditLogWriter.global().flush(java.time.Duration.ofSeconds(3L))) {
-                            throw new IllegalStateException("Timed out waiting for asynchronous audit records");
-                        }
-                    });
-            ModuleFaultBoundary.run(null, "server_stop_unbind", "title_data_unbind_skipped",
-                    () -> TitleData.unbind(server));
-            OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
-                            .withState("COMPLETE")
-                            .withRecoveryAction("module_state_flush_finished"),
-                    "module shutdown completed");
-        });
+        ModuleLifecycleRegistrar.register();
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             OperationalErrorReporter.global().flushExpiredSummaries();
             if (isModuleEnabled(ModuleId.PACKAGES)) {
@@ -500,6 +413,17 @@ public final class ModMindEntry implements ModInitializer {
         return REWARD_GRANT_SERVICE;
     }
 
+    /** Mixin entry point for completed crafting-result takes. Keeps unsupported menus on a safe no-XP path. */
+    public static void recordCraftedItem(net.minecraft.world.entity.player.Player player,
+                                         net.minecraft.world.item.ItemStack crafted) {
+        if (!(player instanceof ServerPlayer serverPlayer) || crafted == null || crafted.isEmpty()
+                || !isModuleEnabled(ModuleId.SKILLS)) {
+            return;
+        }
+        ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "craft_item_xp", serverPlayer,
+                "skip_current_craft_xp_event", () -> SKILL_TREE_SERVICE.recordCrafted(serverPlayer, crafted.getCount()));
+    }
+
     static CheckinMakeupService checkinMakeupService() {
         return CHECKIN_MAKEUP_SERVICE;
     }
@@ -545,6 +469,62 @@ public final class ModMindEntry implements ModInitializer {
 
     static ModuleControlService moduleControlService() {
         return MODULE_CONTROL;
+    }
+
+    static TimedEntitlementService timedEntitlements() {
+        return TIMED_ENTITLEMENTS;
+    }
+
+    static void resetModuleServicesForStartup() {
+        rewardService = CheckinRewardService.from(CheckinRewardConfig.empty());
+        onlineTimeRewardService = new OnlineTimeRewardService();
+        achievementService = AchievementService.empty();
+        SKILL_TREE_SERVICE.replace(SkillTreeConfig.empty());
+        CDK_SERVICE.replace(CdkConfig.empty());
+        LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_starting")
+                        .withState("INITIALIZING")
+                        .withRecoveryAction("module_services_reset"),
+                "initializing module services");
+    }
+
+    static void reloadModulesAtStartup(net.minecraft.server.MinecraftServer server) {
+        MODULE_CONTROL.reload(server);
+    }
+
+    static void logCloudStorageRecovery(CloudStorageJournalData.RecoveryReport storageRecovery) {
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context
+                        .forModule(ModuleId.CLOUD_STORAGE, "journal_reconcile")
+                        .withState("RECOVERY_APPLIED")
+                        .withParameters(java.util.Map.of(
+                                "committed", Integer.toString(storageRecovery.committed()),
+                                "quarantined", Integer.toString(storageRecovery.quarantined())))
+                        .withRecoveryAction("journal_checkpoint_flushed"),
+                "cloud storage startup recovery completed");
+    }
+
+    static void logServerStarted() {
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_started")
+                        .withDataVersion("config:" + configSnapshot.root().formatVersion())
+                        .withState("ACTIVE")
+                        .withParameters(java.util.Map.of("revision", Long.toString(configSnapshot.revision()),
+                                "modules", formatModuleStates(configSnapshot)))
+                        .withRecoveryAction("enabled_modules_available"),
+                "module startup completed");
+    }
+
+    static void logServerStopping() {
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
+                        .withState("FLUSHING")
+                        .withRecoveryAction("module_state_flush_started"),
+                "saving active module state");
+    }
+
+    static void logServerStopped() {
+        OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_stopping")
+                        .withState("COMPLETE")
+                        .withRecoveryAction("module_state_flush_finished"),
+                "module shutdown completed");
     }
 
     public static OmniToolsConfigSnapshot configSnapshot() {
@@ -813,7 +793,7 @@ public final class ModMindEntry implements ModInitializer {
             return 0;
         }
         source.sendSuccess(() -> Component.literal("cloud storage operation " + operationId + " resolved as "
-                + result.entry().status()), true);
+                + result.entry().resolution() + "; evidence status=" + result.entry().status()), true);
         return 1;
     }
 

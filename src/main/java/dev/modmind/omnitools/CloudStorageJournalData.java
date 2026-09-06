@@ -64,7 +64,7 @@ public final class CloudStorageJournalData extends SavedData {
             throw new IllegalArgumentException("Cloud storage journal cannot record an unchanged page");
         }
         Entry entry = new Entry(UUID.randomUUID(), ownerId, page, operation, Status.PREPARED, oldPage, newPage,
-                now, now, "");
+                now, now, "", Resolution.NONE, "", false);
         entries.put(entry.operationId(), entry);
         setDirty();
         return entry;
@@ -76,6 +76,21 @@ public final class CloudStorageJournalData extends SavedData {
 
     public synchronized List<Entry> entries() {
         return List.copyOf(entries.values());
+    }
+
+    /**
+     * A prepared record means the player inventory and the storage page may have crossed a save
+     * boundary at different times.  Do not accept another page mutation for that owner/page until
+     * recovery has recorded a durable administrator decision; otherwise a later mutation would make the original
+     * before/after snapshots impossible to audit.
+     */
+    public synchronized boolean hasUnresolvedOperation(UUID ownerId, int page) {
+        if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES) {
+            return false;
+        }
+        return entries.values().stream().anyMatch(entry -> entry.ownerId().equals(ownerId)
+                && entry.page() == page && (entry.status() == Status.PREPARED
+                || entry.status() == Status.QUARANTINED && !entry.resolutionApplied()));
     }
 
     synchronized Entry transition(UUID operationId, Status status, String reason) {
@@ -124,11 +139,20 @@ public final class CloudStorageJournalData extends SavedData {
         int committed = 0;
         int quarantined = 0;
         for (Entry entry : entries()) {
-            if (entry.status() != Status.PREPARED) {
-                continue;
-            }
             try {
                 List<ItemStack> current = storage.page(entry.ownerId(), entry.page());
+                if (entry.status() == Status.QUARANTINED && entry.resolution() != Resolution.NONE
+                        && !entry.resolutionApplied()) {
+                    List<ItemStack> selected = entry.resolution() == Resolution.COMMIT ? entry.after() : entry.before();
+                    if (ItemStack.listMatches(current, selected)) {
+                        entries.put(entry.operationId(), entry.withResolutionApplied(System.currentTimeMillis()));
+                        setDirty();
+                    }
+                    continue;
+                }
+                if (entry.status() != Status.PREPARED) {
+                    continue;
+                }
                 if (ItemStack.listMatches(current, entry.after())) {
                     transition(entry.operationId(), Status.COMMITTED, "startup confirmed storage post-image");
                     committed++;
@@ -163,19 +187,45 @@ public final class CloudStorageJournalData extends SavedData {
         if (entry.status() != Status.QUARANTINED && entry.status() != Status.PREPARED) {
             return ResolutionResult.rejected("operation is not awaiting recovery");
         }
+        if (resolution == null || resolution == Resolution.NONE) {
+            return ResolutionResult.rejected("a commit or rollback resolution is required");
+        }
+        try {
+            if (entry.status() == Status.PREPARED) {
+                // Freeze the in-flight record as terminal evidence before a human chooses its page
+                // outcome.  This prevents an interrupted manual action from becoming a later
+                // automatic commit/rollback.
+                entry = transition(operationId, Status.QUARANTINED, "manual recovery started");
+                flush(server);
+            }
+            if (entry.resolution() != Resolution.NONE && entry.resolution() != resolution) {
+                return ResolutionResult.rejected("operation was already resolved as "
+                        + entry.resolution().name().toLowerCase());
+            }
+            if (entry.resolution() == Resolution.NONE) {
+                // Persist the chosen target before mutating the storage page. If a crash happens
+                // below, retrying the same operation can only replay this exact decision.
+                entry = entry.withResolution(resolution, normalize(operator), System.currentTimeMillis());
+                entries.put(operationId, entry);
+                setDirty();
+                flush(server);
+            }
+        } catch (RuntimeException exception) {
+            return ResolutionResult.rejected(describe(exception));
+        }
         List<ItemStack> current = storage.page(entry.ownerId(), entry.page());
         if (!ItemStack.listMatches(current, entry.before()) && !ItemStack.listMatches(current, entry.after())) {
             return ResolutionResult.rejected("storage page changed after the recorded operation");
         }
-        List<ItemStack> selected = resolution == Resolution.COMMIT ? entry.after() : entry.before();
+        List<ItemStack> selected = entry.resolution() == Resolution.COMMIT ? entry.after() : entry.before();
         try {
             storage.replacePage(entry.ownerId(), entry.page(), selected);
             flush(server);
-            Entry resolved = transition(operationId,
-                    resolution == Resolution.COMMIT ? Status.COMMITTED : Status.ROLLED_BACK,
-                    "administrator=" + normalize(operator) + ";resolution=" + resolution.name().toLowerCase());
+            Entry applied = entry.withResolutionApplied(System.currentTimeMillis());
+            entries.put(operationId, applied);
+            setDirty();
             flush(server);
-            return ResolutionResult.resolved(resolved);
+            return ResolutionResult.resolved(applied);
         } catch (RuntimeException exception) {
             return ResolutionResult.rejected(describe(exception));
         }
@@ -225,6 +275,11 @@ public final class CloudStorageJournalData extends SavedData {
         if (!entry.reason().isBlank()) {
             tag.putString("reason", entry.reason());
         }
+        if (entry.resolution() != Resolution.NONE) {
+            tag.putString("resolution", entry.resolution().name());
+            tag.putString("resolution_operator", entry.resolutionOperator());
+            tag.putBoolean("resolution_applied", entry.resolutionApplied());
+        }
         tag.put("before", CloudStorageData.encodePageSnapshot(entry.before(), registries));
         tag.put("after", CloudStorageData.encodePageSnapshot(entry.after(), registries));
         return tag;
@@ -235,7 +290,9 @@ public final class CloudStorageJournalData extends SavedData {
                 Operation.parse(tag.getStringOr("operation", "")), Status.parse(tag.getStringOr("status", "")),
                 CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("before"), registries),
                 CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("after"), registries),
-                tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L), tag.getStringOr("reason", ""));
+                tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L), tag.getStringOr("reason", ""),
+                Resolution.parse(tag.getStringOr("resolution", "NONE")), tag.getStringOr("resolution_operator", ""),
+                tag.getBooleanOr("resolution_applied", false));
     }
 
     static Operation operationFor(List<ItemStack> before, List<ItemStack> after) {
@@ -297,22 +354,31 @@ public final class CloudStorageJournalData extends SavedData {
             }
             return switch (this) {
                 case PREPARED -> next == COMMITTED || next == ROLLED_BACK || next == QUARANTINED;
-                case QUARANTINED -> next == COMMITTED || next == ROLLED_BACK;
-                case COMMITTED, ROLLED_BACK -> false;
+                case COMMITTED, ROLLED_BACK, QUARANTINED -> false;
             };
         }
     }
 
     public enum Resolution {
+        NONE,
         COMMIT,
-        ROLLBACK
+        ROLLBACK;
+
+        static Resolution parse(String value) {
+            try {
+                return valueOf(value);
+            } catch (RuntimeException exception) {
+                throw new IllegalArgumentException("unknown cloud storage journal resolution: " + value, exception);
+            }
+        }
     }
 
     public record Entry(UUID operationId, UUID ownerId, int page, Operation operation, Status status,
-                        List<ItemStack> before, List<ItemStack> after, long createdAt, long updatedAt, String reason) {
+                        List<ItemStack> before, List<ItemStack> after, long createdAt, long updatedAt, String reason,
+                        Resolution resolution, String resolutionOperator, boolean resolutionApplied) {
         public Entry {
             if (operationId == null || ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES
-                    || operation == null || status == null || createdAt <= 0L || updatedAt <= 0L) {
+                    || operation == null || status == null || resolution == null || createdAt <= 0L || updatedAt <= 0L) {
                 throw new IllegalArgumentException("Cloud storage journal entry is invalid");
             }
             before = copyPage(before);
@@ -321,10 +387,38 @@ public final class CloudStorageJournalData extends SavedData {
             if (reason.length() > 1024) {
                 throw new IllegalArgumentException("Cloud storage journal reason is too long");
             }
+            resolutionOperator = resolutionOperator == null ? "" : resolutionOperator.trim();
+            if (resolutionOperator.length() > 256) {
+                throw new IllegalArgumentException("Cloud storage resolution operator is too long");
+            }
+            if (status != Status.QUARANTINED && resolution != Resolution.NONE) {
+                throw new IllegalArgumentException("Only quarantined cloud storage operations may carry a resolution");
+            }
+            if (resolution == Resolution.NONE && resolutionApplied) {
+                throw new IllegalArgumentException("Cloud storage resolution cannot be applied before it is selected");
+            }
         }
 
         Entry withStatus(Status next, String nextReason, long now) {
-            return new Entry(operationId, ownerId, page, operation, next, before, after, createdAt, now, nextReason);
+            return new Entry(operationId, ownerId, page, operation, next, before, after, createdAt, now, nextReason,
+                    Resolution.NONE, "", false);
+        }
+
+        Entry withResolution(Resolution nextResolution, String operator, long now) {
+            if (status != Status.QUARANTINED || resolution != Resolution.NONE
+                    || nextResolution == null || nextResolution == Resolution.NONE) {
+                throw new IllegalStateException("Cloud storage operation cannot accept another resolution");
+            }
+            return new Entry(operationId, ownerId, page, operation, status, before, after, createdAt, now, reason,
+                    nextResolution, operator, false);
+        }
+
+        Entry withResolutionApplied(long now) {
+            if (status != Status.QUARANTINED || resolution == Resolution.NONE || resolutionApplied) {
+                throw new IllegalStateException("Cloud storage resolution cannot be marked as applied");
+            }
+            return new Entry(operationId, ownerId, page, operation, status, before, after, createdAt, now, reason,
+                    resolution, resolutionOperator, true);
         }
     }
 

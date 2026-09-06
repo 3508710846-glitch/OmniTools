@@ -1,49 +1,45 @@
 {
-  "prompt": "建议把技能树设计成“专业等级决定解锁，技能点决定强化”的体系。每个方向在 100 级解锁一个主动技能和一个被动技能，后续每提升一定专业等级获得技能点，用于提升这两个技能。这样既有明确的里程碑，也不会让高等级只增加面板数字。\n\n## 通用规则\n\n- 每个专业 100 级开放本方向技能树。\n- 主动技能 1 级可用，被动技能 1 级可用；两者各 10 级。\n- 每 10 个专业等级获得 1 点该专业技能点，或通过高难委托、首领、成就获得少量额外点数。\n- 主动技能升级优先提升持续时间、效果强度、冷却缩减；被动技能升级优先提升概率、上限或效率。\n- 主动技能统一显示：剩余持续时间、冷却时间、当前等级。\n- 技能重置需要消耗限定资源，并设置冷却，避免随时按场景切换最优解。\n- 所有概率型被动必须由服务端结算，且额外产出不得再次触发同类被动。\n\n## 1. 矿工\n\n**主动：矿脉爆发**\n\n- 100 级解锁。\n- 获得急迫效果，仅对矿石、石材和采矿标签方块生效。\n- 1 级：急迫 I，持续 30 秒，冷却 30 分钟。\n- 满级：急迫 V，持续 2 分钟，冷却 10 分钟。\n- 可额外给予短暂的挖掘抗性，避免高风险矿区被打断。\n\n**被动：丰收矿工**\n\n- 挖掘矿石时概率额外获得一次正常掉落。\n- 1 级：5%；满级：40%。\n- 不适用于精准采集、创造模式、爆炸破坏、命令破坏或非玩家破坏。\n- 按真实掉落表计算，兼容幸运和模组矿石；额外掉落不重复触发。\n\n## 2. 伐木工\n\n**主动：伐木专注**\n\n- 在一段时间内，连续砍伐同类原木可快速连锁处理附近相连树干。\n- 1 级：最多连锁 16 个方块，持续 20 秒，冷却 30 分钟。\n- 满级：最多连锁 96 个方块，持续 90 秒，冷却 10 分钟。\n- 只作用于日志/木材标签，且有单次方块上限，防止清空建筑。\n\n**被动：林木馈赠**\n\n- 砍伐原木时概率获得额外原木、树苗或树脂类副产物。\n- 1 级：5%；满级：35%。\n- 额外原木建议不高于一次正常掉落，稀有副产物单独设置较低概率。\n- 不应对玩家放置且短时间内被破坏的树木生效，降低刷取风险。\n\n## 3. 农夫与采集者\n\n**主动：丰收时刻**\n\n- 激活后，在范围内自动收获成熟作物并重新种植；缺种子时只收获、不补种。\n- 1 级：半径 4 格，最多处理 32 株，冷却 30 分钟。\n- 满级：半径 10 格，最多处理 160 株，冷却 10 分钟。\n- 仅处理成熟、可重种的农业方块，不能破坏未成熟作物。\n\n**被动：自然馈赠**\n\n- 收获作物、药草、浆果时，概率获得额外产出。\n- 1 级：4%；满级：30%。\n- 高价值作物和特殊模组作物应配置独立上限，避免经济失衡。\n- 可加入“耐久节省”：使用农业工具时，满级最多 25% 概率不消耗耐久。\n\n## 4. 狩猎者\n\n**主动：猎手标记**\n\n- 标记视线内的精英怪或首领，短时间内提高自己对目标的伤害，并让队伍可见其位置。\n- 1 级：持续 20 秒，对标记目标伤害 +8%，冷却 30 分钟。\n- 满级：持续 60 秒，伤害 +25%，冷却 10 分钟。\n- 对首领使用时伤害加成可适当降低，避免机制战被纯数值跳过。\n\n**被动：战利品直觉**\n\n- 击杀精英怪、首领或指定狩猎目标时，概率额外获得材料掉落。\n- 1 级：5%；满级：25%。\n- 不直接复制稀有装备、入场券和保底物品，只作用于普通材料池。\n- 可增加追踪能力：附近精英、悬赏目标的方向提示距离随等级提高。\n\n## 5. 战士\n\n**主动：破阵冲锋**\n\n- 向前突进并对路径敌人造成伤害；命中精英后短时间提高暴击或攻击速度。\n- 1 级：小范围突进，持续增益 8 秒，冷却 30 分钟。\n- 满级：更远突进、较大范围，持续增益 20 秒，冷却 10 分钟。\n- 位移必须检测方块碰撞，禁止穿墙、穿越保护区域或进入不可达位置。\n\n**被动：致命节奏**\n\n- 连续攻击同一目标时积累层数，提高暴击率或暴击伤害。\n- 1 级：最多 3 层；满级：最多 5 层。\n- 离开战斗或切换目标后清空，避免常驻高额伤害。\n- 建议暴击率上限 20%，暴击伤害上限 50%，防止与装备词条乘算失控。\n\n## 6. 守卫\n\n**主动：守护壁垒**\n\n- 短时间内获得护盾，并为附近队友分担部分伤害。\n- 1 级：持续 10 秒，吸收有限伤害，冷却 30 分钟。\n- 满级：持续 25 秒，护盾强度提高，冷却 10 分钟。\n- 分担伤害应有总量上限，且不能转移虚空伤害、处决伤害或管理员伤害。\n\n**被动：坚守反击**\n\n- 成功格挡或受到近战攻击后，有概率获得短暂减伤或反伤效果。\n- 1 级：5% 触发率；满级：30%。\n- 减伤建议上限 15%，反伤建议只反弹固定比例且不能触发吸血、暴击和其他被动。\n- 可配合仇恨系统：守卫造成的控制、格挡与嘲讽提高仇恨值。\n\n## 7. 治疗与辅助\n\n**主动：复苏领域**\n\n- 在地面放置持续治疗区域，为范围内队友恢复生命并清除一种负面效果。\n- 1 级：半径 4 格，持续 10 秒，冷却 30 分钟。\n- 满级：半径 7 格，持续 25 秒，冷却 10 分钟。\n- 不建议直接大量瞬间回血，应使用持续恢复，保留首领战压力。\n\n**被动：战地调律**\n\n- 对低生命队友治疗时提高治疗量，或缩短药剂、支援物品的使用冷却。\n- 1 级：低血量目标治疗 +5%；满级：+25%。\n- 需要限制治疗触发频率，避免高频事件导致性能问题。\n- 团队副本中可提供少量复活速度或减伤，不能直接无代价复活。\n\n## 8. 锻造与制造\n\n**主动：匠心专注**\n\n- 在一段时间内进行制造、修复或强化时，提高成功效率并降低材料损耗。\n- 1 级：持续 30 秒，材料返还概率 5%，冷却 30 分钟。\n- 满级：持续 2 分钟，材料返还概率 25%，冷却 10 分钟。\n- 只返还可消耗材料，不能返还核心装备、任务物品、货币或首领门票。\n\n**被动：精工节约**\n\n- 制造与修复时概率节省一份普通材料，或降低耐久修复成本。\n- 1 级：5%；满级：30%。\n- 对高阶材料、传说材料设置更低的独立概率或直接排除。\n- 制造订单结算必须使用事务日志，避免重复领取或断线吞材料。\n\n## 9. 炼金与附魔\n\n**主动：元素灌注**\n\n- 短时间内提高药剂效果、附魔充能效率或消耗品持续时间。\n- 1 级：效果提升 10%，持续 30 秒，冷却 30 分钟。\n- 满级：效果提升 30%，持续 2 分钟，冷却 10 分钟。\n- 对治疗、伤害、抗性等不同药剂设置独立上限，避免叠加过强。\n\n**被动：配方熟练**\n\n- 炼制时概率保留部分材料，或额外产出一份基础药剂。\n- 1 级：5%；满级：25%。\n- 额外产出不包含稀有催化剂、首领素材和特殊强化材料。\n- 附魔相关效果应避免直接增加高等级附魔概率，优先提供经验节省或材料返还。\n\n## 10. 探险与探索\n\n**主动：远见侦察**\n\n- 短时间显示附近宝箱、采集点、精英怪或任务目标的大致方向。\n- 1 级：搜索半径 32 格，持续 20 秒，冷却 30 分钟。\n- 满级：搜索半径 96 格，持续 60 秒，冷却 10 分钟。\n- 只提供方向或有限高亮，避免直接透视全部地下资源。\n\n**被动：探险直觉**\n\n- 开启探索宝箱、完成事件或发现区域点位时，概率获得额外探索材料。\n- 1 级：5%；满级：25%。\n- 不作用于可重复刷新的低成本容器。\n- 可增加移动便利，如降低跌落伤害、减少环境伤害或提高坐骑耐力。\n\n## 平衡与实现底线\n\n- 同类型加成采用加法封顶，避免技能、装备、药剂和称号相乘后失控。\n- 经济型被动优先作用于普通材料，稀有材料、装备和门票必须单独限制。\n- 主动技能不得在异步线程直接改变玩家状态、世界方块或背包。\n- 方块破坏、掉落生成、制造扣料、修复和奖励领取均使用唯一操作 ID 与事务记录。\n- 每项被动记录触发次数、额外产出和被拒绝原因，方便平衡审计与反作弊。\n- 技能树配置应数据化：等级门槛、冷却、倍率、概率、方块标签、物品白名单都放入配置，而不是写死在代码中。",
+  "prompt": "最值得优先处理的风险\n云端储存事务恢复风险（最高）\n此前已经出现过 COMMITTED -> QUARANTINED 非法状态转换导致启动失败。现在启动恢复被模块故障边界包裹，能降低整服崩溃概率，但根因必须彻底保证：\n\n终态 COMMITTED、ROLLED_BACK、QUARANTINED 幂等；\n启动恢复只处理未完成事务；\n隔离必须保留原始记录和可恢复快照；\n存取、奖励、商城、礼包统一使用操作 ID 和可审计账本。\n这是物品丢失、复制与无法开服的共同风险点。\n\n技能系统主线程压力\n技能模块在方块破坏、实体击杀和服务器 tick 中持续工作；其中每 5 秒会遍历在线玩家并统计全部注册物品的制造统计。玩家增多、模组物品增多时，这会成为可见的主线程开销。\n\n应优先改为事件驱动记录制造次数或增量缓存，而不是周期性遍历全物品注册表；连锁砍树、范围治疗、额外掉落也必须设严格上限。\n\n核心入口过于集中\nModMindEntry 集中了生命周期、事件、命令与各模块服务编排。功能继续增加后，修改任一模块都容易影响启动顺序、开关判断或异常隔离。\n\n下一阶段应拆成模块注册器/生命周期处理器，让每个模块自主管理初始化、事件监听和停服清理。\n\n新旧配置并存与热重载风险\n当前存在新版 run/config/omnitools/<module>/config.json、旧版 legacy 配置和多个兼容配置文件。风险是重载后读取来源不一致、旧值覆盖新值，或迁移失败导致模块静默降级。\n\n建议明确唯一权威配置路径，旧配置仅在首次迁移时读取，并记录迁移版本、备份位置及弃用提示。",
   "sessionId": "01a07233-f161-71e3-9426-fdf8caaffc95",
   "backend": "quota",
-  "createdAt": "2026-09-06T14:17:52.966Z",
-  "summary": "已完成本轮补齐并验证：\n\n- 十专业技能保留 100 级解锁、每 10 级技能点、主动/被动 1–10 级规则；首次解锁固定为 1 级。\n- 主动技能包含矿工、伐木、农夫、狩猎、战士、守卫、治疗、制造、炼金、探险的服务器端效果与统一状态显示。\n- 农夫范围收获并重种；伐木连锁有范围/数量/重入限制；战士冲锋有碰撞拒绝；治疗领域为持续结算；侦察只标记目标。\n- 被动效果均从服务端触发，加入操作 ID 去重、触发统计、异步审计；额外掉落排除创造、精准采集和异常注册表。\n- 外部精英、首领、悬赏、领地与仇恨 API 缺失时采用安全降级，不执行危险位移、透视或特殊伤害转移。\n- 配置已支持 `tuning` 数值曲线与旧配置迁移。\n\n验证通过：内容校验、托管构建、服务端稳定运行 15 秒。",
-  "finalResponse": "已完成本轮补齐并验证：\n\n- 十专业技能保留 100 级解锁、每 10 级技能点、主动/被动 1–10 级规则；首次解锁固定为 1 级。\n- 主动技能包含矿工、伐木、农夫、狩猎、战士、守卫、治疗、制造、炼金、探险的服务器端效果与统一状态显示。\n- 农夫范围收获并重种；伐木连锁有范围/数量/重入限制；战士冲锋有碰撞拒绝；治疗领域为持续结算；侦察只标记目标。\n- 被动效果均从服务端触发，加入操作 ID 去重、触发统计、异步审计；额外掉落排除创造、精准采集和异常注册表。\n- 外部精英、首领、悬赏、领地与仇恨 API 缺失时采用安全降级，不执行危险位移、透视或特殊伤害转移。\n- 配置已支持 `tuning` 数值曲线与旧配置迁移。\n\n验证通过：内容校验、托管构建、服务端稳定运行 15 秒。",
+  "createdAt": "2026-09-06T15:13:59.176Z",
+  "summary": "这四项高优先级风险已处理并验证通过：\n\n- 云端事务终态已严格锁定；隔离记录保留快照与管理员决策，不会再发生终态重分类。\n- 未恢复的云储存操作会阻止同页后续写入，避免覆盖证据或重复存取。\n- 制造经验已改为制作完成事件驱动，移除了周期遍历全物品注册表。\n- 生命周期已从 `ModMindEntry` 抽至独立注册器；配置迁移改为一次性并写入迁移回执，模块配置路径为唯一权威来源。\n- 内容校验、构建与服务端稳定运行测试均通过。",
+  "finalResponse": "这四项高优先级风险已处理并验证通过：\n\n- 云端事务终态已严格锁定；隔离记录保留快照与管理员决策，不会再发生终态重分类。\n- 未恢复的云储存操作会阻止同页后续写入，避免覆盖证据或重复存取。\n- 制造经验已改为制作完成事件驱动，移除了周期遍历全物品注册表。\n- 生命周期已从 `ModMindEntry` 抽至独立注册器；配置迁移改为一次性并写入迁移回执，模块配置路径为唯一权威来源。\n- 内容校验、构建与服务端稳定运行测试均通过。",
   "intent": "engineering",
   "tasks": [
-    "数据化十专业技能数值、标签及重置资源",
-    "实现十方向主动和被动服务端效果",
-    "补齐事务、审计、保护区与降级接口",
-    "新增技能机制、防刷及冷却测试",
-    "重新执行托管校验、构建与运行验证"
+    "收紧云端事务终态与启动恢复",
+    "移除技能制造统计的全注册表扫描",
+    "明确配置权威路径与一次性迁移",
+    "抽取模块生命周期注册边界",
+    "补充测试并执行托管验证"
   ],
   "files": [
     {
-      "path": "docs/modules/skills.md",
+      "path": "logs/2026-09-06-1.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-1.log.gz",
+      "path": "logs/2026-09-06-2.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-2.log.gz",
+      "path": "logs/2026-09-06-3.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-3.log.gz",
+      "path": "logs/2026-09-06-4.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-4.log.gz",
+      "path": "logs/2026-09-06-5.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-5.log.gz",
+      "path": "logs/2026-09-06-6.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-05-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "logs/2026-09-05-7.log.gz",
+      "path": "logs/2026-09-06-7.log.gz",
       "purpose": "外部代理修改"
     },
     {
@@ -51,35 +47,31 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/config/omnitools/skills/config.json",
+      "path": "run/logs/2026-09-06-1.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-1.log.gz",
+      "path": "run/logs/2026-09-06-2.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-2.log.gz",
+      "path": "run/logs/2026-09-06-3.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-3.log.gz",
+      "path": "run/logs/2026-09-06-4.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-4.log.gz",
+      "path": "run/logs/2026-09-06-5.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-5.log.gz",
+      "path": "run/logs/2026-09-06-6.log.gz",
       "purpose": "外部代理修改"
     },
     {
-      "path": "run/logs/2026-09-05-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-05-7.log.gz",
+      "path": "run/logs/2026-09-06-7.log.gz",
       "purpose": "外部代理修改"
     },
     {
@@ -123,19 +115,27 @@
       "purpose": "外部代理修改"
     },
     {
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageJournalData.java",
+      "purpose": "外部代理修改"
+    },
+    {
+      "path": "src/main/java/dev/modmind/omnitools/CloudStorageScreenHandler.java",
+      "purpose": "外部代理修改"
+    },
+    {
       "path": "src/main/java/dev/modmind/omnitools/ModMindEntry.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/SkillTreeScreenHandler.java",
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigMigration.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/main/java/dev/modmind/omnitools/skills/SkillTreeConfig.java",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "src/main/java/dev/modmind/omnitools/skills/SkillTreeData.java",
+      "path": "src/main/java/dev/modmind/omnitools/config/ConfigPaths.java",
       "purpose": "外部代理修改"
     },
     {
@@ -143,67 +143,27 @@
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/skills/SkillTreeConfigTest.java",
+      "path": "src/main/resources/omnitools.mixins.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "src/test/java/dev/modmind/omnitools/skills/SkillTreeDataTest.java",
+      "path": "src/test/java/dev/modmind/omnitools/CloudStorageJournalDataTest.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-06-1.log.gz",
+      "path": "src/test/java/dev/modmind/omnitools/config/ConfigMigrationTest.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-06-2.log.gz",
+      "path": "run/config/omnitools/legacy/migration-state.json",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-06-3.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/ModuleLifecycleRegistrar.java",
       "purpose": "外部代理修改"
     },
     {
-      "path": "logs/2026-09-06-4.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "logs/2026-09-06-5.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "logs/2026-09-06-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "logs/2026-09-06-7.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-1.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-2.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-3.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-4.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-5.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-6.log.gz",
-      "purpose": "外部代理修改"
-    },
-    {
-      "path": "run/logs/2026-09-06-7.log.gz",
+      "path": "src/main/java/dev/modmind/omnitools/mixin/ResultSlotCraftMixin.java",
       "purpose": "外部代理修改"
     }
   ],
@@ -212,7 +172,7 @@
     "已使用 ModMind Minecraft 测试"
   ],
   "warnings": [],
-  "snapshotId": "2026-09-06T11-37-37-526Z",
+  "snapshotId": "2026-09-06T14-38-44-521Z",
   "buildVerified": true,
   "runtimeVerified": true,
   "workflow": {
@@ -222,24 +182,24 @@
       "build"
     ],
     "completed": [
-      "project_info",
       "intent",
+      "project_info",
       "plan",
-      "build",
       "validate",
+      "build",
       "runtime_test",
       "implementation",
       "todo_complete"
     ],
     "missing": [],
     "evidence": {
-      "project_info": "modmind_project_info returned active project metadata",
       "intent": "modmind_set_intent recorded task intent",
+      "project_info": "modmind_project_info returned active project metadata",
       "plan": "modmind_update_todo published the ordered plan",
-      "build": "modmind_build_project completed successfully",
       "validate": "modmind_validate_content completed successfully",
+      "build": "modmind_build_project completed successfully",
       "runtime_test": "modmind_test_matrix passed runtime targets",
-      "implementation": "Detected 48 changed managed files",
+      "implementation": "Detected 38 changed managed files",
       "todo_complete": "All Todo items are completed after the other required stages"
     }
   }

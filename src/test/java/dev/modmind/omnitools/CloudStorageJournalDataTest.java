@@ -79,6 +79,57 @@ class CloudStorageJournalDataTest {
     }
 
     @Test
+    void quarantinedEvidenceIsAlsoTerminalAndCannotBeReclassified() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(0, new ItemStack(Items.DIAMOND, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 100L);
+        journal.transition(prepared.operationId(), CloudStorageJournalData.Status.QUARANTINED,
+                "storage outcome cannot be proven");
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> journal.transition(prepared.operationId(), CloudStorageJournalData.Status.COMMITTED,
+                        "incorrect recovery reclassification"));
+        assertEquals(CloudStorageJournalData.Status.QUARANTINED,
+                journal.find(prepared.operationId()).orElseThrow().status());
+    }
+
+    @Test
+    void retryingTheSameQuarantinedTerminalTransitionKeepsEvidenceUnchanged() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(0, new ItemStack(Items.DIAMOND, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 100L);
+        CloudStorageJournalData.Entry quarantined = journal.transition(prepared.operationId(),
+                CloudStorageJournalData.Status.QUARANTINED, "outcome cannot be proven");
+
+        assertEquals(quarantined, journal.transition(prepared.operationId(),
+                CloudStorageJournalData.Status.QUARANTINED, "duplicate startup inspection"));
+        assertTrue(journal.hasUnresolvedOperation(OWNER, 0));
+    }
+
+    @Test
+    void resolvedQuarantineKeepsItsTerminalStatusAndDecision() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(0, new ItemStack(Items.DIAMOND, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 100L);
+        CloudStorageJournalData.Entry quarantined = journal.transition(prepared.operationId(),
+                CloudStorageJournalData.Status.QUARANTINED, "outcome cannot be proven");
+        CloudStorageJournalData.Entry resolved = quarantined.withResolution(CloudStorageJournalData.Resolution.COMMIT,
+                "admin", 200L).withResolutionApplied(300L);
+        assertEquals(CloudStorageJournalData.Status.QUARANTINED, resolved.status());
+        assertEquals(CloudStorageJournalData.Resolution.COMMIT, resolved.resolution());
+        assertTrue(resolved.resolutionApplied());
+    }
+
+    @Test
     void repeatedTerminalTransitionPreservesOriginalRecoveryEvidence() {
         List<ItemStack> before = emptyPage();
         List<ItemStack> after = emptyPage();

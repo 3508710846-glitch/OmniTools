@@ -34,6 +34,9 @@ public final class ConfigMigration {
         try {
             Files.createDirectories(configRoot);
             Files.createDirectories(legacyDir(configRoot));
+            if (Files.exists(migrationState(configRoot))) {
+                return;
+            }
             migrateRootConfig(configRoot);
             migrateRewards(configRoot, legacyConfigRoot);
             copy(configRoot, legacyConfigRoot, "omnitools-shop.json", ModuleId.SHOP, false);
@@ -41,6 +44,7 @@ public final class ConfigMigration {
             copy(configRoot, legacyConfigRoot, "omnitools-title-effects.json", ModuleId.TITLE_EFFECTS, false);
             copy(configRoot, legacyConfigRoot, "omnitools-achievements.json", ModuleId.ACHIEVEMENTS, false);
             copy(configRoot, legacyConfigRoot, "omnitools-cloud-storage.json", ModuleId.CLOUD_STORAGE, false);
+            writeMigrationState(configRoot, legacyConfigRoot);
         } catch (IOException exception) {
             System.err.println("[omnitools] Configuration migration failed: " + exception.getMessage());
         }
@@ -309,6 +313,22 @@ public final class ConfigMigration {
         }
     }
 
+    /**
+     * A migration receipt prevents later hot reloads from reading stale root-level files or from
+     * restoring them after an administrator intentionally removes a module config.  The receipt
+     * is written last, only after every copy/archive action completed successfully.
+     */
+    private static void writeMigrationState(Path root, Path legacyConfigRoot) throws IOException {
+        JsonObject state = new JsonObject();
+        state.addProperty("format_version", 1);
+        state.addProperty("completed_at", Instant.now().toString());
+        state.addProperty("legacy_source_root", legacyConfigRoot.toAbsolutePath().normalize().toString());
+        state.addProperty("authority", "omnitools/<module>/config.json");
+        write(migrationState(root), state);
+        System.out.println("[omnitools] Legacy configuration migration completed; authoritative path: "
+                + root.toAbsolutePath().normalize());
+    }
+
     private static Path rootConfig(Path root) {
         return root.resolve("config.json");
     }
@@ -319,5 +339,9 @@ public final class ConfigMigration {
 
     private static Path legacyDir(Path root) {
         return root.resolve("legacy");
+    }
+
+    private static Path migrationState(Path root) {
+        return legacyDir(root).resolve("migration-state.json");
     }
 }

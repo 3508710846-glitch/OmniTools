@@ -58,6 +58,11 @@ public final class ConfigPaths {
         return root().resolve("legacy");
     }
 
+    /** Immutable receipt proving that pre-module config files have already been imported once. */
+    public static Path migrationState() {
+        return legacyDir().resolve("migration-state.json");
+    }
+
     public static Path oldConfig(String fileName) {
         return FabricLoader.getInstance().getConfigDir().resolve(fileName);
     }

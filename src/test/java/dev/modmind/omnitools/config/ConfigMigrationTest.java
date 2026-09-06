@@ -132,6 +132,26 @@ class ConfigMigrationTest {
         assertTrue(loaded.enabled(ModuleId.DAILY_CHECKIN));
     }
 
+    @Test
+    void completedMigrationNeverLetsStaleRootFilesOverrideTheModuleAuthority() throws IOException {
+        Path root = temporaryDirectory.resolve("omnitools");
+        Path legacy = temporaryDirectory.resolve("legacy-config");
+        Files.createDirectories(legacy);
+        Files.writeString(legacy.resolve("omnitools-shop.json"), "[{\"id\":\"legacy\"}]", StandardCharsets.UTF_8);
+
+        ConfigMigration.migrate(root, legacy);
+        Path authority = root.resolve("shop").resolve("config.json");
+        assertTrue(Files.exists(root.resolve("legacy").resolve("migration-state.json")));
+        Files.writeString(authority, "{\"format_version\":1,\"products\":[{\"id\":\"authoritative\"}]}",
+                StandardCharsets.UTF_8);
+        Files.writeString(legacy.resolve("omnitools-shop.json"), "[{\"id\":\"stale\"}]", StandardCharsets.UTF_8);
+
+        ConfigMigration.migrate(root, legacy);
+
+        assertTrue(Files.readString(authority, StandardCharsets.UTF_8).contains("authoritative"));
+        assertFalse(Files.readString(authority, StandardCharsets.UTF_8).contains("stale"));
+    }
+
     private static void writeRoot(Path root, String json) throws IOException {
         Files.createDirectories(root);
         Files.writeString(root.resolve("config.json"), json, StandardCharsets.UTF_8);

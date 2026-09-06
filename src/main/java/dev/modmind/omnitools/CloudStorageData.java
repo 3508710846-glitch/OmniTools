@@ -117,6 +117,9 @@ public final class CloudStorageData extends SavedData {
      * instead of guessing which player-inventory state survived a crash.
      */
     public CommitResult commitPage(MinecraftServer server, UUID playerId, int page, List<ItemStack> items) {
+        if (server == null || playerId == null) {
+            return CommitResult.rejected("server and player id are required");
+        }
         List<ItemStack> validated;
         List<ItemStack> before;
         try {
@@ -134,6 +137,11 @@ public final class CloudStorageData extends SavedData {
         CloudStorageJournalData.Entry entry;
         try {
             journal = CloudStorageJournalData.get(server);
+            if (journal.hasUnresolvedOperation(playerId, page)) {
+                reportCommitFailure(playerId, page, null, "RECOVERY_REQUIRED", "manual_journal_recovery_required",
+                        new IllegalStateException("An earlier cloud storage operation is awaiting recovery"));
+                return CommitResult.recoveryRequired("an earlier operation is awaiting recovery");
+            }
             entry = journal.prepare(playerId, page, CloudStorageJournalData.operationFor(before, validated),
                     before, validated, System.currentTimeMillis());
             journal.flush(server);
@@ -362,7 +370,7 @@ public final class CloudStorageData extends SavedData {
 
     public record CommitResult(Status status, UUID operationId, String reason) {
         public boolean accepted() {
-            return status != Status.REJECTED;
+            return status == Status.UNCHANGED || status == Status.COMMITTED;
         }
 
         static CommitResult unchanged() {
@@ -377,6 +385,10 @@ public final class CloudStorageData extends SavedData {
             return new CommitResult(Status.RECOVERY_PENDING, operationId, reason);
         }
 
+        static CommitResult recoveryRequired(String reason) {
+            return new CommitResult(Status.RECOVERY_REQUIRED, null, reason);
+        }
+
         static CommitResult rejected(String reason) {
             return new CommitResult(Status.REJECTED, null, reason);
         }
@@ -386,6 +398,7 @@ public final class CloudStorageData extends SavedData {
         UNCHANGED,
         COMMITTED,
         RECOVERY_PENDING,
+        RECOVERY_REQUIRED,
         REJECTED
     }
 

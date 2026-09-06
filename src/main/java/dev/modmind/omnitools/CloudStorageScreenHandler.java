@@ -91,6 +91,10 @@ public final class CloudStorageScreenHandler extends ChestMenu {
                 || !ownerId.equals(serverPlayer.getUUID())) {
             return;
         }
+        if (hasRecoveryPending()) {
+            notifyRecoveryRequired();
+            return;
+        }
 
         // A double-click could otherwise collect the decorative action-row items from a player inventory slot.
         if (clickType == ClickType.PICKUP_ALL) {
@@ -141,6 +145,10 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         }
         if (!(player instanceof ServerPlayer serverPlayer) || ownerId == null
                 || !ownerId.equals(serverPlayer.getUUID()) || slotIndex < 0 || slotIndex >= slots.size()) {
+            return ItemStack.EMPTY;
+        }
+        if (hasRecoveryPending()) {
+            notifyRecoveryRequired();
             return ItemStack.EMPTY;
         }
         if (slotIndex >= PREVIOUS_PAGE_SLOT && slotIndex < CONTAINER_SIZE) {
@@ -295,6 +303,10 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         }
         CloudStorageData.CommitResult result = CloudStorageData.get(owner).commitPage(owner.level().getServer(),
                 ownerId, page, currentStoragePage());
+        if (result.status() == CloudStorageData.Status.RECOVERY_PENDING) {
+            notifyRecoveryPending(result);
+            return true;
+        }
         if (result.accepted()) {
             return true;
         }
@@ -308,6 +320,10 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         }
         CloudStorageData.CommitResult result = CloudStorageData.get(owner).commitPage(owner.level().getServer(),
                 ownerId, page, currentStoragePage());
+        if (result.status() == CloudStorageData.Status.RECOVERY_PENDING) {
+            notifyRecoveryPending(result);
+            return true;
+        }
         if (result.accepted()) {
             return true;
         }
@@ -354,6 +370,34 @@ public final class CloudStorageScreenHandler extends ChestMenu {
         System.err.println("[omnitools] Rejected cloud storage page commit for " + ownerId + ": " + reason);
         GuiFeedbackService.failure(owner);
         owner.displayClientMessage(ServerText.translatable("message.omnitools.storage.save_failed"), true);
+    }
+
+    private boolean hasRecoveryPending() {
+        return owner != null && ownerId != null && CloudStorageJournalData.get(owner.level().getServer())
+                .hasUnresolvedOperation(ownerId, page);
+    }
+
+    /** Close the menu without rolling back its in-memory snapshot: the durable journal is now the authority. */
+    private void notifyRecoveryPending(CloudStorageData.CommitResult result) {
+        if (owner == null) {
+            return;
+        }
+        System.err.println("[omnitools] Cloud storage operation requires recovery: operation=" + result.operationId()
+                + " owner=" + ownerId + " page=" + (page + 1) + " reason=" + result.reason());
+        GuiFeedbackService.failure(owner);
+        owner.displayClientMessage(ServerText.translatable("message.omnitools.storage.save_failed"), true);
+        owner.closeContainer();
+    }
+
+    private void notifyRecoveryRequired() {
+        if (owner == null) {
+            return;
+        }
+        System.err.println("[omnitools] Cloud storage access blocked until recovery: owner=" + ownerId
+                + " page=" + (page + 1));
+        GuiFeedbackService.failure(owner);
+        owner.displayClientMessage(ServerText.translatable("message.omnitools.storage.save_failed"), true);
+        owner.closeContainer();
     }
 
     private void refreshControls() {
