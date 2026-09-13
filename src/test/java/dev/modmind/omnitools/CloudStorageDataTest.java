@@ -47,6 +47,45 @@ class CloudStorageDataTest {
     }
 
     @Test
+    void sessionInventoryChangesOnlyItsMirrorAndTracksStandardContainerMutations() {
+        List<ItemStack> baseline = emptyPage();
+        baseline.set(0, new ItemStack(Items.DIAMOND, 5));
+        CloudStorageSession session = new CloudStorageSession(UUID.randomUUID(), OWNER, 0, baseline, 10L);
+        CloudStorageSessionInventory mirror = new CloudStorageSessionInventory(session, baseline, () -> 42L);
+
+        ItemStack removed = mirror.removeItem(0, 2);
+        mirror.setItem(3, removed);
+
+        assertEquals(3, mirror.getItem(0).getCount());
+        assertEquals(2, mirror.getItem(3).getCount());
+        assertEquals(5, session.originalPageSnapshot().getFirst().getCount());
+        assertTrue(session.dirty());
+        assertEquals(42L, session.changedAtTick());
+    }
+
+    @Test
+    void sessionCannotClearDirtyFlagUnlessACommitIsInProgress() {
+        List<ItemStack> baseline = emptyPage();
+        CloudStorageSession session = new CloudStorageSession(UUID.randomUUID(), OWNER, 0, baseline, 10L);
+        session.markChanged(20L);
+
+        assertThrows(IllegalStateException.class, () -> session.completeCheckpoint(21L, baseline));
+        assertTrue(session.dirty());
+        session.beginCommit();
+        session.completeCheckpoint(21L, baseline);
+        assertTrue(session.canInteract());
+        assertEquals(CloudStorageSession.State.OPEN, session.state());
+        assertEquals(21L, session.lastCheckpointTick());
+        assertTrue(!session.dirty());
+    }
+
+    @Test
+    void slotAdmissionUsesTheSamePersistenceValidationAsCloudPages() {
+        assertTrue(CloudStorageData.canStore(new ItemStack(Items.DIAMOND, 1)));
+        assertTrue(CloudStorageData.canStore(ItemStack.EMPTY));
+    }
+
+    @Test
     void quarantinesMalformedSavedRecordsInsteadOfWritingThemAsEmptyStorage() {
         CompoundTag root = new CompoundTag();
         CompoundTag players = new CompoundTag();

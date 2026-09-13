@@ -5639,3 +5639,1003 @@ ModMindEntry 集中了生命周期、事件、命令与各模块服务编排。�
 当前存在新版 run/config/omnitools/<module>/config.json、旧版 legacy 配置和多个兼容配置文件。风险是重载后读取来源不一致、旧值覆盖新值，或迁移失败导致模块静默降级。
 
 建议明确唯一权威配置路径，旧配置仅在首次迁移时读取，并记录迁移版本、备份位置及弃用提示。
+
+---
+
+## Development request 2026/9/6 23:38:29
+
+建议将云端储存改为“原版容器交互 + 会话镜像 + 关闭事务提交”的架构。目标是保留原版鼠标手势，同时彻底隔离云仓数据与玩家背包数据的中间状态。
+
+## 一、改造目标
+
+- 支持左/右键、Shift 点击、双击收集、拖拽分配、数字键交换、`Q` 丢弃、窗口外丢弃。
+- 打开云仓时可直接带着鼠标上的物品放入。
+- 大量存取不吞物品。
+- 关闭云仓后可立即使用原版箱子、工作台等容器。
+- 断线、停服、异常关闭时可恢复且可审计。
+
+## 二、核心结构调整
+
+围绕现有 `CloudStorageScreenHandler`、`CloudStorageData`、`CloudStorageJournalData` 分成四层：
+
+```text
+CloudStorageScreenHandler
+    原版 Slot、鼠标和快捷键交互
+
+CloudStorageSession
+    当前玩家、页码、打开快照、会话镜像、操作状态
+
+CloudStorageSessionInventory
+    给 ScreenHandler 使用的临时 Container
+
+CloudStorageCommitService
+    将会话镜像事务化提交到 CloudStorageData / Journal
+```
+
+### 1. 新增 `CloudStorageSession`
+
+每次打开页面创建一个会话，保存：
+
+```text
+sessionId
+playerUuid
+pageId
+openedAt
+originalPageSnapshot
+workingPageInventory
+state: OPEN / COMMITTING / CLOSED / FAILED
+```
+
+规则：
+
+- `originalPageSnapshot` 只用于回滚、审计与差异计算。
+- `workingPageInventory` 是页面真正显示和操作的库存。
+- 鼠标操作期间不直接改 `CloudStorageData`。
+- 一个玩家同一时间只能存在一个云仓会话。
+
+### 2. 新增会话库存适配器
+
+让 `CloudStorageSessionInventory` 实现原版 `Container`：
+
+- `getItem(slot)` 返回会话镜像中的物品。
+- `setItem(slot, stack)` 修改会话镜像。
+- `removeItem(slot, amount)` 按原版规则拆分会话镜像。
+- `setChanged()` 只标记会话已变更、安排检查点，不直接写持久化数据。
+
+`CloudStorageScreenHandler` 将云仓格子绑定到这个库存，而不是直接读取/写入 `CloudStorageData`。
+
+## 三、界面交互改造
+
+### 1. 使用标准 `Slot`
+
+云仓页面中的每一格都应是普通 `Slot`，并同时加入玩家背包与快捷栏槽位。
+
+保留或实现：
+
+- `stillValid`：会话状态为 `OPEN`，且玩家仍在线。
+- `quickMoveStack`：定义 Shift 点击在云仓与玩家背包之间的流向。
+- `mayPlace`、`mayPickup`：仅用于锁定槽位、禁存物品等规则。
+- `removed`：关闭时触发提交，不直接清空任何物品。
+
+不要自行重写通用点击、拖拽、双击收集的底层逻辑。原版 `ScreenHandler` 会自动处理鼠标手势、`getCarried()` 光标栈和物品同步。
+
+### 2. `Q` 与窗口外丢弃
+
+丢弃行为必须视为原版库存操作：
+
+- 从玩家槽位或 `getCarried()` 移除；
+- 服务端在玩家位置生成掉落实体；
+- 不写入云仓；
+- 不触发云仓回滚；
+- 不因丢弃而关闭页面。
+
+这能保证“打开云仓时拖着物品直接丢出去”与原版一致。
+
+## 四、提交与恢复方案
+
+### 1. 正常关闭流程
+
+```text
+停止接收新的云仓点击
+→ 处理原版光标栈
+→ 计算打开快照与会话镜像的差异
+→ 写入 PREPARED journal
+→ 原子写入新的云仓页面数据
+→ 保存并校验
+→ journal 标记 COMMITTED
+→ 强制同步玩家当前菜单和背包
+→ 延迟 1~2 tick 释放会话锁
+```
+
+无变更时直接关闭，不创建 journal。
+
+### 2. 检查点
+
+不要每次点击落盘。建议：
+
+- 会话发生变更后延迟约 1 秒检查点；
+- 连续操作期间合并多次变更；
+- 每个检查点都基于完整会话镜像提交；
+- 关闭、断线、停服时强制立即提交。
+
+这样拖拽不会产生几十条事务，仍能降低意外崩溃时的损失窗口。
+
+### 3. 失败处理
+
+提交失败时：
+
+```text
+journal 保留 PREPARED
+→ 会话标记 FAILED
+→ 禁止继续操作
+→ 刷新客户端为最后确认状态
+→ 启动恢复时依据原始快照、目标快照和校验和进行提交/回滚/隔离
+```
+
+不要在失败后猜测性删除物品，也不要把所有玩家背包回滚。云仓会话应只补偿“云仓页差额”。
+
+## 五、并发、交互锁与性能控制
+
+- 每名玩家只允许一个云仓会话。
+- 同一云仓页面若未来支持共享，必须使用页级读写锁或版本号；当前个人云仓可先做单玩家独占。
+- 正常浏览云仓期间不拦截原版容器；仅在关闭后的提交窗口内阻止打开新容器。
+- 提交锁最长建议 2 秒；超时自动失败、记录错误并释放玩家交互，不可无限卡住。
+- 每 tick 限制会话提交数量；大量玩家同时关闭时按队列处理。
+- `CloudStorageData` 持久化必须只在服务端主线程执行；序列化可预处理，但异步线程不能修改 `ItemStack`、背包、菜单或世界对象。
+
+## 六、数据与审计字段
+
+每条 journal 记录至少包含：
+
+```text
+operationId
+sessionId
+playerUuid
+pageId
+openedPageHash
+targetPageHash
+changedSlots
+state
+createdAt
+checkpointAt
+error / recoveryAction
+```
+
+管理员应能按 `operationId` 查询：
+
+- 操作前后页面快照；
+- 哪些格子变更；
+- 当前事务状态；
+- 是否提交、回滚或隔离；
+- 是否需要人工补偿。
+
+## 七、实施顺序
+
+1. 先为现有云仓增加会话锁、关闭保护和完整日志，暂时限制批量操作。
+2. 新建 `CloudStorageSession` 与 `CloudStorageSessionInventory`。
+3. 将 `CloudStorageScreenHandler` 改为标准 `Slot + Container` 页面。
+4. 移除手动点击搬运逻辑，补齐 `quickMoveStack`。
+5. 接入“检查点 + 关闭提交”的 journal 流程。
+6. 补齐断线、停服、异常、光标物品、`Q` 丢弃、快速切页的清理路径。
+7. 压测 Shift 连点、双击、拖拽、满背包、关闭后立即开箱子。
+
+验收标准只有一条：任意时刻每个物品都必须能在“玩家背包、云仓已提交页面、会话镜像、掉落实体、待领取补偿箱”中的一个明确位置被追踪，绝不能静默消失。
+
+---
+
+## Development request 2026/9/13 14:03:26
+
+建议不要把 Bukkit/Spigot 版 mcMMO 代码直接搬进当前 Fabric 模组，而是实现一个“mcMMO 行为兼容层”，替换现有技能树内部逻辑，同时保留现有奖励、称号、侧边栏和配置接口。
+
+mcMMO 仓库的代码和许可证需要单独核对；如果复用其源码，必须遵守 GPL 条款。更稳妥的方式是独立实现相同玩法和数据结构。
+
+## 一、总体架构
+
+将当前技能树替换为以下模块：
+
+```text
+McmmoSkillModule
+├─ SkillRegistry          技能定义与配置
+├─ SkillProfileService    玩家技能等级、经验、战力等级
+├─ SkillEventProcessor    方块、战斗、钓鱼、制作等事件
+├─ AbilityService         主动技能、被动技能、冷却
+├─ PartyService           队伍经验与组队功能
+├─ SkillLedger            经验变更、迁移和审计
+└─ LegacySkillAdapter     兼容旧技能树数据
+```
+
+现有其他模块只依赖统一接口，例如：
+
+```text
+grantSkillXp()
+getSkillLevel()
+getPowerLevel()
+getAbilityCooldown()
+```
+
+这样签到、礼包、称号、商城和侧边栏不需要直接依赖具体技能实现。
+
+## 二、技能分类
+
+建议使用 0～1000 级，并计算总战力等级 `Power Level`。技能等级不再依赖当前的 4 点技能点，而是通过等级自动解锁能力。
+
+| 方向 | mcMMO 技能 | 核心能力 |
+|---|---|---|
+| 采集 | Mining、Excavation、Woodcutting、Herbalism | 加速、额外掉落、连锁采集 |
+| 战斗 | Swords、Axes、Archery、Unarmed、Acrobatics | 暴击、流血、击退、闪避 |
+| 生物 | Taming | 宠物召唤、宠物强化、宠物治疗 |
+| 生产 | Repair、Salvage、Smelting、Alchemy | 修理、拆解、冶炼、药水强化 |
+| 生存 | Fishing | 宝藏、稀有掉落、特殊钓鱼 |
+| 扩展 | Defense、Support、Exploration | 保留当前项目特色玩法 |
+
+核心技能可以先实现：
+
+1. Mining  
+2. Woodcutting  
+3. Herbalism  
+4. Excavation  
+5. Swords  
+6. Axes  
+7. Archery  
+8. Acrobatics  
+9. Repair  
+10. Alchemy  
+
+Fishing、Taming、Salvage、Smelting 和队伍系统放在第二阶段。
+
+## 三、主动与被动机制
+
+每个技能采用：
+
+```text
+等级经验
+→ 技能等级
+→ 主动能力等级
+→ 被动能力等级
+→ 专精效果
+```
+
+主动能力建议在 100、250、500、750、1000 级分为五档。
+
+### Mining
+
+主动技能：`Super Breaker`
+
+- 100 级解锁。
+- 提供急迫效果。
+- 初始：急迫 I，持续 30 秒，冷却 30 分钟。
+- 满级：急迫 V，持续 2 分钟，冷却 10 分钟。
+- 只影响矿石、石材和采矿标签方块。
+- 冷却和持续时间由服务端计算，不能由客户端决定。
+
+被动技能：`Double Drops`
+
+- 挖掘矿石时概率额外获得一次正常掉落。
+- 初始 5%，满级最高 40%。
+- 兼容原版和模组掉落表。
+- 精准采集、创造模式、爆炸破坏、命令破坏默认排除。
+- 额外掉落必须标记为奖励来源，不能再次触发双倍掉落。
+
+### Woodcutting
+
+- 主动：`Tree Feller`，连锁砍伐相连树木。
+- 被动：额外原木、树苗或树脂掉落。
+- 连锁数量设置上限，例如 32～128 个方块。
+- 排除玩家建筑保护区域和短时间内放置的树木。
+
+### Herbalism
+
+- 主动：`Green Terra`，短时间提高农业收获效率。
+- 被动：成熟作物额外掉落、种植工具耐久节省。
+- 只处理成熟作物，不能通过主动技能破坏未成熟作物。
+
+### Excavation
+
+- 主动：`Giga Drill Breaker`，短时间提高挖掘速度。
+- 被动：从砂土、沙砾、黏土等方块中获得额外宝藏。
+- 宝藏掉落使用独立配置，不直接复制稀有装备。
+
+### Swords / Axes
+
+- Swords：`Serrated Strikes`、流血、反击。
+- Axes：`Skull Splitter`、范围伤害、暴击。
+- 对首领设置独立伤害上限。
+- 伤害加成采用加法并设置总上限，避免与装备、药水无限叠加。
+
+### Archery
+
+- 主动：短时间提高射击能力。
+- 被动：箭矢回收、精准度、击退或眩晕概率。
+- 不能让额外箭矢重复触发掉落、经验或技能事件。
+
+### Acrobatics
+
+- 被动：翻滚、优雅翻滚、闪避。
+- 受伤事件需要设置内部冷却，避免高频伤害导致大量计算。
+
+### Repair / Salvage / Smelting / Alchemy
+
+- Repair：修复装备、降低材料消耗。
+- Salvage：拆解装备，但限制高阶装备和绑定物品。
+- Smelting：燃料效率、额外冶炼产物。
+- Alchemy：药水持续时间、效果等级和材料节省。
+
+修理、拆解、冶炼和药水制作都必须接入现有事务日志，防止断线时出现“扣材料但没有结果”。
+
+## 四、经验系统
+
+所有经验来源统一封装为：
+
+```text
+SkillXpEvent
+├─ skillId
+├─ source
+├─ amount
+├─ playerUuid
+├─ world
+├─ cause
+├─ operationId
+└─ antiFarmKey
+```
+
+必须具备：
+
+- 来源冷却。
+- 目标等级差衰减。
+- 方块、实体和维度白名单。
+- 重复事件去重。
+- 每个来源的经验上限。
+- 经验批量累计后再保存。
+- 经验获得失败时完整记录上下文。
+
+不要在高频事件中直接写文件，也不要每几秒遍历全部物品注册表。制造经验应改为事件增量统计。
+
+## 五、旧技能树迁移
+
+建议保留一次性迁移和回滚能力：
+
+| 当前方向 | 推荐迁移 |
+|---|---|
+| 矿工 | Mining |
+| 伐木 | Woodcutting |
+| 农夫/采集 | Herbalism |
+| 战士 | 根据历史武器数据分到 Swords/Axes |
+| 猎人 | Archery、Taming 或 Fishing |
+| 锻造 | Repair、Salvage、Smelting |
+| 炼金 | Alchemy |
+| 守卫 | Acrobatics 或扩展 Defense |
+| 治疗 | 扩展 Support |
+| 探索 | 扩展 Exploration，不强行映射 |
+
+如果旧数据没有记录武器、目标或事件来源，不要随意把一个等级拆成多个技能。应将无法判断的经验保存为：
+
+```text
+legacy_credit
+```
+
+让玩家自行兑换成目标技能经验，避免进度丢失或错误分配。
+
+迁移流程：
+
+```text
+停止旧技能写入
+→ 备份旧数据
+→ 写入 PREPARED 迁移记录
+→ 转换技能数据
+→ 校验总经验和等级
+→ COMMITTED
+→ 启用新技能模块
+```
+
+旧技能点不再继续消费，可转换为迁移凭证、专精点或少量技能经验。
+
+## 六、与现有模块兼容
+
+- 现有称号改为读取单项技能等级或总战力等级。
+- 礼包、签到和商城通过 `grantSkillXp()` 发放经验，不直接改玩家数据。
+- 侧边栏增加单项等级、总战力、主动技能冷却。
+- 保留旧命令别名，并增加：
+  - `/skills`
+  - `/skills stats`
+  - `/skills top`
+  - `/skills ability`
+  - `/party`
+- 占位符提供：
+  - 当前技能等级
+  - 技能经验
+  - 总战力
+  - 主动技能状态
+  - 冷却剩余时间
+- 配置增加：
+
+```text
+skills.engine = mcmmo
+skills.legacy.enabled = false
+skills.mcmmo.level-cap = 1000
+skills.mcmmo.xp-multiplier = 1.0
+skills.mcmmo.party.enabled = true
+```
+
+如果运行的是混合服务端并同时安装真正的 mcMMO，应二选一，禁止两个系统同时发放经验或额外掉落。
+
+## 七、性能与稳定性要求
+
+- 所有世界、背包和方块修改只在服务端主线程执行。
+- 经验、排行榜和审计日志可批量异步写入。
+- 主动技能使用服务端冷却时间。
+- Tree Feller、Blast Mining 等范围能力必须有方块数量和每 tick 预算。
+- 每个技能事件外层捕获异常，失败时记录：
+  - 技能名
+  - 玩家 UUID
+  - 世界和坐标
+  - 事件来源
+  - 操作 ID
+  - 当前等级
+  - 能力状态
+  - 完整异常堆栈
+  - 回滚或降级动作
+- 单个技能故障时仅禁用该技能，不应导致整个服务器停止。
+
+## 八、推荐实施顺序
+
+1. 建立新技能数据模型、事件总线和旧数据适配器。
+2. 先实现 Mining、Woodcutting、Herbalism、Excavation。
+3. 再实现 Swords、Axes、Archery、Acrobatics。
+4. 接入 Repair、Alchemy、Fishing 和制造事务。
+5. 增加 Taming、Salvage、Smelting 和 Party。
+6. 完成迁移、排行榜、命令、侧边栏和占位符。
+7. 关闭旧技能事件监听，只保留回滚和数据读取能力。
+
+验收标准是：同一事件只产生一次经验和一次掉落；重启、重载、断线不会重置技能或冷却；迁移可回滚；主动技能有严格上限；异常日志能够定位到具体玩家、技能和操作。
+
+---
+
+## Development request 2026/9/13 14:04:07
+
+建议不要把 Bukkit/Spigot 版 mcMMO 代码直接搬进当前 Fabric 模组，而是实现一个“mcMMO 行为兼容层”，替换现有技能树内部逻辑，同时保留现有奖励、称号、侧边栏和配置接口。
+
+mcMMO 仓库的代码和许可证需要单独核对；如果复用其源码，必须遵守 GPL 条款。更稳妥的方式是独立实现相同玩法和数据结构。
+
+## 一、总体架构
+
+将当前技能树替换为以下模块：
+
+```text
+McmmoSkillModule
+├─ SkillRegistry          技能定义与配置
+├─ SkillProfileService    玩家技能等级、经验、战力等级
+├─ SkillEventProcessor    方块、战斗、钓鱼、制作等事件
+├─ AbilityService         主动技能、被动技能、冷却
+├─ PartyService           队伍经验与组队功能
+├─ SkillLedger            经验变更、迁移和审计
+└─ LegacySkillAdapter     兼容旧技能树数据
+```
+
+现有其他模块只依赖统一接口，例如：
+
+```text
+grantSkillXp()
+getSkillLevel()
+getPowerLevel()
+getAbilityCooldown()
+```
+
+这样签到、礼包、称号、商城和侧边栏不需要直接依赖具体技能实现。
+
+## 二、技能分类
+
+建议使用 0～1000 级，并计算总战力等级 `Power Level`。技能等级不再依赖当前的 4 点技能点，而是通过等级自动解锁能力。
+
+| 方向 | mcMMO 技能 | 核心能力 |
+|---|---|---|
+| 采集 | Mining、Excavation、Woodcutting、Herbalism | 加速、额外掉落、连锁采集 |
+| 战斗 | Swords、Axes、Archery、Unarmed、Acrobatics | 暴击、流血、击退、闪避 |
+| 生物 | Taming | 宠物召唤、宠物强化、宠物治疗 |
+| 生产 | Repair、Salvage、Smelting、Alchemy | 修理、拆解、冶炼、药水强化 |
+| 生存 | Fishing | 宝藏、稀有掉落、特殊钓鱼 |
+| 扩展 | Defense、Support、Exploration | 保留当前项目特色玩法 |
+
+核心技能可以先实现：
+
+1. Mining  
+2. Woodcutting  
+3. Herbalism  
+4. Excavation  
+5. Swords  
+6. Axes  
+7. Archery  
+8. Acrobatics  
+9. Repair  
+10. Alchemy  
+
+Fishing、Taming、Salvage、Smelting 和队伍系统放在第二阶段。
+
+## 三、主动与被动机制
+
+每个技能采用：
+
+```text
+等级经验
+→ 技能等级
+→ 主动能力等级
+→ 被动能力等级
+→ 专精效果
+```
+
+主动能力建议在 100、250、500、750、1000 级分为五档。
+
+### Mining
+
+主动技能：`Super Breaker`
+
+- 100 级解锁。
+- 提供急迫效果。
+- 初始：急迫 I，持续 30 秒，冷却 30 分钟。
+- 满级：急迫 V，持续 2 分钟，冷却 10 分钟。
+- 只影响矿石、石材和采矿标签方块。
+- 冷却和持续时间由服务端计算，不能由客户端决定。
+
+被动技能：`Double Drops`
+
+- 挖掘矿石时概率额外获得一次正常掉落。
+- 初始 5%，满级最高 40%。
+- 兼容原版和模组掉落表。
+- 精准采集、创造模式、爆炸破坏、命令破坏默认排除。
+- 额外掉落必须标记为奖励来源，不能再次触发双倍掉落。
+
+### Woodcutting
+
+- 主动：`Tree Feller`，连锁砍伐相连树木。
+- 被动：额外原木、树苗或树脂掉落。
+- 连锁数量设置上限，例如 32～128 个方块。
+- 排除玩家建筑保护区域和短时间内放置的树木。
+
+### Herbalism
+
+- 主动：`Green Terra`，短时间提高农业收获效率。
+- 被动：成熟作物额外掉落、种植工具耐久节省。
+- 只处理成熟作物，不能通过主动技能破坏未成熟作物。
+
+### Excavation
+
+- 主动：`Giga Drill Breaker`，短时间提高挖掘速度。
+- 被动：从砂土、沙砾、黏土等方块中获得额外宝藏。
+- 宝藏掉落使用独立配置，不直接复制稀有装备。
+
+### Swords / Axes
+
+- Swords：`Serrated Strikes`、流血、反击。
+- Axes：`Skull Splitter`、范围伤害、暴击。
+- 对首领设置独立伤害上限。
+- 伤害加成采用加法并设置总上限，避免与装备、药水无限叠加。
+
+### Archery
+
+- 主动：短时间提高射击能力。
+- 被动：箭矢回收、精准度、击退或眩晕概率。
+- 不能让额外箭矢重复触发掉落、经验或技能事件。
+
+### Acrobatics
+
+- 被动：翻滚、优雅翻滚、闪避。
+- 受伤事件需要设置内部冷却，避免高频伤害导致大量计算。
+
+### Repair / Salvage / Smelting / Alchemy
+
+- Repair：修复装备、降低材料消耗。
+- Salvage：拆解装备，但限制高阶装备和绑定物品。
+- Smelting：燃料效率、额外冶炼产物。
+- Alchemy：药水持续时间、效果等级和材料节省。
+
+修理、拆解、冶炼和药水制作都必须接入现有事务日志，防止断线时出现“扣材料但没有结果”。
+
+## 四、经验系统
+
+所有经验来源统一封装为：
+
+```text
+SkillXpEvent
+├─ skillId
+├─ source
+├─ amount
+├─ playerUuid
+├─ world
+├─ cause
+├─ operationId
+└─ antiFarmKey
+```
+
+必须具备：
+
+- 来源冷却。
+- 目标等级差衰减。
+- 方块、实体和维度白名单。
+- 重复事件去重。
+- 每个来源的经验上限。
+- 经验批量累计后再保存。
+- 经验获得失败时完整记录上下文。
+
+不要在高频事件中直接写文件，也不要每几秒遍历全部物品注册表。制造经验应改为事件增量统计。
+
+## 五、旧技能树迁移
+
+建议保留一次性迁移和回滚能力：
+
+| 当前方向 | 推荐迁移 |
+|---|---|
+| 矿工 | Mining |
+| 伐木 | Woodcutting |
+| 农夫/采集 | Herbalism |
+| 战士 | 根据历史武器数据分到 Swords/Axes |
+| 猎人 | Archery、Taming 或 Fishing |
+| 锻造 | Repair、Salvage、Smelting |
+| 炼金 | Alchemy |
+| 守卫 | Acrobatics 或扩展 Defense |
+| 治疗 | 扩展 Support |
+| 探索 | 扩展 Exploration，不强行映射 |
+
+如果旧数据没有记录武器、目标或事件来源，不要随意把一个等级拆成多个技能。应将无法判断的经验保存为：
+
+```text
+legacy_credit
+```
+
+让玩家自行兑换成目标技能经验，避免进度丢失或错误分配。
+
+迁移流程：
+
+```text
+停止旧技能写入
+→ 备份旧数据
+→ 写入 PREPARED 迁移记录
+→ 转换技能数据
+→ 校验总经验和等级
+→ COMMITTED
+→ 启用新技能模块
+```
+
+旧技能点不再继续消费，可转换为迁移凭证、专精点或少量技能经验。
+
+## 六、与现有模块兼容
+
+- 现有称号改为读取单项技能等级或总战力等级。
+- 礼包、签到和商城通过 `grantSkillXp()` 发放经验，不直接改玩家数据。
+- 侧边栏增加单项等级、总战力、主动技能冷却。
+- 保留旧命令别名，并增加：
+  - `/skills`
+  - `/skills stats`
+  - `/skills top`
+  - `/skills ability`
+  - `/party`
+- 占位符提供：
+  - 当前技能等级
+  - 技能经验
+  - 总战力
+  - 主动技能状态
+  - 冷却剩余时间
+- 配置增加：
+
+```text
+skills.engine = mcmmo
+skills.legacy.enabled = false
+skills.mcmmo.level-cap = 1000
+skills.mcmmo.xp-multiplier = 1.0
+skills.mcmmo.party.enabled = true
+```
+
+如果运行的是混合服务端并同时安装真正的 mcMMO，应二选一，禁止两个系统同时发放经验或额外掉落。
+
+## 七、性能与稳定性要求
+
+- 所有世界、背包和方块修改只在服务端主线程执行。
+- 经验、排行榜和审计日志可批量异步写入。
+- 主动技能使用服务端冷却时间。
+- Tree Feller、Blast Mining 等范围能力必须有方块数量和每 tick 预算。
+- 每个技能事件外层捕获异常，失败时记录：
+  - 技能名
+  - 玩家 UUID
+  - 世界和坐标
+  - 事件来源
+  - 操作 ID
+  - 当前等级
+  - 能力状态
+  - 完整异常堆栈
+  - 回滚或降级动作
+- 单个技能故障时仅禁用该技能，不应导致整个服务器停止。
+
+## 八、推荐实施顺序
+
+1. 建立新技能数据模型、事件总线和旧数据适配器。
+2. 先实现 Mining、Woodcutting、Herbalism、Excavation。
+3. 再实现 Swords、Axes、Archery、Acrobatics。
+4. 接入 Repair、Alchemy、Fishing 和制造事务。
+5. 增加 Taming、Salvage、Smelting 和 Party。
+6. 完成迁移、排行榜、命令、侧边栏和占位符。
+7. 关闭旧技能事件监听，只保留回滚和数据读取能力。
+
+验收标准是：同一事件只产生一次经验和一次掉落；重启、重载、断线不会重置技能或冷却；迁移可回滚；主动技能有严格上限；异常日志能够定位到具体玩家、技能和操作。
+
+---
+
+## Development request 2026/9/13 14:04:09
+
+建议不要把 Bukkit/Spigot 版 mcMMO 代码直接搬进当前 Fabric 模组，而是实现一个“mcMMO 行为兼容层”，替换现有技能树内部逻辑，同时保留现有奖励、称号、侧边栏和配置接口。
+
+mcMMO 仓库的代码和许可证需要单独核对；如果复用其源码，必须遵守 GPL 条款。更稳妥的方式是独立实现相同玩法和数据结构。
+
+## 一、总体架构
+
+将当前技能树替换为以下模块：
+
+```text
+McmmoSkillModule
+├─ SkillRegistry          技能定义与配置
+├─ SkillProfileService    玩家技能等级、经验、战力等级
+├─ SkillEventProcessor    方块、战斗、钓鱼、制作等事件
+├─ AbilityService         主动技能、被动技能、冷却
+├─ PartyService           队伍经验与组队功能
+├─ SkillLedger            经验变更、迁移和审计
+└─ LegacySkillAdapter     兼容旧技能树数据
+```
+
+现有其他模块只依赖统一接口，例如：
+
+```text
+grantSkillXp()
+getSkillLevel()
+getPowerLevel()
+getAbilityCooldown()
+```
+
+这样签到、礼包、称号、商城和侧边栏不需要直接依赖具体技能实现。
+
+## 二、技能分类
+
+建议使用 0～1000 级，并计算总战力等级 `Power Level`。技能等级不再依赖当前的 4 点技能点，而是通过等级自动解锁能力。
+
+| 方向 | mcMMO 技能 | 核心能力 |
+|---|---|---|
+| 采集 | Mining、Excavation、Woodcutting、Herbalism | 加速、额外掉落、连锁采集 |
+| 战斗 | Swords、Axes、Archery、Unarmed、Acrobatics | 暴击、流血、击退、闪避 |
+| 生物 | Taming | 宠物召唤、宠物强化、宠物治疗 |
+| 生产 | Repair、Salvage、Smelting、Alchemy | 修理、拆解、冶炼、药水强化 |
+| 生存 | Fishing | 宝藏、稀有掉落、特殊钓鱼 |
+| 扩展 | Defense、Support、Exploration | 保留当前项目特色玩法 |
+
+核心技能可以先实现：
+
+1. Mining  
+2. Woodcutting  
+3. Herbalism  
+4. Excavation  
+5. Swords  
+6. Axes  
+7. Archery  
+8. Acrobatics  
+9. Repair  
+10. Alchemy  
+
+Fishing、Taming、Salvage、Smelting 和队伍系统放在第二阶段。
+
+## 三、主动与被动机制
+
+每个技能采用：
+
+```text
+等级经验
+→ 技能等级
+→ 主动能力等级
+→ 被动能力等级
+→ 专精效果
+```
+
+主动能力建议在 100、250、500、750、1000 级分为五档。
+
+### Mining
+
+主动技能：`Super Breaker`
+
+- 100 级解锁。
+- 提供急迫效果。
+- 初始：急迫 I，持续 30 秒，冷却 30 分钟。
+- 满级：急迫 V，持续 2 分钟，冷却 10 分钟。
+- 只影响矿石、石材和采矿标签方块。
+- 冷却和持续时间由服务端计算，不能由客户端决定。
+
+被动技能：`Double Drops`
+
+- 挖掘矿石时概率额外获得一次正常掉落。
+- 初始 5%，满级最高 40%。
+- 兼容原版和模组掉落表。
+- 精准采集、创造模式、爆炸破坏、命令破坏默认排除。
+- 额外掉落必须标记为奖励来源，不能再次触发双倍掉落。
+
+### Woodcutting
+
+- 主动：`Tree Feller`，连锁砍伐相连树木。
+- 被动：额外原木、树苗或树脂掉落。
+- 连锁数量设置上限，例如 32～128 个方块。
+- 排除玩家建筑保护区域和短时间内放置的树木。
+
+### Herbalism
+
+- 主动：`Green Terra`，短时间提高农业收获效率。
+- 被动：成熟作物额外掉落、种植工具耐久节省。
+- 只处理成熟作物，不能通过主动技能破坏未成熟作物。
+
+### Excavation
+
+- 主动：`Giga Drill Breaker`，短时间提高挖掘速度。
+- 被动：从砂土、沙砾、黏土等方块中获得额外宝藏。
+- 宝藏掉落使用独立配置，不直接复制稀有装备。
+
+### Swords / Axes
+
+- Swords：`Serrated Strikes`、流血、反击。
+- Axes：`Skull Splitter`、范围伤害、暴击。
+- 对首领设置独立伤害上限。
+- 伤害加成采用加法并设置总上限，避免与装备、药水无限叠加。
+
+### Archery
+
+- 主动：短时间提高射击能力。
+- 被动：箭矢回收、精准度、击退或眩晕概率。
+- 不能让额外箭矢重复触发掉落、经验或技能事件。
+
+### Acrobatics
+
+- 被动：翻滚、优雅翻滚、闪避。
+- 受伤事件需要设置内部冷却，避免高频伤害导致大量计算。
+
+### Repair / Salvage / Smelting / Alchemy
+
+- Repair：修复装备、降低材料消耗。
+- Salvage：拆解装备，但限制高阶装备和绑定物品。
+- Smelting：燃料效率、额外冶炼产物。
+- Alchemy：药水持续时间、效果等级和材料节省。
+
+修理、拆解、冶炼和药水制作都必须接入现有事务日志，防止断线时出现“扣材料但没有结果”。
+
+## 四、经验系统
+
+所有经验来源统一封装为：
+
+```text
+SkillXpEvent
+├─ skillId
+├─ source
+├─ amount
+├─ playerUuid
+├─ world
+├─ cause
+├─ operationId
+└─ antiFarmKey
+```
+
+必须具备：
+
+- 来源冷却。
+- 目标等级差衰减。
+- 方块、实体和维度白名单。
+- 重复事件去重。
+- 每个来源的经验上限。
+- 经验批量累计后再保存。
+- 经验获得失败时完整记录上下文。
+
+不要在高频事件中直接写文件，也不要每几秒遍历全部物品注册表。制造经验应改为事件增量统计。
+
+## 五、旧技能树迁移
+
+建议保留一次性迁移和回滚能力：
+
+| 当前方向 | 推荐迁移 |
+|---|---|
+| 矿工 | Mining |
+| 伐木 | Woodcutting |
+| 农夫/采集 | Herbalism |
+| 战士 | 根据历史武器数据分到 Swords/Axes |
+| 猎人 | Archery、Taming 或 Fishing |
+| 锻造 | Repair、Salvage、Smelting |
+| 炼金 | Alchemy |
+| 守卫 | Acrobatics 或扩展 Defense |
+| 治疗 | 扩展 Support |
+| 探索 | 扩展 Exploration，不强行映射 |
+
+如果旧数据没有记录武器、目标或事件来源，不要随意把一个等级拆成多个技能。应将无法判断的经验保存为：
+
+```text
+legacy_credit
+```
+
+让玩家自行兑换成目标技能经验，避免进度丢失或错误分配。
+
+迁移流程：
+
+```text
+停止旧技能写入
+→ 备份旧数据
+→ 写入 PREPARED 迁移记录
+→ 转换技能数据
+→ 校验总经验和等级
+→ COMMITTED
+→ 启用新技能模块
+```
+
+旧技能点不再继续消费，可转换为迁移凭证、专精点或少量技能经验。
+
+## 六、与现有模块兼容
+
+- 现有称号改为读取单项技能等级或总战力等级。
+- 礼包、签到和商城通过 `grantSkillXp()` 发放经验，不直接改玩家数据。
+- 侧边栏增加单项等级、总战力、主动技能冷却。
+- 保留旧命令别名，并增加：
+  - `/skills`
+  - `/skills stats`
+  - `/skills top`
+  - `/skills ability`
+  - `/party`
+- 占位符提供：
+  - 当前技能等级
+  - 技能经验
+  - 总战力
+  - 主动技能状态
+  - 冷却剩余时间
+- 配置增加：
+
+```text
+skills.engine = mcmmo
+skills.legacy.enabled = false
+skills.mcmmo.level-cap = 1000
+skills.mcmmo.xp-multiplier = 1.0
+skills.mcmmo.party.enabled = true
+```
+
+如果运行的是混合服务端并同时安装真正的 mcMMO，应二选一，禁止两个系统同时发放经验或额外掉落。
+
+## 七、性能与稳定性要求
+
+- 所有世界、背包和方块修改只在服务端主线程执行。
+- 经验、排行榜和审计日志可批量异步写入。
+- 主动技能使用服务端冷却时间。
+- Tree Feller、Blast Mining 等范围能力必须有方块数量和每 tick 预算。
+- 每个技能事件外层捕获异常，失败时记录：
+  - 技能名
+  - 玩家 UUID
+  - 世界和坐标
+  - 事件来源
+  - 操作 ID
+  - 当前等级
+  - 能力状态
+  - 完整异常堆栈
+  - 回滚或降级动作
+- 单个技能故障时仅禁用该技能，不应导致整个服务器停止。
+
+## 八、推荐实施顺序
+
+1. 建立新技能数据模型、事件总线和旧数据适配器。
+2. 先实现 Mining、Woodcutting、Herbalism、Excavation。
+3. 再实现 Swords、Axes、Archery、Acrobatics。
+4. 接入 Repair、Alchemy、Fishing 和制造事务。
+5. 增加 Taming、Salvage、Smelting 和 Party。
+6. 完成迁移、排行榜、命令、侧边栏和占位符。
+7. 关闭旧技能事件监听，只保留回滚和数据读取能力。
+
+验收标准是：同一事件只产生一次经验和一次掉落；重启、重载、断线不会重置技能或冷却；迁移可回滚；主动技能有严格上限；异常日志能够定位到具体玩家、技能和操作。
+
+---
+
+## Development request 2026/9/13 15:57:49
+
+继续
+
+---
+
+## Development request 2026/9/13 16:49:29
+
+继续
+
+---
+
+## Development request 2026/9/13 17:46:07
+
+生成一个本次的更新日志，以纯文本形式输出给我

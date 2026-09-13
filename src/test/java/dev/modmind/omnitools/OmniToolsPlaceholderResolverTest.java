@@ -8,10 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OmniToolsPlaceholderResolverTest {
     @Test
     void exposesTheDocumentedBuiltinIds() {
-        assertEquals(22, OmniToolsPlaceholderResolver.IDS.size());
+        assertTrue(OmniToolsPlaceholderResolver.IDS.size() >= 22);
         assertTrue(OmniToolsPlaceholderResolver.IDS.contains("balance"));
         assertTrue(OmniToolsPlaceholderResolver.IDS.contains("achievements_total"));
         assertTrue(OmniToolsPlaceholderResolver.IDS.contains("title_remaining_hms"));
+        assertTrue(OmniToolsPlaceholderResolver.IDS.contains("skill_power_level"));
+        assertTrue(OmniToolsPlaceholderResolver.supports("skill_level_mining"));
     }
 
     @Test

@@ -7,6 +7,8 @@ import dev.modmind.omnitools.TitleData;
 import dev.modmind.omnitools.TitleDisplayService;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.packages.PackageService;
+import dev.modmind.omnitools.skills.SkillXpEvent;
+import dev.modmind.omnitools.skills.SkillXpSource;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
@@ -218,8 +220,11 @@ public final class RewardGrantService {
         }
         ledger.beginApplying(event, reward.id(), "skill_xp_apply");
         ledger.flush(player.level().getServer());
-        var result = ModMindEntry.skillTreeService().addSkillXp(player, reward.skillTreeId(), reward.amount(),
-                dev.modmind.omnitools.skills.SkillXpSource.REWARD, reward.applyTitleXpBonus());
+        String operationId = event.id() + "#" + reward.id();
+        var result = ModMindEntry.skillTreeService().grantSkillXp(player,
+                SkillXpEvent.of(player.getUUID(), reward.skillTreeId(), SkillXpSource.REWARD,
+                        reward.amount(), operationId, "reward:" + reward.id(), event.id()),
+                reward.applyTitleXpBonus());
         if (!result.granted()) {
             return blocked(ledger, event, reward, "skill_xp_" + result.status().name().toLowerCase(java.util.Locale.ROOT));
         }

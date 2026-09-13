@@ -117,6 +117,18 @@ public final class CloudStorageData extends SavedData {
      * instead of guessing which player-inventory state survived a crash.
      */
     public CommitResult commitPage(MinecraftServer server, UUID playerId, int page, List<ItemStack> items) {
+        return commitPage(server, playerId, page, items, null, "direct");
+    }
+
+    /** Commits a full session checkpoint with traceable session metadata. */
+    public CommitResult commitPage(MinecraftServer server, UUID playerId, int page, List<ItemStack> items,
+                                   UUID sessionId, String checkpointReason) {
+        return commitPage(server, playerId, page, items, sessionId, checkpointReason, null);
+    }
+
+    /** Session overload retains the page image observed when the menu was opened for audit. */
+    public CommitResult commitPage(MinecraftServer server, UUID playerId, int page, List<ItemStack> items,
+                                   UUID sessionId, String checkpointReason, List<ItemStack> openedPageSnapshot) {
         if (server == null || playerId == null) {
             return CommitResult.rejected("server and player id are required");
         }
@@ -143,11 +155,22 @@ public final class CloudStorageData extends SavedData {
                 return CommitResult.recoveryRequired("an earlier operation is awaiting recovery");
             }
             entry = journal.prepare(playerId, page, CloudStorageJournalData.operationFor(before, validated),
-                    before, validated, System.currentTimeMillis());
-            journal.flush(server);
+                    before, validated, System.currentTimeMillis(), sessionId, checkpointReason,
+                    openedPageSnapshot == null ? before : openedPageSnapshot);
         } catch (RuntimeException exception) {
             reportCommitFailure(playerId, page, null, "REJECTED", "journal_write_failed_before_mutation", exception);
             return CommitResult.rejected(describe(exception));
+        }
+
+        // Once PREPARED has been created, do not turn a flush failure into a harmless retry.  The
+        // record carries the full before/after evidence and may yet be written by normal SavedData
+        // shutdown; freeze the session and let startup/admin recovery decide from the page image.
+        try {
+            journal.flush(server);
+        } catch (RuntimeException exception) {
+            reportCommitFailure(playerId, page, entry.operationId(), "RECOVERY_PENDING",
+                    "prepared_journal_retained_for_recovery", exception);
+            return CommitResult.recoveryPending(entry.operationId(), describe(exception));
         }
 
         try {
@@ -220,6 +243,23 @@ public final class CloudStorageData extends SavedData {
             copy.add(stack.copy());
         }
         return List.copyOf(copy);
+    }
+
+    /**
+     * Fast admission check for a vanilla Slot.  It deliberately uses the same codec and byte
+     * limit as durable pages, so an item accepted into a session mirror cannot later be rejected
+     * merely because it is not representable in cloud SavedData.
+     */
+    static boolean canStore(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return true;
+        List<ItemStack> candidate = emptyPage();
+        candidate.set(0, stack);
+        try {
+            validatePage(candidate, null);
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     static CompoundTag encodePageSnapshot(List<ItemStack> items, HolderLookup.Provider registries) {

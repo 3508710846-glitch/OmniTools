@@ -6,19 +6,44 @@ import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.entitlement.TimedEntitlement;
 
 import java.util.Locale;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /** Read-only Placeholder API values backed by the current server state. */
 public final class OmniToolsPlaceholderResolver {
-    public static final Set<String> IDS = Set.of(
+    private static final Set<String> CANONICAL_SKILLS = Set.of(
+            "mining", "woodcutting", "herbalism", "excavation", "swords",
+            "axes", "archery", "acrobatics", "repair", "alchemy");
+    public static final Set<String> IDS = buildIds();
+
+    private static Set<String> buildIds() {
+        Set<String> ids = new LinkedHashSet<>(Set.of(
             "balance", "balance_formatted", "checkin_today", "checkin_today_rank",
             "checkin_total_days", "checkin_streak_days", "checkin_month_days", "online_today_seconds",
             "online_today_minutes", "online_today_hms", "title_id", "title", "title_plain",
             "title_effects_enabled", "title_remaining_days", "title_remaining_hours", "title_remaining_hms",
             "title_is_temporary", "title_is_equipped", "achievements_unlocked", "achievements_claimed",
-            "achievements_total");
+            "achievements_total", "skill_engine", "skill_power_level"));
+        for (String skill : CANONICAL_SKILLS) {
+            ids.add("skill_level_" + skill);
+            ids.add("skill_xp_" + skill);
+            ids.add("skill_xp_total_" + skill);
+            ids.add("skill_ability_level_" + skill);
+            ids.add("skill_ability_cooldown_" + skill);
+            ids.add("skill_ability_active_" + skill);
+        }
+        return Set.copyOf(ids);
+    }
 
     private OmniToolsPlaceholderResolver() {
+    }
+
+    /** Supports built-ins and dynamic skill ids used by TextTemplateRenderer. */
+    public static boolean supports(String argument) {
+        String id = argument == null ? "" : argument.trim().toLowerCase(Locale.ROOT);
+        if (id.startsWith("omnitools:")) id = id.substring("omnitools:".length());
+        if (IDS.contains(id)) return true;
+        return skillPlaceholder(id) != null;
     }
 
     public static Component resolve(ServerPlayer player, String argument) {
@@ -26,6 +51,8 @@ public final class OmniToolsPlaceholderResolver {
         if (player == null) {
             return fallback(id);
         }
+        Component skillValue = skillPlaceholderValue(player, id);
+        if (skillValue != null) return skillValue;
         return switch (id) {
             case "balance" -> value(Long.toString(CheckinData.get(player).getBalance(player.getUUID())));
             case "balance_formatted" -> value(formatGrouped(CheckinData.get(player).getBalance(player.getUUID())));
@@ -36,8 +63,47 @@ public final class OmniToolsPlaceholderResolver {
                     "title_remaining_hours", "title_remaining_hms", "title_is_temporary", "title_is_equipped" ->
                     titleValue(player, id);
             case "achievements_unlocked", "achievements_claimed", "achievements_total" -> achievementValue(player, id);
+            case "skill_engine" -> skillEngineValue(player);
+            case "skill_power_level" -> skillPowerValue(player);
             default -> fallback(id);
         };
+    }
+
+    private static String skillPlaceholder(String id) {
+        String[] prefixes = {"skill_level_", "skill_xp_", "skill_xp_total_",
+                "skill_ability_level_", "skill_ability_cooldown_", "skill_ability_active_"};
+        for (String prefix : prefixes) {
+            if (id.startsWith(prefix) && id.length() > prefix.length()) return prefix;
+        }
+        return null;
+    }
+
+    private static Component skillPlaceholderValue(ServerPlayer player, String id) {
+        String prefix = skillPlaceholder(id);
+        if (prefix == null || !ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) return null;
+        String skill = id.substring(prefix.length());
+        if (ModMindEntry.skillTreeService().config().tree(skill).isEmpty()) return fallback(id);
+        var service = ModMindEntry.skillTreeService();
+        var progress = service.progress(player, skill);
+        return switch (prefix) {
+            case "skill_level_" -> value(Integer.toString(progress.level()));
+            case "skill_xp_" -> value(Long.toString(progress.currentXp()));
+            case "skill_xp_total_" -> value(Long.toString(progress.totalXp()));
+            case "skill_ability_level_" -> value(Integer.toString(service.abilitySnapshot(player, skill).abilityLevel()));
+            case "skill_ability_cooldown_" -> value(Long.toString(service.getAbilityCooldown(player, skill)));
+            case "skill_ability_active_" -> value(Long.toString(service.abilitySnapshot(player, skill).activeRemainingSeconds()));
+            default -> fallback(id);
+        };
+    }
+
+    private static Component skillEngineValue(ServerPlayer player) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) return fallback("skill_engine");
+        return value(ModMindEntry.skillTreeService().engine().serializedName());
+    }
+
+    private static Component skillPowerValue(ServerPlayer player) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) return fallback("skill_power_level");
+        return value(Integer.toString(ModMindEntry.skillTreeService().getPowerLevel(player)));
     }
 
     private static Component checkinValue(ServerPlayer player, String id) {

@@ -88,7 +88,7 @@ public final class TextTemplateRenderer {
             if (id.startsWith("omnitools:")) {
                 id = id.substring("omnitools:".length());
             }
-            if (OmniToolsPlaceholderResolver.IDS.contains(id)) {
+            if (OmniToolsPlaceholderResolver.supports(id)) {
                 appendResolvedComponent(result, OmniToolsPlaceholderResolver.resolve(player, id));
             } else {
                 Component external = PlaceholderBootstrap.resolveExternal(player, token);

@@ -18,6 +18,7 @@ final class ModuleLifecycleRegistrar {
     }
 
     private static void onStarting(MinecraftServer server) {
+        CloudStorageSessionManager.global().resetForServerStart();
         ModMindEntry.resetModuleServicesForStartup();
     }
 
@@ -51,6 +52,10 @@ final class ModuleLifecycleRegistrar {
 
     private static void onStopping(MinecraftServer server) {
         ModMindEntry.logServerStopping();
+        if (ModMindEntry.isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+            ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "cloud_storage_stop_commit",
+                    "session_journal_retained_for_recovery", () -> CloudStorageSessionManager.global().closeAllForStop());
+        }
         if (ModMindEntry.isModuleEnabled(ModuleId.ONLINE_REWARD)) {
             ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_stop_flush", "online_reward_state_retained",
                     () -> ModMindEntry.onlineTimeRewardService().flushAll(server));

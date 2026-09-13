@@ -19,12 +19,14 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.network.chat.ChatType;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.NameAndId;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -67,6 +69,8 @@ import dev.modmind.omnitools.packages.PackageAuditLog;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
 import dev.modmind.omnitools.skills.SkillTreeService;
 import dev.modmind.omnitools.skills.SkillXpSource;
+import dev.modmind.omnitools.skills.SkillXpEvent;
+import dev.modmind.omnitools.skills.McmmoSkillModule;
 import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
 import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.diagnostics.ModuleHealthRegistry;
@@ -115,6 +119,10 @@ public final class ModMindEntry implements ModInitializer {
                 ModuleFaultBoundary.run(ModuleId.SKILLS, "server_tick", "skip_current_tick",
                         () -> SKILL_TREE_SERVICE.tick(server));
             }
+            if (isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+                ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "session_checkpoint_tick", "session_checkpoint_skipped",
+                        () -> CloudStorageSessionManager.global().tick(server));
+            }
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_tick", "skip_current_tick",
                         () -> onlineTimeRewardService().tick(server));
@@ -144,13 +152,14 @@ public final class ModMindEntry implements ModInitializer {
             if (player instanceof ServerPlayer serverPlayer && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "block_break_xp", serverPlayer,
                         "skip_current_xp_event", () -> {
-                            SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "miner", 5L, SkillXpSource.BLOCK_BREAK);
-                            if (state.is(BlockTags.LOGS)) {
-                                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "lumberjack", 5L, SkillXpSource.BLOCK_BREAK);
-                            }
-                            if (state.is(BlockTags.CROPS)) {
-                                SKILL_TREE_SERVICE.addSkillXp(serverPlayer, "farmer", 5L, SkillXpSource.SURVIVAL);
-                            }
+                            String operation = "block:" + serverPlayer.getUUID() + ":" + pos.asLong() + ":" + world.getGameTime();
+                            String skill = state.is(BlockTags.LOGS) ? "woodcutting"
+                                    : state.is(BlockTags.CROPS) ? "herbalism"
+                                    : state.is(net.minecraft.tags.BlockTags.MINEABLE_WITH_SHOVEL) ? "excavation"
+                                    : "mining";
+                            SkillXpSource source = state.is(BlockTags.CROPS) ? SkillXpSource.SURVIVAL : SkillXpSource.BLOCK_BREAK;
+                            SKILL_TREE_SERVICE.grantSkillXp(serverPlayer, SkillXpEvent.of(serverPlayer.getUUID(),
+                                    skill, source, 5L, operation + ":" + skill, "block_break", operation));
                             if (world instanceof net.minecraft.server.level.ServerLevel serverWorld) {
                                 SKILL_TREE_SERVICE.settleBlockPassive(serverPlayer, serverWorld, state, pos, blockEntity);
                                 SKILL_TREE_SERVICE.settleLumberjackChain(serverPlayer, serverWorld, pos, state);
@@ -162,11 +171,15 @@ public final class ModMindEntry implements ModInitializer {
             if (entity instanceof ServerPlayer player && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "entity_kill_xp", player,
                         "skip_current_xp_event", () -> {
-                            SKILL_TREE_SERVICE.addSkillXp(player, "warrior", 15L, SkillXpSource.ENTITY_KILL);
-                            SKILL_TREE_SERVICE.addSkillXp(player, "guardian", 8L, SkillXpSource.ENTITY_KILL);
-                            SKILL_TREE_SERVICE.addSkillXp(player, "hunter", 20L, SkillXpSource.ENTITY_KILL);
+                            String operation = "kill:" + player.getUUID() + ":" + killedEntity.getUUID() + ":" + world.getGameTime();
+                            String heldItem = BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath();
+                            String combatSkill = heldItem.contains("bow") || heldItem.contains("crossbow") ? "archery"
+                                    : heldItem.contains("axe") ? "axes" : "swords";
+                            long xp = combatSkill.equals("archery") ? 20L : combatSkill.equals("axes") ? 15L : 15L;
+                            SKILL_TREE_SERVICE.grantSkillXp(player, SkillXpEvent.of(player.getUUID(),
+                                    combatSkill, SkillXpSource.ENTITY_KILL, xp, operation + ":" + combatSkill, "entity_kill", operation));
                             SKILL_TREE_SERVICE.settleCombatPassive(player, killedEntity instanceof net.minecraft.world.entity.LivingEntity living ? living : null,
-                                    "kill:" + player.getUUID() + ":" + killedEntity.getUUID() + ":" + world.getGameTime());
+                                    operation);
                         });
             }
         });
@@ -228,6 +241,11 @@ public final class ModMindEntry implements ModInitializer {
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             ServerPlayer player = handler.getPlayer();
+            if (isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+                ModuleFaultBoundary.runPlayerEvent(ModuleId.CLOUD_STORAGE, "cloud_storage_disconnect_commit", player,
+                        "session_journal_retained_for_recovery", () -> CloudStorageSessionManager.global().closeFor(
+                                player, CloudStorageCommitService.Reason.DISCONNECT));
+            }
             if (isModuleEnabled(ModuleId.TITLES)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.TITLES, "player_disconnect", player,
                         "title_state_retained", () -> {
@@ -772,6 +790,11 @@ public final class ModMindEntry implements ModInitializer {
                 + " type=" + entry.operation() + " owner=" + entry.ownerId() + " page=" + (entry.page() + 1)
                 + " createdAt=" + entry.createdAt() + " updatedAt=" + entry.updatedAt() + " beforeItems="
                 + cloudStorageItemCount(entry.before()) + " afterItems=" + cloudStorageItemCount(entry.after())
+                + " session=" + entry.sessionMetadata().sessionId() + " openedHash="
+                + entry.sessionMetadata().openedPageHash() + " targetHash="
+                + entry.sessionMetadata().targetPageHash() + " changedSlots="
+                + entry.sessionMetadata().changedSlots() + " checkpoint="
+                + entry.sessionMetadata().checkpointAt() + "/" + entry.sessionMetadata().checkpointReason()
                 + " reason=" + entry.reason()), false);
         return 1;
     }
@@ -809,6 +832,11 @@ public final class ModMindEntry implements ModInitializer {
                 .executes(context -> openSkillTreeMenu(context.getSource().getPlayerOrException()))
                 .then(Commands.literal("open").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_OPEN))
                         .executes(context -> openSkillTreeMenu(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("stats").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_OPEN))
+                        .executes(context -> showSkillStats(context.getSource().getPlayerOrException())))
+                .then(Commands.literal("ability").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_OPEN))
+                        .then(Commands.argument("skill", StringArgumentType.word())
+                                .executes(ModMindEntry::showSkillAbility)))
                 .then(Commands.literal("add").requires(COMMAND_PERMISSIONS.requirement(CommandAction.SKILLS_ADMIN))
                         .then(Commands.argument("tree", StringArgumentType.word())
                                 .then(Commands.argument("amount", LongArgumentType.longArg(1L, 1_000_000_000L))
@@ -825,12 +853,54 @@ public final class ModMindEntry implements ModInitializer {
         return 1;
     }
 
+    private static int showSkillStats(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.SKILLS) || !COMMAND_PERMISSIONS.canUse(player, CommandAction.SKILLS_OPEN)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        var service = SKILL_TREE_SERVICE;
+        MutableComponent message = Component.literal("技能引擎：" + service.engine().serializedName()
+                + "  总战力：" + service.getPowerLevel(player)).withStyle(ChatFormatting.GOLD);
+        for (SkillTreeConfig.TreeDefinition tree : service.config().trees()) {
+            var progress = service.progress(player, tree.id());
+            message = message.append(Component.literal("\n" + tree.display() + " Lv." + progress.level()
+                    + "（" + progress.currentXp() + "/" + (progress.level() >= service.config().settings().maxLevel()
+                    ? "-" : Long.toString(service.xpRequired(tree, progress.level()))) + " XP）")
+                    .withStyle(ChatFormatting.GRAY));
+        }
+        player.sendSystemMessage(message);
+        return 1;
+    }
+
+    private static int showSkillAbility(CommandContext<CommandSourceStack> context)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        String skill = StringArgumentType.getString(context, "skill");
+        if (!isModuleEnabled(ModuleId.SKILLS) || !COMMAND_PERMISSIONS.canUse(player, CommandAction.SKILLS_OPEN)) {
+            context.getSource().sendFailure(ServerText.translatable("message.omnitools.module_disabled"));
+            return 0;
+        }
+        if (SKILL_TREE_SERVICE.config().tree(skill).isEmpty()) {
+            context.getSource().sendFailure(Component.literal("未知技能：" + skill));
+            return 0;
+        }
+        McmmoSkillModule.AbilitySnapshot snapshot = SKILL_TREE_SERVICE.abilitySnapshot(player, skill);
+        context.getSource().sendSuccess(() -> Component.literal("技能 " + snapshot.skillId()
+                + "：专业等级 " + snapshot.professionLevel() + "，能力等级 " + snapshot.abilityLevel()
+                + "，冷却 " + snapshot.cooldownRemainingSeconds() + " 秒，生效 "
+                + snapshot.activeRemainingSeconds() + " 秒"), false);
+        return 1;
+    }
+
     private static int addSkillXpToSource(CommandContext<CommandSourceStack> context)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         String tree = StringArgumentType.getString(context, "tree");
         long amount = LongArgumentType.getLong(context, "amount");
-        SkillTreeService.XpResult result = SKILL_TREE_SERVICE.addSkillXp(player, tree, amount, SkillXpSource.COMMAND);
+        String operation = "command:skill_xp:" + player.getUUID() + ":" + tree + ":" + amount + ":" + player.level().getGameTime();
+        SkillTreeService.XpResult result = SKILL_TREE_SERVICE.grantSkillXp(player,
+                SkillXpEvent.of(player.getUUID(), tree, SkillXpSource.COMMAND, amount, operation,
+                        "admin_command", operation));
         if (!result.granted()) {
             context.getSource().sendFailure(Component.literal("技能经验未发放：" + result.status().name().toLowerCase(java.util.Locale.ROOT)));
             return 0;
@@ -2358,11 +2428,24 @@ public final class ModMindEntry implements ModInitializer {
             player.displayClientMessage(ServerText.translatable("message.omnitools.storage.quarantined"), true);
             return 0;
         }
-        player.openMenu(new SimpleMenuProvider(
-                (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
-                        cloudStorageConfig(), 0),
-                ServerText.translatable("gui.omnitools.storage.title")));
-        return 1;
+        if (CloudStorageJournalData.get(player.level().getServer()).hasUnresolvedOperation(player.getUUID())) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.quarantined"), true);
+            return 0;
+        }
+        if (CloudStorageSessionManager.global().hasActiveSession(player)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.save_failed"), true);
+            return 0;
+        }
+        try {
+            player.openMenu(new SimpleMenuProvider(
+                    (syncId, inventory, ignored) -> CloudStorageScreenHandler.createServer(syncId, inventory, player,
+                            cloudStorageConfig(), 0),
+                    ServerText.translatable("gui.omnitools.storage.title")));
+            return 1;
+        } catch (IllegalStateException exception) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.save_failed"), true);
+            return 0;
+        }
     }
 
     static int openAchievementMenu(ServerPlayer player) {

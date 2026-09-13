@@ -1,24 +1,12 @@
-# 技能树
+# 技能模块：独立 mcMMO 行为兼容层
 
-技能树是服务端长期成长模块。每棵树独立保存经验、等级、技能点、属性投资、技能解锁和精通经验；玩家使用 `/skills` 打开界面。模块使用原版聊天、状态效果和箱子界面，客户端无需安装额外模组。
+OmniTools 的技能模块在 Fabric 服务端内独立实现 mcMMO 风格的成长与能力。它不复制或链接 Bukkit/Spigot 版 mcMMO 源码；如果服务器同时安装真正的 mcMMO，必须只启用其中一个经验和掉落系统。
 
-本页是技能树配置、礼包联动和运维规则的唯一说明。严格 JSON 的通用规则见[配置基础](../getting-started/configuration-basics.md)。
+本页描述当前实现，不把 Fishing、Taming、Salvage、Smelting 或 Party 等第二阶段功能写成已完成。
 
-## 当前专业技能树（v2）
+## 启用与入口
 
-默认配置现为十个专业方向：矿工、伐木工、农夫与采集者、狩猎者、战士、守卫、治疗与辅助、锻造与制造、炼金与附魔、探险与探索。每个专业等级上限为 100；每提升 10 个专业等级获得 1 个该专业技能点，达到 100 级后解锁一项主动技能和一项被动技能。两项技能均为 1--10 级，继续投入技能点可强化效果。主动技能界面显示当前等级、剩余持续时间与冷却时间；技能重置返还已投入点数并有 10 分钟冷却。
-
-每项技能定义均包含 `tuning`：`min_duration_seconds`、`max_duration_seconds`、`max_cooldown_seconds`、`min_cooldown_seconds`、`min_value` 与 `max_value`。服务端将其在等级 1--10 之间线性插值；旧配置首次加载时会自动写入这些字段，方便后续由管理员调参。
-
-主动技能的服务端实现包括：矿工急迫、伐木原木连锁、农夫成熟作物范围收获、狩猎/探索目标标记、战士碰撞检测冲锋、守卫抗性壁垒、治疗持续领域、锻造急迫、炼金幸运增益。外部精英/首领/悬赏、领地保护和副本仇恨系统未提供统一 API 时，技能采用安全降级（不穿墙、不透视、不转移特殊伤害）。
-
-概率被动与额外掉落均由服务端结算，并带有操作 ID 去重、触发统计与异步审计记录；创造、精准采集、非玩家破坏、未知注册表、特殊物品等情形默认拒绝额外产出。
-
-服务端会保存技能等级和主动技能冷却，主动效果只在服务端线程执行。旧版 2000 级配置仍可读取，首次加载会生成 v2 配置；旧世界进度按原树映射到新专业并保留在 SavedData 中。
-
-## 启用与首次使用
-
-根配置中的 `modules.skills.enabled` 默认是 `true`。若服务器显式关闭过该模块，请在 `config/omnitools/config.json` 中启用：
+模块开关位于 `config/omnitools/config.json`：
 
 ```json
 {
@@ -28,256 +16,177 @@
 }
 ```
 
-首次启用后，服务器会创建以下文件：
+技能配置的唯一权威路径是：
 
 ```text
 config/omnitools/skills/config.json
 ```
 
-按下面的顺序验证部署：
+首次启动会生成 `format_version: 2` 的 mcMMO 配置。修改后执行 `/omnitools reload skills`；加载失败会保留上一份有效配置。玩家进度和操作账本保存在世界 SavedData 中，不要通过删除世界数据来“重置”技能。
 
-1. 备份世界 `data/` 和 `config/omnitools/skills/config.json`。
-2. 修改配置后执行 `/omnitools reload skills`；修改根开关、称号效果或礼包定义时执行完整 `/omnitools reload`。
-3. 以普通玩家执行 `/skills`，确认可打开六棵默认树。
-4. 以管理员执行 `/omnitools skills add combat 1000`，确认经验、升级提示和技能点状态正确更新。
+玩家可使用：
 
-重载失败时服务器继续使用上一份有效配置。禁用模块会移除当前已应用的技能树常驻属性，但不会删除玩家进度；重新启用后会重新应用属性。
+| 命令 | 权限 | 作用 |
+| --- | --- | --- |
+| `/skills`、`/skills open` | `skills.open` | 打开技能总览和详情界面 |
+| `/skills stats` | `skills.open` | 查看引擎、总战力和各技能经验 |
+| `/skills ability <skill>` | `skills.open` | 查看能力等级、冷却和剩余持续时间 |
+| `/omnitools skills add <skill> <amount>` | `skills.admin` | 管理员按操作 ID 发放技能经验 |
 
-## v2 固定成长规则
+`/skills top` 和 `/party` 尚未实现，不应写入菜单或运营公告。
 
-| 规则 | 固定值 |
-| --- | ---: |
-| 单专业等级上限 | 100 |
-| 技能解锁等级 | 100 |
-| 每个专业技能 | 1 主动 + 1 被动 |
-| 每项技能等级 | 1--10 |
-| 技能点里程碑 | 每 10 个专业等级 1 点 |
-| 主动技能冷却 | 30 分钟降至 10 分钟（随技能等级） |
-| 技能重置冷却 | 10 分钟 |
+## 当前技能与 canonical ID
 
-主动技能的持续时间和效果强度随技能等级提升，被动技能由服务端进行概率结算；额外产出操作使用唯一操作上下文，禁止再次触发同类被动。
+默认配置包含以下十项技能。奖励、占位符、事件和 SavedData 以 canonical ID 为稳定键：
 
-## 兼容旧版规则（仅迁移）
+| ID | 方向 | 主动能力 | 被动能力 |
+| --- | --- | --- | --- |
+| `mining` | Mining | Super Breaker | Double Drops |
+| `woodcutting` | Woodcutting | Tree Feller | Lumberjack's Loot |
+| `herbalism` | Herbalism | Green Terra | Herbalism Bonus |
+| `excavation` | Excavation | Giga Drill Breaker | Archaeology |
+| `swords` | Swords | Serrated Strikes | Bleed |
+| `axes` | Axes | Skull Splitter | Critical Strikes |
+| `archery` | Archery | Arrow Storm | Retrieval |
+| `acrobatics` | Acrobatics | Graceful Roll | Dodge |
+| `repair` | Repair | Arcane Forging | Super Repair |
+| `alchemy` | Alchemy | Catalysis | Concoctions |
 
-以下规则由服务端固定，写入其他数值会使配置加载失败：
+兼容层仍接受旧 ID：`miner → mining`、`lumberjack → woodcutting`、`farmer → herbalism`、`excavator → excavation`、`warrior/combat → swords`、`hunter/hunting → archery`、`guardian/defense → acrobatics`、`smithing/crafting → repair`、`healing/support → alchemy`、`exploration/survival → acrobatics`。这些映射只用于读取旧奖励和旧进度；新配置请直接使用 canonical ID。一个 mcMMO 配置不能同时定义 canonical ID 和其旧别名。
 
-| 规则 | 固定值 | 说明 |
-| --- | ---: | --- |
-| 单树等级上限 | 2000 | 到达上限后，同树经验转为精通经验。 |
-| 每树技能数量 | 4 | 技能顺序和阶段固定。 |
-| 技能点节点 | 500 / 1000 / 1500 / 2000 | 每个节点获得 1 点，单树最多 4 点。 |
-| 等级属性上限 | 30% | 随等级线性成长。 |
-| 技能点属性上限 | 20% | 每点固定增加 5%，最多投入 4 点。 |
-| 单树常驻属性上限 | 50% | 等级属性与属性强化合计上限。 |
-| 称号技能经验上限 | 50% | 仅技能经验受影响，不增加常驻属性。 |
+## 等级、经验与能力
 
-升级经验使用以下公式，随后乘以当前等级阶段倍率：
+- 每项技能等级为 `0–1000`，总战力是所有已配置技能等级之和。
+- 服务器根据技能配置的 XP 曲线、来源白名单、来源间隔和每日上限结算经验。
+- `mcmmo.xp_multiplier` 只在服务端应用；客户端不能指定最终经验。
+- 等级 `100` 解锁主动和被动能力。能力阶段为 `100 / 250 / 500 / 750 / 1000`，对应能力等级 `1 / 3 / 5 / 7 / 10`。
+- 主动能力使用服务端冷却和持续时间；技能界面、`/skills ability` 与占位符显示当前状态。
+- mcMMO 引擎不消费旧专业树技能点，也不应用旧专业树的常驻属性加成；旧字段仍保留用于兼容读取和审计。
 
-```text
-所需经验 = xp_base + 当前等级 * xp_linear + 当前等级² * xp_quadratic
-```
+经验事件统一包含技能、来源、玩家 UUID、世界、原因、操作 ID 和反刷键。高频事件不直接逐次写文件，而是通过 SavedData 账本去重后更新玩家进度。
 
-默认阶段倍率为 `Lv.1: 1.0`、`Lv.501: 1.25`、`Lv.1001: 1.6`、`Lv.1501: 2.0`。经验曲线、每日上限和公告参数可以调整；上表中的硬性成长规则不能调整。
+## 已实现的行为边界
 
-## 默认技能树
+- Mining、Woodcutting、Herbalism、Excavation：方块经验、服务器掉落表额外掉落、成熟作物处理和有限范围连锁砍树。
+- Swords、Axes、Archery、Acrobatics：击杀经验、有限的强度/发光/抗性效果；每次事件最多结算一次。
+- Repair、Alchemy：制作完成事件驱动的经验和受限的制造/药剂被动效果；不再周期遍历全部注册物品。
+- 所有额外掉落排除创造模式、精准采集、命令/异常破坏等不安全来源；额外掉落不会再次触发同类被动。
+- 范围能力有方块数量、碰撞和重入限制；世界、背包和实体修改只在服务端主线程执行。
 
-首次生成配置时提供六棵树。它们的树 ID 是行为经验和礼包配置的稳定引用，不应随意改名或复用。
-
-| ID | 技能树 | 正常经验来源 | 常驻属性 | 终极效果 |
-| --- | --- | --- | --- | --- |
-| `gathering` | 采集 | 破坏方块 | 采掘速度 | 急迫 I |
-| `combat` | 战斗 | 有效击杀 | 攻击伤害 | 力量 I |
-| `defense` | 防御 | 有效击杀 | 护甲值 | 抗性提升 I |
-| `hunting` | 狩猎 | 有效击杀 | 幸运 | 幸运 I |
-| `crafting` | 制造 | 有效制作 | 幸运 | 急迫 I |
-| `survival` | 生存 | 有效移动 | 最大生命值 | 生命恢复 I |
-
-终极效果持续 10 秒，每棵树独立冷却 60 秒。它只会由正常玩法经验来源触发，不计算进 50% 常驻属性上限。
-
-### 玩家上手流程
-
-1. 输入 `/skills`，选择想查看的技能树；界面会显示当前等级、经验进度、常驻属性、可用技能点和精通经验。
-2. 进行对应玩法以获得经验：采集方块、击杀实体、制作物品或进行有效移动。礼包和统一奖励可额外提供经验，但不会触发玩法专精。
-3. 升级后，等级自动提供该树的常驻属性。每 `500` 级获得 1 点技能点；满足等级和点数条件后，可在树详情中解锁技能。
-4. 在技能点用途之间作出选择：强化属性、解锁技能、兑换统一奖励，或保留为精通储备。已消费的点数不会自动重置。
-5. 到达 `2000` 级后继续获得同树经验时，经验会进入精通进度；精通不再提高基础属性。
-
-### 默认技能内容
-
-所有树遵循相同的解锁阶段，但每棵树的基础属性、经验行为与终极效果不同：
-
-| 技能树 | 基础专精（Lv.1） | 效率专精（Lv.250，1 点） | 收益专精（Lv.750，1 点） | 终极专精（Lv.1500，2 点） |
-| --- | --- | --- | --- | --- |
-| 采集 | **精准采集**：采掘速度属性生效。 | **高效作业**：有效采集经验 `+10%`。 | **资源感知**：有效采集经验额外 `+15%`。 | **过载采集**：有效采集触发急迫 I，10 秒，60 秒冷却。 |
-| 战斗 | **战斗本能**：攻击伤害属性生效。 | **迅捷攻击**：有效击杀经验 `+10%`。 | **致命打击**：有效击杀经验额外 `+15%`。 | **战意爆发**：有效击杀触发力量 I，10 秒，60 秒冷却。 |
-| 防御 | **稳固姿态**：护甲值属性生效。 | **坚韧护甲**：有效击杀经验 `+10%`。 | **伤害偏转**：有效击杀经验额外 `+15%`。 | **不屈壁垒**：有效击杀触发抗性提升 I，10 秒，60 秒冷却。 |
-| 狩猎 | **追猎直觉**：幸运属性生效。 | **猎手步伐**：有效击杀经验 `+10%`。 | **稀有感知**：有效击杀经验额外 `+15%`。 | **首领猎杀**：有效击杀触发幸运 I，10 秒，60 秒冷却。 |
-| 制造 | **工匠基础**：幸运属性生效。 | **熟练制作**：有效制作经验 `+10%`。 | **品质把控**：有效制作经验额外 `+15%`。 | **大师工坊**：有效制作触发急迫 I，10 秒，60 秒冷却。 |
-| 生存 | **野外本能**：最大生命值属性生效。 | **耐力恢复**：有效生存经验 `+10%`。 | **远行准备**：有效生存经验额外 `+15%`。 | **生存专家**：有效生存触发生命恢复 I，10 秒，60 秒冷却。 |
-
-### 四技能阶段
-
-每棵树的四项技能均使用相同解锁结构：
-
-| 阶段 | 解锁等级 | 技能点 | 实际作用 |
-| --- | ---: | ---: | --- |
-| 基础专精 | 1 | 0 | 自动解锁，启用该树的等级常驻属性。 |
-| 效率专精 | 250 | 1 | 对正常玩法来源的技能经验 `+10%`。 |
-| 收益专精 | 750 | 1 | 对正常玩法来源的技能经验额外 `+15%`，可与效率专精叠加。 |
-| 终极专精 | 1500 | 2 | 正常玩法触发短时原版效果，持续 10 秒、冷却 60 秒。 |
-
-效率和收益专精不会放大礼包经验或管理员命令经验。每棵树只有 4 点，玩家必须在属性强化、技能解锁、统一奖励和精通储备之间选择。
+外部领地保护、首领、悬赏和仇恨系统没有统一 API 时，能力采用安全降级，不穿墙、不透视地下资源，也不转移虚空或处决伤害。
 
 ## 配置结构
 
-配置使用 `format_version: 1`，最多可定义 64 棵树。每棵树必须有且仅有 4 项技能，并严格采用 `1 / 250 / 750 / 1500` 级与 `0 / 1 / 1 / 2` 点的顺序。下面是一个完整的战斗树定义，可作为已有文件中对应树的参考：
+最小引擎设置如下，完整技能定义由首次生成的文件提供：
 
 ```json
 {
-  "id": "combat",
-  "display": "战斗",
-  "icon": "minecraft:iron_sword",
-  "attribute": "attack_damage",
-  "sources": ["entity_kill", "reward", "command"],
-  "level_multipliers": [
-    { "from_level": 1, "multiplier": 1.0 },
-    { "from_level": 501, "multiplier": 1.25 },
-    { "from_level": 1001, "multiplier": 1.6 },
-    { "from_level": 1501, "multiplier": 2.0 }
-  ],
+  "format_version": 2,
+  "engine": "mcmmo",
+  "mcmmo": {
+    "level_cap": 1000,
+    "xp_multiplier": 1.0,
+    "party_enabled": true,
+    "legacy_enabled": false
+  },
+  "settings": {
+    "max_level": 1000,
+    "points_every_levels": 10,
+    "max_daily_xp": 250000,
+    "min_interval_ticks": 4
+  },
+  "trees": []
+}
+```
+
+实际使用时 `trees` 不能为空；请保留生成文件中的十个定义。每项技能定义包含 `id`、`display`、`icon`、`attribute`、`sources`、`level_multipliers` 和两个 `skills`（一个 `active`、一个 `passive`）。主动/被动的 `tuning` 字段由服务端校验并按 1–10 级线性插值：
+
+```json
+{
+  "id": "mining",
+  "display": "Mining",
+  "icon": "minecraft:diamond_pickaxe",
+  "attribute": "block_break_speed",
+  "sources": ["block_break", "reward", "command"],
+  "level_multipliers": [{ "from_level": 1, "multiplier": 1.0 }],
   "skills": [
     {
-      "id": "foundation",
-      "display": "战斗本能",
-      "description": "自动解锁。战斗等级带来的常驻攻击伤害加成开始生效。",
-      "unlock_level": 1,
-      "point_cost": 0
+      "id": "active",
+      "display": "Super Breaker",
+      "description": "达到阶段等级后自动强化。",
+      "kind": "active",
+      "unlock_level": 100,
+      "max_level": 10,
+      "point_cost": 0,
+      "tuning": {
+        "min_duration_seconds": 30,
+        "max_duration_seconds": 120,
+        "max_cooldown_seconds": 1800,
+        "min_cooldown_seconds": 600,
+        "min_value": 0.0,
+        "max_value": 0.0
+      }
     },
     {
-      "id": "efficiency",
-      "display": "迅捷攻击",
-      "description": "解锁后，有效击杀获得的技能经验提高 10%；不影响礼包与指令经验。",
-      "unlock_level": 250,
-      "point_cost": 1
-    },
-    {
-      "id": "yield",
-      "display": "致命打击",
-      "description": "解锁后，有效击杀获得的技能经验额外提高 15%；可与迅捷攻击叠加。",
-      "unlock_level": 750,
-      "point_cost": 1
-    },
-    {
-      "id": "ultimate",
-      "display": "战意爆发",
-      "description": "有效击杀时触发力量 I，持续 10 秒；每 60 秒至多触发一次。",
-      "unlock_level": 1500,
-      "point_cost": 2
+      "id": "passive",
+      "display": "Double Drops",
+      "description": "由服务端按掉落表结算额外产出。",
+      "kind": "passive",
+      "unlock_level": 100,
+      "max_level": 10,
+      "point_cost": 0,
+      "tuning": {
+        "min_duration_seconds": 0,
+        "max_duration_seconds": 0,
+        "max_cooldown_seconds": 0,
+        "min_cooldown_seconds": 0,
+        "min_value": 0.05,
+        "max_value": 0.40
+      }
     }
   ]
 }
 ```
 
-树定义字段如下：
+`settings.max_level` 与 `points_every_levels` 对 mcMMO 固定为 `1000/10`；属性上限、称号经验上限和每日经验上限仍由服务端硬校验，不能通过配置绕过。
 
-| 字段 | 规则 | 说明 |
-| --- | --- | --- |
-| `id` | 1--64 位小写 ID | 稳定业务键；礼包、奖励和存档会引用它。 |
-| `display` | 1--64 个字符 | 技能界面、聊天和公告中的名称。 |
-| `icon` | 已注册物品 ID | 技能界面图标。 |
-| `attribute` | `block_break_speed`、`attack_damage`、`armor`、`luck`、`movement_speed`、`max_health` | 该树 50% 常驻属性的目标。 |
-| `sources` | 至少一个经验来源 | 只接受白名单中的来源。 |
-| `level_multipliers` | 从 `from_level: 1` 开始且递增 | 对经验曲线施加阶段倍率。 |
-| `skills` | 固定 4 项 | 展示文本可以改，阶段、ID、点数成本不能改。 |
+## 奖励、称号、礼包和侧边栏联动
 
-`settings` 中可运营调整的字段包括 `max_daily_xp`、`min_interval_ticks`、`xp_base`、`xp_linear`、`xp_quadratic`、`point_reward_currency` 及 `announcements`。`announcements` 支持 `enabled`、`minimum_level`、`cooldown_seconds`、`channel`（`chat` 或 `action_bar`）和 Minecraft 聊天 `color`。
+- 签到、成就、CDK、礼包和商城通过统一的 `grantSkillXp()` 入口发放经验，不直接修改玩家 SavedData。
+- 称号的 `SKILL_XP` 效果只给经验结算增加有限倍率，不提高技能属性或被动额外掉落上限。
+- 侧边栏和文本模板可使用本页的技能占位符；模板渲染发生在服务端，外部 Placeholder API 缺失时仍能显示内置值。
 
-## 经验来源与防刷
+内置占位符示例：
 
-每次经验结算都会校验树 ID、来源白名单、最小事件间隔和每日有效经验上限。默认行为数值如下：
+| 占位符 | 含义 |
+| --- | --- |
+| `%skill_engine%` | 当前引擎（`mcmmo`、`professional` 或 `legacy`） |
+| `%skill_power_level%` | 总战力等级 |
+| `%skill_level_mining%` | Mining 当前等级 |
+| `%skill_xp_mining%` / `%skill_xp_total_mining%` | 当前等级内经验 / 累计经验 |
+| `%skill_ability_level_mining%` | Mining 能力等级 |
+| `%skill_ability_cooldown_mining%` | 主动技能剩余冷却（秒） |
+| `%skill_ability_active_mining%` | 主动技能剩余持续时间（秒） |
 
-| 行为 | 目标树 | 基础经验 |
-| --- | --- | ---: |
-| 破坏方块 | `gathering` | 5 / 次 |
-| 击杀实体 | `combat` / `defense` / `hunting` | 15 / 8 / 20 / 次 |
-| 制作物品 | `crafting` | 每件 5，单次统计最多 1000 |
-| 有效位移 | `survival` | 每移动至少 8 格结算 10 |
+其他技能将 `mining` 替换成对应 canonical ID。旧 ID 只在服务端解析时兼容，不建议写进新的侧边栏模板。
 
-可用来源为 `block_break`、`entity_kill`、`craft`、`survival`、`reward`、`command`。前四项属于正常玩法来源，会受频率、日上限、效率专精、收益专精和终极专精影响；`reward` 与 `command` 仍校验树白名单和日上限，但不会被效率/收益专精放大。
+## 旧数据迁移与回滚
 
-## 玩家提示、公告与满级
+旧的 professional/legacy 配置会在首次读取时切换到 mcMMO 引擎设置，并保留管理员自定义的树、文案和倍率。旧世界的树数据通过别名在第一次访问时映射到 canonical ID；原始 SavedData 不会被删除。迁移前应备份世界 `data/` 和技能配置，确认 `/skills stats` 的等级和累计经验后再继续运营。
 
-玩家每升一级都会收到当前等级、经验进度和常驻属性加成。`Lv.100`、`500`、`1000`、`1500`、`2000` 会显示里程碑提示；500 级间隔还会提示获得技能点。
+如果旧数据缺少足够来源信息，兼容层不会把经验随机拆到多个新技能；应保留为待人工处理的 legacy credit，再通过后续迁移工具兑换。当前发行版尚未提供 `/skills migrate` 管理命令。
 
-任意单树或总技能等级首次跨过百级时，服务器按公告配置广播。对同一玩家默认有 60 秒合并窗口，窗口内只保留最高的单树和总等级里程碑，避免大量经验奖励刷屏。
+## 操作账本与故障安全
 
-达到 `Lv.2000` 后，等级和常驻属性停止成长；同树后续经验进入精通经验。精通经验、精通储备和已兑换统一奖励会保存在玩家数据中，当前界面提供展示与储备入口。
+XP 操作和被动/主动副作用使用不同的操作 ID namespace。操作在扣经验、生成掉落、修改实体或破坏额外方块前先写入 `omnitools_skill_ledger`：
 
-## 技能点与界面
+- 重放同一事件只会返回重复操作，不会再次发放经验、效果或掉落。
+- 账本按玩家保存并有界裁剪；测试世界缺少 SavedData 时退回有界内存账本并默认拒绝重复操作。
+- 发生异常时由技能模块故障边界隔离单次事件，记录技能、玩家、世界、坐标、操作 ID、等级、能力状态和降级动作。
+- 服务器重启不会重置主动技能冷却或已确认的操作 ID。
 
-在 `/skills` 的树详情中，玩家可以：
+## 尚未实现与后续阶段
 
-- 解锁满足等级要求的技能。
-- 将 1 点投入属性强化，获得该树 `+5%` 常驻属性，至多投入 4 点。
-- 兑换 `point_reward_currency` 配置的统一绑定货币。
-- 将 1 点转入精通储备，留给后续精通兑换内容。
+以下内容属于规划或第二阶段：Fishing、Taming、Salvage、Smelting、独立 Defense/Support/Exploration 技能、Party 经验共享、`/skills top` 排行榜，以及对真正 mcMMO 的双向数据导入。它们不能作为当前配置可用字段或已上线玩法宣传。
 
-所有点数获得与消费均写入玩家持久化数据。重复重载、断线或重新登录不会重复获得同一等级节点的点数。
-
-## 称号经验加成
-
-称号效果模块提供 `SKILL_XP` 效果类型。只有玩家佩戴该称号且开启称号效果时，技能经验才会获得加成。示例：
-
-```json
-{
-  "skill_researcher": {
-    "name": "技能研究员",
-    "type": "SKILL_XP",
-    "amount": 0.15,
-    "display": "&b技能经验 +15%"
-  }
-}
-```
-
-多个已选称号效果按加法累计，最终封顶 `+50%`。称号只影响经验结算，不突破单树 50% 属性上限。配置详情见[称号效果](title-effects.md)。
-
-## 奖励与礼包联动
-
-统一奖励可以定向发放技能经验：
-
-```json
-{ "id": "combat_xp_1000", "type": "skill_xp", "tree": "combat", "amount": 1000 }
-```
-
-该写法只能指定一棵树。需要随机或自选时，应使用礼包的 `skill_xp` 条目：
-
-```json
-{
-  "skill_xp": [
-    { "id": "combat_fixed", "mode": "fixed", "tree": "combat", "amount": 1000 },
-    { "id": "random_training", "mode": "random", "trees": ["gathering", "combat", "crafting"], "amount": 1000, "title_bonus": false },
-    { "id": "chosen_training", "mode": "player_choice", "trees": ["combat", "defense"], "amount": 2000, "title_bonus": true }
-  ]
-}
-```
-
-`fixed` 会直接投放指定树；`random` 会优先从未满级候选树中随机选择；`player_choice` 会打开服务端选择界面。随机或自选结果都会在经验发放前持久化，因此重复点击或重试不会重新随机或重复发经验。候选树全部满级时，经验自动转为所选树的精通经验。
-
-`title_bonus` 默认为 `false`，适合商城礼包；设为 `true` 时礼包经验会享受称号技能经验加成。礼包还可以同时发物品，完整字段、投递状态和管理员恢复流程见[礼包](packages.md)。
-
-## 命令、权限、数据与排错
-
-| 命令 | 默认权限 | 说明 |
-| --- | --- | --- |
-| `/skills`、`/skills open` | `skills.open`（PLAYER） | 打开自己的技能树界面。 |
-| `/omnitools skills add <tree> <amount>` | `skills.admin`（ADMIN） | 给自己指定树增加经验。 |
-
-玩家进度与公告限频状态保存于世界 SavedData；不要删除相关世界数据来重置等级或处理重复奖励。发生问题时按以下顺序检查：
-
-1. 执行 `/omnitools diagnose`，确认 `skills` 已启用。
-2. 检查树 ID、经验来源白名单、每日上限和最小事件间隔。
-3. 确认礼包候选树存在，且技能树模块没有关闭。
-4. 使用管理员 `skills add` 验证树 ID；若该命令成功而正常行为未结算，检查对应行为是否满足防刷条件。
-5. 对礼包或统一奖励的中断记录，保留奖励账本并按[奖励一致性与奖励箱](../guides/reward-consistency.md)处理，不能通过删除记录“重试”。
-
-测试服至少验证：方块、击杀、制作和移动经验；250/750/1500 级技能解锁；500 级技能点；属性上限；称号 `SKILL_XP` 上限；三种礼包模式；全树满级后的精通经验；以及百级公告限频。
+开发和升级时请同时检查 [配置迁移指南](../guides/upgrade-guide.md)、[奖励一致性](../guides/reward-consistency.md) 和 [文档地图](../maintainers/document-map.md)。

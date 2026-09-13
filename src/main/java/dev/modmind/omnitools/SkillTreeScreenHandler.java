@@ -134,6 +134,7 @@ public final class SkillTreeScreenHandler extends ChestMenu {
         }
         for (int index = 0; index < SKILL_SLOTS.length; index++) {
             if (slotId == SKILL_SLOTS[index]) {
+                if (service.engine() == dev.modmind.omnitools.skills.SkillEngine.MCMOO) return;
                 if (tree.skills().size() == 2) service.upgradeSkill(serverPlayer, tree.id(), tree.skills().get(index).id());
                 else service.unlockSkill(serverPlayer, tree.id(), tree.skills().get(index).id());
                 refreshContents();
@@ -166,23 +167,27 @@ public final class SkillTreeScreenHandler extends ChestMenu {
 
     private void renderOverview() {
         List<SkillTreeConfig.TreeDefinition> trees = service.config().trees();
+        boolean engineManaged = service.engine() == dev.modmind.omnitools.skills.SkillEngine.MCMOO;
         int completed = 0;
         int availablePoints = 0;
         int totalLevel = 0;
         for (SkillTreeConfig.TreeDefinition tree : trees) {
             SkillTreeData.Progress progress = service.progress(owner, tree.id());
             if (progress.level() >= service.config().settings().maxLevel()) completed++;
-            availablePoints += progress.availablePoints();
+            if (!engineManaged) availablePoints += progress.availablePoints();
             totalLevel += progress.level();
         }
         container.setItem(GuiSlots.HEADER_LEFT_54, GuiTheme.status(Items.EXPERIENCE_BOTTLE,
                 Component.literal("技能树").withStyle(ChatFormatting.AQUA), ChatFormatting.AQUA,
                 List.of(Component.literal("已满级：" + completed + " / " + trees.size()).withStyle(ChatFormatting.GRAY),
                         Component.literal("总技能等级：" + totalLevel).withStyle(ChatFormatting.GOLD),
-                        Component.literal("可用技能点：" + availablePoints).withStyle(ChatFormatting.GREEN)), false));
+                        Component.literal(engineManaged ? "能力等级随专业阶段自动决定" : "可用技能点：" + availablePoints)
+                                .withStyle(engineManaged ? ChatFormatting.AQUA : ChatFormatting.GREEN)), false));
         container.setItem(GuiSlots.HEADER_CENTER_54, GuiTheme.status(Items.NETHER_STAR,
                 Component.literal("MMO 成长").withStyle(ChatFormatting.GOLD), ChatFormatting.GOLD,
-                List.of(Component.literal("每棵技能树独立积累经验与属性。 ").withStyle(ChatFormatting.GRAY)), false));
+                List.of(Component.literal(engineManaged
+                        ? "独立技能等级、能力阶段和服务端冷却。"
+                        : "每棵技能树独立积累经验与属性。 ").withStyle(ChatFormatting.GRAY)), false));
         if (trees.isEmpty()) {
             container.setItem(GuiSlots.CENTER_54, GuiTheme.named(Items.BOOK, Component.literal("暂无技能树").withStyle(ChatFormatting.GRAY),
                     List.of(Component.literal("请由管理员在 skills/config.json 配置。 ").withStyle(ChatFormatting.DARK_GRAY))));
@@ -195,8 +200,15 @@ public final class SkillTreeScreenHandler extends ChestMenu {
             List<Component> lore = new ArrayList<>();
             lore.add(Component.literal("等级：" + progress.level() + " / " + service.config().settings().maxLevel()).withStyle(ChatFormatting.WHITE));
             lore.add(Component.literal("经验：" + progress.currentXp() + " / " + required).withStyle(ChatFormatting.GRAY));
-            lore.add(Component.literal("属性加成：" + percent(service.attributeBonus(progress))).withStyle(ChatFormatting.GOLD));
-            lore.add(Component.literal("可用技能点：" + progress.availablePoints()).withStyle(ChatFormatting.GREEN));
+            if (engineManaged) {
+                lore.add(Component.literal("能力等级：" + service.abilitySnapshot(owner, tree.id()).abilityLevel() + " / 10")
+                        .withStyle(ChatFormatting.GOLD));
+                lore.add(Component.literal("主动能力冷却：" + service.getAbilityCooldown(owner, tree.id()) + " 秒")
+                        .withStyle(ChatFormatting.AQUA));
+            } else {
+                lore.add(Component.literal("属性加成：" + percent(service.attributeBonus(progress))).withStyle(ChatFormatting.GOLD));
+                lore.add(Component.literal("可用技能点：" + progress.availablePoints()).withStyle(ChatFormatting.GREEN));
+            }
             lore.add(Component.literal("点击查看技能与强化").withStyle(ChatFormatting.AQUA));
             container.setItem(GuiSlots.contentSlot54(index), GuiTheme.status(tree.icon(),
                     Component.literal(tree.display()).withStyle(ChatFormatting.YELLOW), ChatFormatting.YELLOW, lore,
@@ -205,6 +217,7 @@ public final class SkillTreeScreenHandler extends ChestMenu {
     }
 
     private void renderDetail() {
+        boolean engineManaged = service.engine() == dev.modmind.omnitools.skills.SkillEngine.MCMOO;
         SkillTreeConfig.TreeDefinition tree = service.config().tree(selectedTreeId).orElse(null);
         if (tree == null) {
             selectedTreeId = "";
@@ -217,7 +230,8 @@ public final class SkillTreeScreenHandler extends ChestMenu {
         container.setItem(GuiSlots.HEADER_CENTER_54, GuiTheme.status(tree.icon(), Component.literal(tree.display()),
                 ChatFormatting.YELLOW, List.of(Component.literal("等级：" + progress.level() + " / " + service.config().settings().maxLevel()),
                         Component.literal("经验：" + progress.currentXp() + " / " + required),
-                        Component.literal("精通经验：" + progress.masteryXp()).withStyle(ChatFormatting.DARK_GRAY)), false));
+                        Component.literal(engineManaged ? "能力等级由专业阶段自动决定" : "精通经验：" + progress.masteryXp())
+                                .withStyle(ChatFormatting.DARK_GRAY)), false));
         for (int index = 0; index < tree.skills().size() && index < SKILL_SLOTS.length; index++) {
             SkillTreeConfig.SkillDefinition skill = tree.skills().get(index);
             boolean unlocked = progress.unlockedSkills().contains(skill.id());
@@ -226,15 +240,18 @@ public final class SkillTreeScreenHandler extends ChestMenu {
             List<Component> lore = new ArrayList<>();
             lore.add(Component.literal(skill.description()).withStyle(ChatFormatting.GRAY));
             lore.add(Component.literal("解锁等级：" + skill.unlockLevel()).withStyle(levelReady ? ChatFormatting.GREEN : ChatFormatting.RED));
-            lore.add(Component.literal("技能点消耗：" + skill.pointCost()).withStyle(ChatFormatting.GOLD));
+            lore.add(Component.literal(engineManaged ? "能力等级由专业等级自动决定" : "技能点消耗：" + skill.pointCost())
+                    .withStyle(ChatFormatting.GOLD));
             if (tree.skills().size() == 2) {
                 int skillLevel = service.skillLevel(progress, skill.id());
                 lore.add(Component.literal("类型：" + (skill.kind() == SkillTreeConfig.SkillKind.ACTIVE ? "主动" : "被动")
                         + "  等级：" + skillLevel + " / " + skill.maxLevel()).withStyle(ChatFormatting.AQUA));
-                lore.add(Component.literal(skillLevel >= skill.maxLevel() ? "已达上限" : "点击消耗 1 点强化")
+                lore.add(Component.literal(engineManaged
+                                ? (skillLevel >= skill.maxLevel() ? "已达上限" : "达到阶段等级后自动强化")
+                                : (skillLevel >= skill.maxLevel() ? "已达上限" : "点击消耗 1 点强化"))
                         .withStyle(skillLevel >= skill.maxLevel() ? ChatFormatting.GRAY : ChatFormatting.YELLOW));
             }
-            if (index == tree.skills().size() - 1 && unlocked) {
+            if (!engineManaged && index == tree.skills().size() - 1 && unlocked) {
                 long remaining = service.ultimateCooldownRemainingSeconds(progress);
                 lore.add(Component.literal(remaining == 0L ? "终极效果：就绪" : "终极效果冷却：" + remaining + " 秒")
                         .withStyle(remaining == 0L ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY));
@@ -242,9 +259,9 @@ public final class SkillTreeScreenHandler extends ChestMenu {
             if (unlocked) {
                 lore.add(Component.literal("状态：已解锁").withStyle(ChatFormatting.GREEN));
                 item = GuiTheme.status(Items.GREEN_DYE, Component.literal(skill.display()), ChatFormatting.GREEN, lore, false);
-            } else if (levelReady && progress.availablePoints() >= skill.pointCost()) {
+            } else if (levelReady && (engineManaged || progress.availablePoints() >= skill.pointCost())) {
                 lore.add(Component.literal("状态：可解锁，点击确认").withStyle(ChatFormatting.AQUA));
-                item = GuiTheme.status(Items.LIME_DYE, Component.literal(skill.display()), ChatFormatting.GREEN, lore, true);
+                item = GuiTheme.status(Items.LIME_DYE, Component.literal(skill.display()), ChatFormatting.GREEN, lore, !engineManaged);
             } else {
                 lore.add(Component.literal("状态：尚未满足条件").withStyle(ChatFormatting.RED));
                 item = GuiTheme.status(Items.GRAY_DYE, Component.literal(skill.display()), ChatFormatting.GRAY, lore, false);
@@ -262,10 +279,16 @@ public final class SkillTreeScreenHandler extends ChestMenu {
                     List.of(Component.literal("当前等级：" + (active == null ? 0 : service.skillLevel(progress, active.id()))),
                             Component.literal("剩余持续时间：" + duration + " 秒"),
                             Component.literal(ready ? "点击释放" : (cooldown > 0 ? "冷却：" + cooldown + " 秒" : "需达到 100 级并解锁"))), ready));
-            boolean canReset = progress.skillPoints() > 0 && progress.masteryPoints() > 0 && cooldown == 0L;
+            boolean canReset = !engineManaged && progress.skillPoints() > 0 && progress.masteryPoints() > 0 && cooldown == 0L;
             container.setItem(RESET_SKILLS_SLOT, GuiTheme.status(canReset ? Items.CAULDRON : Items.GRAY_DYE,
-                    Component.literal("重置技能点"), canReset ? ChatFormatting.YELLOW : ChatFormatting.GRAY,
-                    List.of(Component.literal("消耗 1 点精通储备，返还主动/被动技能点"), Component.literal(canReset ? "点击确认（冷却 10 分钟）" : "需要技能点、精通储备且不在冷却")), canReset));
+                    Component.literal(engineManaged ? "mcMMO：不使用技能点" : "重置技能点"), canReset ? ChatFormatting.YELLOW : ChatFormatting.GRAY,
+                    List.of(Component.literal(engineManaged ? "能力等级由专业等级阶段自动决定"
+                            : "消耗 1 点精通储备，返还主动/被动技能点"),
+                            Component.literal(canReset ? "点击确认（冷却 10 分钟）" : "当前不可重置")), canReset));
+        }
+        if (engineManaged) {
+            renderManagedUtilitySlots(progress);
+            return;
         }
         int maxAttributePoints = (int) Math.floor((service.config().settings().pointAttributeCap() + 0.000_000_1D)
                 / service.config().settings().pointAttributeBonus());
@@ -293,6 +316,17 @@ public final class SkillTreeScreenHandler extends ChestMenu {
                         Component.literal("已兑换：" + progress.rewardPoints() + " 次").withStyle(ChatFormatting.GRAY),
                         Component.literal(canClaimReward ? "点击消耗 1 点领取" : "当前未配置奖励或没有技能点")
                                 .withStyle(canClaimReward ? ChatFormatting.AQUA : ChatFormatting.RED)), canClaimReward));
+    }
+
+    private void renderManagedUtilitySlots(SkillTreeData.Progress progress) {
+        List<Component> disabled = List.of(Component.literal("mcMMO 引擎不使用旧专业树的属性点、精通储备或统一奖励。")
+                .withStyle(ChatFormatting.GRAY));
+        container.setItem(MASTERY_RESERVE_SLOT, GuiTheme.status(Items.GRAY_DYE, Component.literal("mcMMO：无精通储备"),
+                ChatFormatting.GRAY, disabled, false));
+        container.setItem(ATTRIBUTE_SLOT, GuiTheme.status(Items.GRAY_DYE, Component.literal("mcMMO：无属性强化"),
+                ChatFormatting.GRAY, disabled, false));
+        container.setItem(UNIFORM_REWARD_SLOT, GuiTheme.status(Items.GRAY_DYE, Component.literal("mcMMO：无统一奖励兑换"),
+                ChatFormatting.GRAY, disabled, false));
     }
 
     private static String percent(double value) { return String.format(java.util.Locale.ROOT, "%.1f%%", value * 100.0D); }

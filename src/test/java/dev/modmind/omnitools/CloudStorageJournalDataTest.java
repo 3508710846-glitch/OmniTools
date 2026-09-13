@@ -48,6 +48,29 @@ class CloudStorageJournalDataTest {
     }
 
     @Test
+    void retainsSessionSnapshotHashesChangedSlotsAndCheckpointReasonAcrossSerialization() {
+        List<ItemStack> opened = emptyPage();
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(4, new ItemStack(Items.DIAMOND, 3));
+        UUID sessionId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 250L, sessionId, "close", opened);
+        CloudStorageJournalData.Entry restored = CloudStorageJournalData.fromTag(CloudStorageJournalData.toTag(journal))
+                .find(prepared.operationId()).orElseThrow();
+
+        CloudStorageJournalData.SessionMetadata metadata = restored.sessionMetadata();
+        assertEquals(sessionId, metadata.sessionId());
+        assertEquals(List.of(4), metadata.changedSlots());
+        assertEquals("close", metadata.checkpointReason());
+        assertEquals(64, metadata.openedPageHash().length());
+        assertEquals(64, metadata.targetPageHash().length());
+        assertEquals(250L, metadata.checkpointAt());
+    }
+
+    @Test
     void identifiesWithdrawalAndInPageMovesForAudit() {
         List<ItemStack> before = emptyPage();
         before.set(0, new ItemStack(Items.EMERALD, 2));
@@ -145,6 +168,20 @@ class CloudStorageJournalDataTest {
 
         assertEquals(committed, retried);
         assertEquals("page persisted", retried.reason());
+    }
+
+    @Test
+    void unresolvedJournalBlocksEveryPageForTheSameOwnerButCommittedEvidenceDoesNot() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(1, new ItemStack(Items.EMERALD, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 300L);
+
+        assertTrue(journal.hasUnresolvedOperation(OWNER));
+        journal.transition(prepared.operationId(), CloudStorageJournalData.Status.COMMITTED, "page persisted");
+        assertTrue(!journal.hasUnresolvedOperation(OWNER));
     }
 
     @Test

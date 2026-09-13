@@ -55,16 +55,31 @@ public final class CloudStorageJournalData extends SavedData {
 
     public synchronized Entry prepare(UUID ownerId, int page, Operation operation, List<ItemStack> before,
                                       List<ItemStack> after, long now) {
+        return prepare(ownerId, page, operation, before, after, now, null, "direct");
+    }
+
+    /** Records session, snapshot hashes and changed slots alongside the durable before/after images. */
+    public synchronized Entry prepare(UUID ownerId, int page, Operation operation, List<ItemStack> before,
+                                      List<ItemStack> after, long now, UUID sessionId, String checkpointReason) {
+        return prepare(ownerId, page, operation, before, after, now, sessionId, checkpointReason, before);
+    }
+
+    public synchronized Entry prepare(UUID ownerId, int page, Operation operation, List<ItemStack> before,
+                                      List<ItemStack> after, long now, UUID sessionId, String checkpointReason,
+                                      List<ItemStack> openedPageSnapshot) {
         if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES || operation == null || now <= 0L) {
             throw new IllegalArgumentException("Cloud storage journal entry is invalid");
         }
         List<ItemStack> oldPage = CloudStorageData.validatePage(before, registries);
         List<ItemStack> newPage = CloudStorageData.validatePage(after, registries);
+        List<ItemStack> openedPage = CloudStorageData.validatePage(openedPageSnapshot, registries);
         if (ItemStack.listMatches(oldPage, newPage)) {
             throw new IllegalArgumentException("Cloud storage journal cannot record an unchanged page");
         }
         Entry entry = new Entry(UUID.randomUUID(), ownerId, page, operation, Status.PREPARED, oldPage, newPage,
-                now, now, "", Resolution.NONE, "", false);
+                now, now, "", Resolution.NONE, "", false,
+                new SessionMetadata(sessionId, pageHash(openedPage), pageHash(newPage), changedSlots(openedPage, newPage),
+                        now, checkpointReason));
         entries.put(entry.operationId(), entry);
         setDirty();
         return entry;
@@ -90,6 +105,14 @@ public final class CloudStorageJournalData extends SavedData {
         }
         return entries.values().stream().anyMatch(entry -> entry.ownerId().equals(ownerId)
                 && entry.page() == page && (entry.status() == Status.PREPARED
+                || entry.status() == Status.QUARANTINED && !entry.resolutionApplied()));
+    }
+
+    /** A player with ambiguous evidence cannot open another cloud mirror until recovery is explicit. */
+    public synchronized boolean hasUnresolvedOperation(UUID ownerId) {
+        if (ownerId == null) return false;
+        return entries.values().stream().anyMatch(entry -> entry.ownerId().equals(ownerId)
+                && (entry.status() == Status.PREPARED
                 || entry.status() == Status.QUARANTINED && !entry.resolutionApplied()));
     }
 
@@ -280,6 +303,15 @@ public final class CloudStorageJournalData extends SavedData {
             tag.putString("resolution_operator", entry.resolutionOperator());
             tag.putBoolean("resolution_applied", entry.resolutionApplied());
         }
+        SessionMetadata metadata = entry.sessionMetadata();
+        if (metadata.sessionId() != null) tag.putString("session_id", metadata.sessionId().toString());
+        tag.putString("opened_page_hash", metadata.openedPageHash());
+        tag.putString("target_page_hash", metadata.targetPageHash());
+        tag.putLong("checkpoint_at", metadata.checkpointAt());
+        tag.putString("checkpoint_reason", metadata.checkpointReason());
+        net.minecraft.nbt.ListTag changed = new net.minecraft.nbt.ListTag();
+        for (int slot : metadata.changedSlots()) changed.add(net.minecraft.nbt.IntTag.valueOf(slot));
+        tag.put("changed_slots", changed);
         tag.put("before", CloudStorageData.encodePageSnapshot(entry.before(), registries));
         tag.put("after", CloudStorageData.encodePageSnapshot(entry.after(), registries));
         return tag;
@@ -292,7 +324,7 @@ public final class CloudStorageJournalData extends SavedData {
                 CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("after"), registries),
                 tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L), tag.getStringOr("reason", ""),
                 Resolution.parse(tag.getStringOr("resolution", "NONE")), tag.getStringOr("resolution_operator", ""),
-                tag.getBooleanOr("resolution_applied", false));
+                tag.getBooleanOr("resolution_applied", false), SessionMetadata.fromTag(tag));
     }
 
     static Operation operationFor(List<ItemStack> before, List<ItemStack> after) {
@@ -318,6 +350,27 @@ public final class CloudStorageJournalData extends SavedData {
     private static String describe(RuntimeException exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private static String pageHash(List<ItemStack> page) {
+        try {
+            byte[] data = CloudStorageData.encodePageSnapshot(page, null).toString()
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(data);
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte value : digest) result.append(String.format(java.util.Locale.ROOT, "%02x", value));
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static List<Integer> changedSlots(List<ItemStack> before, List<ItemStack> after) {
+        List<Integer> changed = new ArrayList<>();
+        for (int slot = 0; slot < CloudStorageData.SLOTS_PER_PAGE; slot++) {
+            if (!ItemStack.matches(before.get(slot), after.get(slot))) changed.add(slot);
+        }
+        return List.copyOf(changed);
     }
 
     public enum Operation {
@@ -375,10 +428,12 @@ public final class CloudStorageJournalData extends SavedData {
 
     public record Entry(UUID operationId, UUID ownerId, int page, Operation operation, Status status,
                         List<ItemStack> before, List<ItemStack> after, long createdAt, long updatedAt, String reason,
-                        Resolution resolution, String resolutionOperator, boolean resolutionApplied) {
+                        Resolution resolution, String resolutionOperator, boolean resolutionApplied,
+                        SessionMetadata sessionMetadata) {
         public Entry {
             if (operationId == null || ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES
-                    || operation == null || status == null || resolution == null || createdAt <= 0L || updatedAt <= 0L) {
+                    || operation == null || status == null || resolution == null || sessionMetadata == null
+                    || createdAt <= 0L || updatedAt <= 0L) {
                 throw new IllegalArgumentException("Cloud storage journal entry is invalid");
             }
             before = copyPage(before);
@@ -401,7 +456,7 @@ public final class CloudStorageJournalData extends SavedData {
 
         Entry withStatus(Status next, String nextReason, long now) {
             return new Entry(operationId, ownerId, page, operation, next, before, after, createdAt, now, nextReason,
-                    Resolution.NONE, "", false);
+                    Resolution.NONE, "", false, sessionMetadata);
         }
 
         Entry withResolution(Resolution nextResolution, String operator, long now) {
@@ -410,7 +465,7 @@ public final class CloudStorageJournalData extends SavedData {
                 throw new IllegalStateException("Cloud storage operation cannot accept another resolution");
             }
             return new Entry(operationId, ownerId, page, operation, status, before, after, createdAt, now, reason,
-                    nextResolution, operator, false);
+                    nextResolution, operator, false, sessionMetadata);
         }
 
         Entry withResolutionApplied(long now) {
@@ -418,7 +473,42 @@ public final class CloudStorageJournalData extends SavedData {
                 throw new IllegalStateException("Cloud storage resolution cannot be marked as applied");
             }
             return new Entry(operationId, ownerId, page, operation, status, before, after, createdAt, now, reason,
-                    resolution, resolutionOperator, true);
+                    resolution, resolutionOperator, true, sessionMetadata);
+        }
+    }
+
+    public record SessionMetadata(UUID sessionId, String openedPageHash, String targetPageHash,
+                                  List<Integer> changedSlots, long checkpointAt, String checkpointReason) {
+        public SessionMetadata {
+            openedPageHash = normalizedHash(openedPageHash);
+            targetPageHash = normalizedHash(targetPageHash);
+            changedSlots = List.copyOf(changedSlots == null ? List.of() : changedSlots);
+            if (changedSlots.stream().anyMatch(slot -> slot == null || slot < 0 || slot >= CloudStorageData.SLOTS_PER_PAGE)) {
+                throw new IllegalArgumentException("Cloud storage changed slot is invalid");
+            }
+            checkpointAt = Math.max(0L, checkpointAt);
+            checkpointReason = normalize(checkpointReason);
+        }
+
+        static SessionMetadata fromTag(CompoundTag tag) {
+            UUID sessionId = null;
+            String rawId = tag.getStringOr("session_id", "");
+            if (!rawId.isBlank()) sessionId = UUID.fromString(rawId);
+            List<Integer> changed = new ArrayList<>();
+            for (int index = 0; index < tag.getListOrEmpty("changed_slots").size(); index++) {
+                tag.getListOrEmpty("changed_slots").getInt(index).ifPresent(changed::add);
+            }
+            return new SessionMetadata(sessionId, tag.getStringOr("opened_page_hash", ""),
+                    tag.getStringOr("target_page_hash", ""), changed, tag.getLongOr("checkpoint_at", 0L),
+                    tag.getStringOr("checkpoint_reason", "legacy"));
+        }
+
+        private static String normalizedHash(String hash) {
+            String value = normalize(hash);
+            if (!value.isEmpty() && !value.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Cloud storage page hash is invalid");
+            }
+            return value;
         }
     }
 

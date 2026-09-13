@@ -1,7 +1,9 @@
 package dev.modmind.omnitools.skills;
 
 import com.google.gson.JsonParseException;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.Items;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -13,6 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SkillTreeConfigTest {
+    @BeforeAll
+    static void bootstrapMinecraftRegistries() {
+        Bootstrap.bootStrap();
+    }
+
     @Test
     void xpCurveUsesConfiguredFormulaAndStageMultiplier() {
         SkillTreeConfig.Settings settings = new SkillTreeConfig.Settings(2000, 500, 250_000L, 4,
@@ -37,6 +44,36 @@ class SkillTreeConfigTest {
                 0.30D, 0.20D, 0.05D, 0.50D, 100L, 25L, 0.015D));
         assertThrows(JsonParseException.class, () -> new SkillTreeConfig.Settings(2000, 500, 250_000L, 4,
                 0.31D, 0.20D, 0.05D, 0.50D, 100L, 25L, 0.015D));
+    }
+
+    @Test
+    void professionalDefaultsMigrateToMcmmoWithoutDroppingConfiguredTrees() {
+        SkillTreeConfig.Settings professional = new SkillTreeConfig.Settings(100, 10, 250_000L, 4,
+                0.30D, 0.20D, 0.05D, 0.50D, 100L, 25L, 0.015D);
+        List<String> ids = List.of("miner", "lumberjack", "farmer", "hunter", "warrior",
+                "guardian", "healing", "smithing", "alchemy", "exploration");
+        List<SkillTreeConfig.TreeDefinition> trees = ids.stream()
+                .map(thisId -> treeWithId(thisId))
+                .toList();
+
+        SkillTreeConfig migrated = SkillTreeConfig.migrateProfessionalToMcmmo(
+                new SkillTreeConfig(1, professional, trees));
+
+        assertEquals(SkillEngine.MCMOO, migrated.settings().engine());
+        assertEquals(ids, migrated.trees().stream().map(SkillTreeConfig.TreeDefinition::id).toList());
+        assertEquals("alchemy", LegacySkillAdapter.canonical("healing"));
+        assertEquals("acrobatics", LegacySkillAdapter.canonical("survival"));
+    }
+
+    @Test
+    void mcmmoConfigurationKeepsLegacyAliasTreesForSafeRollback() {
+        SkillTreeConfig.Settings mcmmo = new SkillTreeConfig.Settings(1000, 10, 250_000L, 4,
+                0.30D, 0.20D, 0.05D, 0.50D, 100L, 25L, 0.015D);
+        SkillTreeConfig config = new SkillTreeConfig(2, mcmmo,
+                List.of(treeWithId("mining"), treeWithId("miner")));
+        assertEquals("miner", config.tree("miner").orElseThrow().id());
+        assertEquals("mining", config.tree("mining").orElseThrow().id());
+        assertEquals(2, config.trees().size());
     }
 
     @Test
@@ -93,7 +130,11 @@ class SkillTreeConfigTest {
     }
 
     private static SkillTreeConfig.TreeDefinition tree() {
-        return new SkillTreeConfig.TreeDefinition("test", "测试", "minecraft:stone", Items.STONE,
+        return treeWithId("test");
+    }
+
+    private static SkillTreeConfig.TreeDefinition treeWithId(String id) {
+        return new SkillTreeConfig.TreeDefinition(id, "测试", "minecraft:stone", Items.STONE,
                 SkillAttribute.ATTACK_DAMAGE, Set.of(SkillXpSource.COMMAND),
                 List.of(new SkillTreeConfig.LevelMultiplier(1, 1.0D), new SkillTreeConfig.LevelMultiplier(501, 1.25D)),
                 List.of(skill("first", 1, 0), skill("second", 250, 1), skill("third", 750, 1), skill("fourth", 1500, 2)));

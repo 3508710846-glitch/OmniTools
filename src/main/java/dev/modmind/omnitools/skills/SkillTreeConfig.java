@@ -31,11 +31,15 @@ import java.util.regex.Pattern;
 
 /** Versioned, bounded skill-tree definitions. Player progress is stored separately in SkillTreeData. */
 public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDefinition> trees) {
-    public static final int CURRENT_FORMAT_VERSION = 1;
+    public static final int CURRENT_FORMAT_VERSION = 2;
+    public static final int MIN_SUPPORTED_FORMAT_VERSION = 1;
     /** Current progression rules. Legacy 2000/500 configurations remain readable. */
     public static final int REQUIRED_SKILL_COUNT = 2;
     public static final int MAX_LEVEL = 100;
     public static final int POINTS_EVERY_LEVELS = 10;
+    /** mcMMO-compatible skill cap; skill ability levels are derived from this progression. */
+    public static final int MCMOO_MAX_LEVEL = 1000;
+    public static final int MCMOO_POINTS_EVERY_LEVELS = 10;
     public static final int LEGACY_MAX_LEVEL = 2000;
     public static final int LEGACY_POINTS_EVERY_LEVELS = 500;
     public static final double BASE_ATTRIBUTE_CAP = 0.30D;
@@ -56,7 +60,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public SkillTreeConfig {
-        if (formatVersion != CURRENT_FORMAT_VERSION) {
+        if (formatVersion < MIN_SUPPORTED_FORMAT_VERSION || formatVersion > CURRENT_FORMAT_VERSION) {
             throw new JsonParseException("Unsupported skills format_version: " + formatVersion);
         }
         settings = settings == null ? Settings.defaults() : settings;
@@ -111,6 +115,11 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                 save(migrated);
                 return migrated;
             }
+            if (shouldMigrateProfessionalDefaults(raw, loaded)) {
+                SkillTreeConfig migrated = migrateProfessionalToMcmmo(loaded);
+                save(migrated);
+                return migrated;
+            }
             SkillTreeConfig migrated = migrateDefaultDescriptions(loaded);
             if (migrated != loaded || missingTuning) {
                 save(migrated);
@@ -121,18 +130,50 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
         }
     }
 
+    private static boolean shouldMigrateProfessionalDefaults(JsonObject raw, SkillTreeConfig loaded) {
+        if (loaded.settings().engine() != SkillEngine.PROFESSIONAL
+                || loaded.settings().maxLevel() != MAX_LEVEL) return false;
+        // An explicit engine is an administrator choice and must be respected.  A V1 file with
+        // only the old progression fields is the built-in professional tree and is migrated once.
+        JsonObject settings = raw.get("settings") != null && raw.get("settings").isJsonObject()
+                ? raw.getAsJsonObject("settings") : null;
+        if (raw.has("engine") || (settings != null && settings.has("engine"))) return false;
+        Set<String> ids = new LinkedHashSet<>();
+        for (TreeDefinition tree : loaded.trees()) ids.add(tree.id());
+        return ids.equals(Set.of("miner", "lumberjack", "farmer", "hunter", "warrior", "guardian", "healing",
+                "smithing", "alchemy", "exploration"));
+    }
+
+    static SkillTreeConfig migrateProfessionalToMcmmo(SkillTreeConfig loaded) {
+        // Keep administrator-authored tree IDs and text.  The alias resolver and event adapter
+        // expose canonical mcMMO names without discarding old progress or custom tuning.
+        return new SkillTreeConfig(CURRENT_FORMAT_VERSION, loaded.settings().withEngine(SkillEngine.MCMOO),
+                loaded.trees());
+    }
+
     public Optional<TreeDefinition> tree(String id) {
         if (id == null) {
             return Optional.empty();
         }
         String normalized = id.trim().toLowerCase(Locale.ROOT);
-        return trees.stream().filter(tree -> tree.id().equals(normalized)).findFirst();
+        Optional<TreeDefinition> direct = trees.stream().filter(tree -> tree.id().equals(normalized)).findFirst();
+        if (direct.isPresent()) return direct;
+        String canonical = LegacySkillAdapter.canonical(normalized);
+        if (canonical.equals(normalized)) return Optional.empty();
+        Optional<TreeDefinition> canonicalTree = trees.stream().filter(tree -> tree.id().equals(canonical)).findFirst();
+        if (canonicalTree.isPresent()) return canonicalTree;
+        // During the one-time compatibility window a V1 configuration may still use the old
+        // identifier.  Resolve canonical callers back to that exact configured tree.
+        return trees.stream().filter(tree -> LegacySkillAdapter.canonical(tree.id()).equals(canonical)).findFirst();
     }
 
     public static SkillTreeConfig parse(JsonObject root) {
-        ConfigFieldReporter.warnUnknown(root, "skills", Set.of("format_version", "settings", "trees"));
+        ConfigFieldReporter.warnUnknown(root, "skills", Set.of("format_version", "engine", "mcmmo", "settings", "trees"));
         int version = integer(root, "format_version", CURRENT_FORMAT_VERSION, "skills");
-        Settings settings = Settings.parse(object(root, "settings", "skills"));
+        SkillEngine rootEngine = optionalEngine(root, "engine", "skills");
+        Settings settings = Settings.parse(object(root, "settings", "skills"), rootEngine);
+        JsonObject rootMcmmo = optionalObject(root, "mcmmo", "skills");
+        if (rootMcmmo != null) settings = settings.withMcmmo(rootMcmmo, "skills.mcmmo");
         JsonArray array = array(root, "trees", "skills");
         List<TreeDefinition> trees = new ArrayList<>();
         for (int index = 0; index < array.size(); index++) {
@@ -155,6 +196,8 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
     private JsonObject toJson() {
         JsonObject root = new JsonObject();
         root.addProperty("format_version", formatVersion);
+        root.addProperty("engine", settings.engine().serializedName());
+        if (settings.engine() == SkillEngine.MCMOO) root.add("mcmmo", settings.mcmmoToJson());
         root.add("settings", settings.toJson());
         JsonArray array = new JsonArray();
         trees.forEach(tree -> array.add(tree.toJson()));
@@ -164,6 +207,9 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
 
     private static SkillTreeConfig defaults() {
         Settings settings = Settings.defaults();
+        if (settings.engine() == SkillEngine.MCMOO) {
+            return new SkillTreeConfig(CURRENT_FORMAT_VERSION, settings, canonicalMcmmoTrees());
+        }
         return new SkillTreeConfig(CURRENT_FORMAT_VERSION, settings, List.of(
                 modernTree("miner", "矿工", "minecraft:diamond_pickaxe", SkillAttribute.BLOCK_BREAK_SPEED, SkillXpSource.BLOCK_BREAK, "矿脉爆发", "丰收矿工"),
                 modernTree("lumberjack", "伐木工", "minecraft:diamond_axe", SkillAttribute.BLOCK_BREAK_SPEED, SkillXpSource.BLOCK_BREAK, "伐木专注", "林木馈赠"),
@@ -175,6 +221,31 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                 modernTree("smithing", "锻造与制造", "minecraft:anvil", SkillAttribute.LUCK, SkillXpSource.CRAFT, "匠心专注", "精工节约"),
                 modernTree("alchemy", "炼金与附魔", "minecraft:brewing_stand", SkillAttribute.LUCK, SkillXpSource.CRAFT, "元素灌注", "配方熟练"),
                 modernTree("exploration", "探险与探索", "minecraft:compass", SkillAttribute.MOVEMENT_SPEED, SkillXpSource.SURVIVAL, "远见侦察", "探险直觉")));
+    }
+
+    /** Built-in, independently implemented mcMMO-compatible skill set. */
+    private static List<TreeDefinition> canonicalMcmmoTrees() {
+        return List.of(
+                modernTree("mining", "Mining", "minecraft:diamond_pickaxe", SkillAttribute.BLOCK_BREAK_SPEED,
+                        SkillXpSource.BLOCK_BREAK, "Super Breaker", "Double Drops"),
+                modernTree("woodcutting", "Woodcutting", "minecraft:diamond_axe", SkillAttribute.BLOCK_BREAK_SPEED,
+                        SkillXpSource.BLOCK_BREAK, "Tree Feller", "Lumberjack's Loot"),
+                modernTree("herbalism", "Herbalism", "minecraft:diamond_hoe", SkillAttribute.LUCK,
+                        SkillXpSource.SURVIVAL, "Green Terra", "Herbalism Bonus"),
+                modernTree("excavation", "Excavation", "minecraft:diamond_shovel", SkillAttribute.BLOCK_BREAK_SPEED,
+                        SkillXpSource.BLOCK_BREAK, "Giga Drill Breaker", "Archaeology"),
+                modernTree("swords", "Swords", "minecraft:iron_sword", SkillAttribute.ATTACK_DAMAGE,
+                        SkillXpSource.ENTITY_KILL, "Serrated Strikes", "Bleed"),
+                modernTree("axes", "Axes", "minecraft:iron_axe", SkillAttribute.ATTACK_DAMAGE,
+                        SkillXpSource.ENTITY_KILL, "Skull Splitter", "Critical Strikes"),
+                modernTree("archery", "Archery", "minecraft:bow", SkillAttribute.ATTACK_DAMAGE,
+                        SkillXpSource.ENTITY_KILL, "Arrow Storm", "Retrieval"),
+                modernTree("acrobatics", "Acrobatics", "minecraft:feather", SkillAttribute.ARMOR,
+                        SkillXpSource.SURVIVAL, "Graceful Roll", "Dodge"),
+                modernTree("repair", "Repair", "minecraft:anvil", SkillAttribute.LUCK,
+                        SkillXpSource.CRAFT, "Arcane Forging", "Super Repair"),
+                modernTree("alchemy", "Alchemy", "minecraft:brewing_stand", SkillAttribute.LUCK,
+                        SkillXpSource.CRAFT, "Catalysis", "Concoctions"));
     }
 
     private static TreeDefinition modernTree(String id, String display, String icon, SkillAttribute attribute,
@@ -217,7 +288,10 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
         List<TreeDefinition> updatedTrees = new ArrayList<>();
         boolean changed = false;
         for (TreeDefinition tree : config.trees()) {
-            TreeDefinition defaultTree = defaults.tree(tree.id()).orElse(null);
+            // Do not use tree(String) here: that method intentionally resolves legacy aliases,
+            // while description migration must compare only an exact built-in definition.
+            TreeDefinition defaultTree = defaults.trees().stream()
+                    .filter(candidate -> candidate.id().equals(tree.id())).findFirst().orElse(null);
             if (defaultTree == null) {
                 // Keep the legacy description migration available even after defaults switched
                 // to the modern ten-profession model.
@@ -266,11 +340,26 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
     public record Settings(int maxLevel, int pointsEveryLevels, long maxDailyXp, int minIntervalTicks,
                            double baseAttributeCap, double pointAttributeCap, double pointAttributeBonus,
                            double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic,
-                           AnnouncementSettings announcements, long pointRewardCurrency) {
+                           AnnouncementSettings announcements, long pointRewardCurrency,
+                           SkillEngine engine, double xpMultiplier, boolean partyEnabled,
+                           boolean legacyEnabled) {
         public Settings {
             boolean modern = maxLevel == MAX_LEVEL && pointsEveryLevels == POINTS_EVERY_LEVELS;
             boolean legacy = maxLevel == LEGACY_MAX_LEVEL && pointsEveryLevels == LEGACY_POINTS_EVERY_LEVELS;
-            if (!modern && !legacy) throw new JsonParseException("skills.settings progression must be 100/10 or legacy 2000/500");
+            boolean mcmmo = maxLevel == MCMOO_MAX_LEVEL && pointsEveryLevels == MCMOO_POINTS_EVERY_LEVELS;
+            if (!modern && !legacy && !mcmmo) {
+                throw new JsonParseException("skills.settings progression must be 100/10, 1000/10, or legacy 2000/500");
+            }
+            engine = engine == null ? (mcmmo ? SkillEngine.MCMOO : legacy ? SkillEngine.LEGACY : SkillEngine.PROFESSIONAL) : engine;
+            if (engine == SkillEngine.MCMOO && !mcmmo) {
+                throw new JsonParseException("skills.settings mcmmo engine requires max_level 1000 and points_every_levels 10");
+            }
+            if (engine == SkillEngine.LEGACY && !legacy) {
+                throw new JsonParseException("skills.settings legacy engine requires max_level 2000 and points_every_levels 500");
+            }
+            if (engine == SkillEngine.PROFESSIONAL && !modern) {
+                throw new JsonParseException("skills.settings professional engine requires max_level 100 and points_every_levels 10");
+            }
             if (maxDailyXp < 1L || maxDailyXp > 1_000_000_000L) throw new JsonParseException("skills.settings.max_daily_xp is invalid");
             if (minIntervalTicks < 0 || minIntervalTicks > 1200) throw new JsonParseException("skills.settings.min_interval_ticks is invalid");
             if (!fraction(baseAttributeCap) || !fraction(pointAttributeCap) || !fraction(pointAttributeBonus)
@@ -286,6 +375,9 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             if (pointRewardCurrency < 0L || pointRewardCurrency > 1_000_000_000L) {
                 throw new JsonParseException("skills.settings.point_reward_currency is invalid");
             }
+            if (!Double.isFinite(xpMultiplier) || xpMultiplier <= 0.0D || xpMultiplier > 100.0D) {
+                throw new JsonParseException("skills.settings.mcmmo.xp_multiplier must be between 0 and 100");
+            }
         }
 
         /** Compatibility constructor for callers that only configure the original progression fields. */
@@ -294,18 +386,39 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                         double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic) {
             this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
                     pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic,
-                    AnnouncementSettings.defaults(), 250L);
+                    AnnouncementSettings.defaults(), 250L, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false);
+        }
+
+        /** Compatibility constructor for callers that already supplied announcement settings. */
+        public Settings(int maxLevel, int pointsEveryLevels, long maxDailyXp, int minIntervalTicks,
+                        double baseAttributeCap, double pointAttributeCap, double pointAttributeBonus,
+                        double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic,
+                        AnnouncementSettings announcements, long pointRewardCurrency) {
+            this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
+                    pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic, announcements,
+                    pointRewardCurrency, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false);
         }
 
         static Settings defaults() {
-            return new Settings(MAX_LEVEL, POINTS_EVERY_LEVELS, 250_000L, 4, BASE_ATTRIBUTE_CAP,
+            return new Settings(MCMOO_MAX_LEVEL, MCMOO_POINTS_EVERY_LEVELS, 250_000L, 4, BASE_ATTRIBUTE_CAP,
                     POINT_ATTRIBUTE_CAP, POINT_ATTRIBUTE_BONUS, MAX_TITLE_XP_BONUS, 100L, 25L, 0.015D,
-                    AnnouncementSettings.defaults(), 250L);
+                    AnnouncementSettings.defaults(), 250L, SkillEngine.MCMOO, 1.0D, true, false);
         }
 
-        static Settings parse(JsonObject object) {
-            return new Settings(integer(object, "max_level", MAX_LEVEL, "skills.settings"),
-                    integer(object, "points_every_levels", POINTS_EVERY_LEVELS, "skills.settings"),
+        static Settings parse(JsonObject object, SkillEngine rootEngine) {
+            ConfigFieldReporter.warnUnknown(object, "skills.settings",
+                    Set.of("engine", "mcmmo", "max_level", "points_every_levels", "max_daily_xp", "min_interval_ticks",
+                            "base_attribute_cap", "point_attribute_cap", "point_attribute_bonus", "max_title_xp_bonus",
+                            "xp_base", "xp_linear", "xp_quadratic", "announcements", "point_reward_currency"));
+            String localEngine = string(object, "engine", "");
+            SkillEngine engine = rootEngine != null ? rootEngine : (!localEngine.isBlank()
+                    ? SkillEngine.parse(localEngine) : inferEngine(integer(object, "max_level", MAX_LEVEL, "skills.settings"),
+                    integer(object, "points_every_levels", POINTS_EVERY_LEVELS, "skills.settings")));
+            int defaultMaxLevel = engine == SkillEngine.MCMOO ? MCMOO_MAX_LEVEL
+                    : engine == SkillEngine.LEGACY ? LEGACY_MAX_LEVEL : MAX_LEVEL;
+            int defaultPoints = engine == SkillEngine.LEGACY ? LEGACY_POINTS_EVERY_LEVELS : POINTS_EVERY_LEVELS;
+            return new Settings(integer(object, "max_level", defaultMaxLevel, "skills.settings"),
+                    integer(object, "points_every_levels", defaultPoints, "skills.settings"),
                     positiveLong(object, "max_daily_xp", 250_000L, "skills.settings"),
                     integer(object, "min_interval_ticks", 4, "skills.settings"),
                     decimal(object, "base_attribute_cap", 0.30D, "skills.settings"),
@@ -316,7 +429,50 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                     positiveLong(object, "xp_linear", 25L, "skills.settings"),
                     decimal(object, "xp_quadratic", 0.015D, "skills.settings"),
                     AnnouncementSettings.parse(optionalObject(object, "announcements", "skills.settings")),
-                    nonNegativeLong(object, "point_reward_currency", 250L, "skills.settings"));
+                    nonNegativeLong(object, "point_reward_currency", 250L, "skills.settings"), engine,
+                    decimal(optionalObject(object, "mcmmo", "skills.settings"), "xp_multiplier", 1.0D,
+                            "skills.settings.mcmmo"), bool(optionalObject(object, "mcmmo", "skills.settings"), "party_enabled", true,
+                            "skills.settings.mcmmo"), bool(optionalObject(object, "mcmmo", "skills.settings"), "legacy_enabled", false,
+                            "skills.settings.mcmmo"));
+        }
+
+        static Settings parse(JsonObject object) { return parse(object, null); }
+
+        public boolean isMcmmo() { return engine == SkillEngine.MCMOO; }
+
+        public Settings withEngine(SkillEngine replacement) {
+            if (replacement == null || replacement == engine) return this;
+            int level = replacement == SkillEngine.MCMOO ? MCMOO_MAX_LEVEL
+                    : replacement == SkillEngine.LEGACY ? LEGACY_MAX_LEVEL : MAX_LEVEL;
+            int points = replacement == SkillEngine.LEGACY ? LEGACY_POINTS_EVERY_LEVELS : POINTS_EVERY_LEVELS;
+            return new Settings(level, points, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
+                    pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic, announcements,
+                    pointRewardCurrency, replacement, xpMultiplier, partyEnabled, legacyEnabled);
+        }
+
+        Settings withMcmmo(JsonObject object, String context) {
+            if (object == null) return this;
+            ConfigFieldReporter.warnUnknown(object, context,
+                    Set.of("level_cap", "xp_multiplier", "party_enabled", "legacy_enabled", "party"));
+            SkillEngine selected = engine == SkillEngine.MCMOO ? engine : SkillEngine.MCMOO;
+            int cap = integer(object, "level_cap", MCMOO_MAX_LEVEL, context);
+            JsonObject party = optionalObject(object, "party", context);
+            boolean partyValue = party == null ? bool(object, "party_enabled", partyEnabled, context)
+                    : bool(party, "enabled", partyEnabled, context + ".party");
+            return new Settings(cap, MCMOO_POINTS_EVERY_LEVELS, maxDailyXp, minIntervalTicks,
+                    baseAttributeCap, pointAttributeCap, pointAttributeBonus, maxTitleXpBonus, xpBase,
+                    xpLinear, xpQuadratic, announcements, pointRewardCurrency, selected,
+                    decimal(object, "xp_multiplier", xpMultiplier, context), partyValue,
+                    bool(object, "legacy_enabled", legacyEnabled, context));
+        }
+
+        JsonObject mcmmoToJson() {
+            JsonObject object = new JsonObject();
+            object.addProperty("level_cap", maxLevel);
+            object.addProperty("xp_multiplier", xpMultiplier);
+            object.addProperty("party_enabled", partyEnabled);
+            object.addProperty("legacy_enabled", legacyEnabled);
+            return object;
         }
 
         JsonObject toJson() {
@@ -334,7 +490,15 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             object.addProperty("xp_quadratic", xpQuadratic);
             object.add("announcements", announcements.toJson());
             object.addProperty("point_reward_currency", pointRewardCurrency);
+            object.addProperty("engine", engine.serializedName());
+            if (engine == SkillEngine.MCMOO) object.add("mcmmo", mcmmoToJson());
             return object;
+        }
+
+        private static SkillEngine inferEngine(int maxLevel, int pointsEveryLevels) {
+            if (maxLevel == MCMOO_MAX_LEVEL && pointsEveryLevels == MCMOO_POINTS_EVERY_LEVELS) return SkillEngine.MCMOO;
+            if (maxLevel == LEGACY_MAX_LEVEL && pointsEveryLevels == LEGACY_POINTS_EVERY_LEVELS) return SkillEngine.LEGACY;
+            return SkillEngine.PROFESSIONAL;
         }
     }
 
@@ -346,7 +510,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                 "red", "light_purple", "yellow", "white");
 
         public AnnouncementSettings {
-            if (minimumLevel < 100 || minimumLevel > MAX_LEVEL) {
+            if (minimumLevel < 100 || minimumLevel > LEGACY_MAX_LEVEL) {
                 throw new JsonParseException("skills.settings.announcements.minimum_level must be 100-2000");
             }
             if (cooldownSeconds < 0 || cooldownSeconds > 3600) {
@@ -527,16 +691,26 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             }
         }
         static Tuning active(String treeId) {
-            int minDuration = switch (treeId) { case "lumberjack" -> 20; case "hunter" -> 20; case "guardian" -> 10; default -> 30; };
-            int maxDuration = switch (treeId) { case "lumberjack" -> 90; case "hunter" -> 60; case "guardian" -> 25; default -> 120; };
+            int minDuration = switch (treeId) {
+                case "lumberjack", "woodcutting" -> 20;
+                case "hunter", "archery" -> 20;
+                case "guardian", "acrobatics" -> 10;
+                default -> 30;
+            };
+            int maxDuration = switch (treeId) {
+                case "lumberjack", "woodcutting" -> 90;
+                case "hunter", "archery" -> 60;
+                case "guardian", "acrobatics" -> 25;
+                default -> 120;
+            };
             return new Tuning(minDuration, maxDuration, 1800, 600, 0D, 0D);
         }
         static Tuning passive(String treeId) {
             return switch (treeId) {
-                case "farmer" -> new Tuning(0, 0, 0, 0, 0.04D, 0.30D);
-                case "lumberjack" -> new Tuning(0, 0, 0, 0, 0.05D, 0.35D);
-                case "hunter", "alchemy" -> new Tuning(0, 0, 0, 0, 0.05D, 0.25D);
-                case "guardian", "smithing" -> new Tuning(0, 0, 0, 0, 0.05D, 0.30D);
+                case "farmer", "herbalism" -> new Tuning(0, 0, 0, 0, 0.04D, 0.30D);
+                case "lumberjack", "woodcutting" -> new Tuning(0, 0, 0, 0, 0.05D, 0.35D);
+                case "hunter", "archery", "alchemy" -> new Tuning(0, 0, 0, 0, 0.05D, 0.25D);
+                case "guardian", "acrobatics", "smithing", "repair" -> new Tuning(0, 0, 0, 0, 0.05D, 0.30D);
                 default -> new Tuning(0, 0, 0, 0, 0.05D, 0.40D);
             };
         }
@@ -569,14 +743,23 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
     private static boolean same(double left, double right) { return Math.abs(left - right) < 0.000_001D; }
     private static JsonObject object(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null || !value.isJsonObject()) throw new JsonParseException(context + "." + key + " must be an object"); return value.getAsJsonObject(); }
     private static JsonObject optionalObject(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null) return null; if (!value.isJsonObject()) throw new JsonParseException(context + "." + key + " must be an object"); return value.getAsJsonObject(); }
+    private static SkillEngine optionalEngine(JsonObject object, String key, String context) {
+        if (object == null) return null;
+        JsonElement value = object.get(key);
+        if (value == null) return null;
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException(context + "." + key + " must be a string");
+        }
+        return SkillEngine.parse(value.getAsString());
+    }
     private static JsonArray array(JsonObject root, String key, String context) { JsonElement value = root.get(key); if (value == null || !value.isJsonArray()) throw new JsonParseException(context + "." + key + " must be an array"); return value.getAsJsonArray(); }
     private static String requiredString(JsonObject object, String key, String context) { String value = string(object, key, ""); if (value.isBlank()) throw new JsonParseException(context + "." + key + " must be a non-empty string"); return value.trim(); }
     private static String string(JsonObject object, String key, String fallback) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) throw new JsonParseException(key + " must be a string"); return value.getAsString(); }
     private static int integer(JsonObject object, String key, int fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be an integer"); try { return Integer.parseInt(value.getAsString()); } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be an integer"); } }
     private static long positiveLong(JsonObject object, String key, long fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a positive integer"); try { long result = Long.parseLong(value.getAsString()); if (result < 1L) throw new NumberFormatException(); return result; } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be a positive integer"); } }
     private static long nonNegativeLong(JsonObject object, String key, long fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a non-negative integer"); try { long result = Long.parseLong(value.getAsString()); if (result < 0L) throw new NumberFormatException(); return result; } catch (NumberFormatException exception) { throw new JsonParseException(context + "." + key + " must be a non-negative integer"); } }
-    private static double decimal(JsonObject object, String key, double fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a number"); double result = value.getAsDouble(); if (!Double.isFinite(result)) throw new JsonParseException(context + "." + key + " must be finite"); return result; }
-    private static boolean bool(JsonObject object, String key, boolean fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) throw new JsonParseException(context + "." + key + " must be a boolean"); return value.getAsBoolean(); }
+    private static double decimal(JsonObject object, String key, double fallback, String context) { if (object == null) return fallback; JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException(context + "." + key + " must be a number"); double result = value.getAsDouble(); if (!Double.isFinite(result)) throw new JsonParseException(context + "." + key + " must be finite"); return result; }
+    private static boolean bool(JsonObject object, String key, boolean fallback, String context) { if (object == null) return fallback; JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) throw new JsonParseException(context + "." + key + " must be a boolean"); return value.getAsBoolean(); }
     private static SkillKind parseKind(JsonObject object, String key, SkillKind fallback, String context) { JsonElement value = object.get(key); if (value == null) return fallback; if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) throw new JsonParseException(context + "." + key + " must be a string"); return SkillKind.parse(value.getAsString()); }
     private static String normalizedId(String value, String context) { String id = value == null ? "" : value.trim().toLowerCase(Locale.ROOT); if (!ID_PATTERN.matcher(id).matches()) throw new JsonParseException(context + " must match " + ID_PATTERN.pattern()); return id; }
 }
