@@ -77,6 +77,25 @@ class SkillTreeConfigTest {
     }
 
     @Test
+    void canonicalSkillIdsResolveLegacyConfiguredTrees() {
+        SkillTreeConfig.Settings mcmmo = new SkillTreeConfig.Settings(1000, 10, 250_000L, 4,
+                0.30D, 0.20D, 0.05D, 0.50D, 100L, 25L, 0.015D);
+        SkillTreeConfig config = new SkillTreeConfig(2, mcmmo, List.of(
+                treeWithId("miner"), treeWithId("lumberjack"), treeWithId("farmer"),
+                treeWithId("hunter"), treeWithId("warrior"), treeWithId("guardian"),
+                treeWithId("smithing"), treeWithId("healing"), treeWithId("exploration")));
+
+        assertEquals("miner", config.tree("mining").orElseThrow().id());
+        assertEquals("lumberjack", config.tree("woodcutting").orElseThrow().id());
+        assertEquals("farmer", config.tree("herbalism").orElseThrow().id());
+        assertEquals("hunter", config.tree("archery").orElseThrow().id());
+        assertEquals("warrior", config.tree("swords").orElseThrow().id());
+        assertEquals("guardian", config.tree("acrobatics").orElseThrow().id());
+        assertEquals("smithing", config.tree("repair").orElseThrow().id());
+        assertEquals("healing", config.tree("alchemy").orElseThrow().id());
+    }
+
+    @Test
     void tuningBoundsSupportConfiguredActiveCooldownAndPassiveChanceCurves() {
         SkillTreeConfig.Tuning active = new SkillTreeConfig.Tuning(30, 120, 1800, 600, 0.0D, 0.0D);
         SkillTreeConfig.Tuning passive = new SkillTreeConfig.Tuning(0, 0, 0, 0, 0.05D, 0.40D);
@@ -85,6 +104,19 @@ class SkillTreeConfigTest {
         assertEquals(600, active.minCooldownSeconds());
         assertEquals(0.40D, passive.maxValue());
         assertThrows(JsonParseException.class, () -> new SkillTreeConfig.Tuning(120, 30, 600, 1800, 0.4D, 0.05D));
+    }
+
+    @Test
+    void hudSettingsHaveSafeBoundsAndDefaults() {
+        SkillTreeConfig.HudSettings defaults = new SkillTreeConfig.HudSettings(true, true, 60, 3, true, true, true, 3);
+        assertEquals(60, defaults.durationTicks());
+        assertEquals(3, defaults.updateIntervalTicks());
+        assertThrows(JsonParseException.class,
+                () -> new SkillTreeConfig.HudSettings(true, true, 0, 3, true, true, true, 3));
+        assertThrows(JsonParseException.class,
+                () -> new SkillTreeConfig.HudSettings(true, true, 60, 21, true, true, true, 3));
+        assertThrows(JsonParseException.class,
+                () -> new SkillTreeConfig.HudSettings(true, true, 60, 3, true, true, true, 17));
     }
 
     @Test

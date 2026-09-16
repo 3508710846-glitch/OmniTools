@@ -63,7 +63,9 @@ config/omnitools/skills/config.json
 - 主动能力使用服务端冷却和持续时间；技能界面、`/skills ability` 与占位符显示当前状态。
 - mcMMO 引擎不消费旧专业树技能点，也不应用旧专业树的常驻属性加成；旧字段仍保留用于兼容读取和审计。
 
-经验事件统一包含技能、来源、玩家 UUID、世界、原因、操作 ID 和反刷键。高频事件不直接逐次写文件，而是通过 SavedData 账本去重后更新玩家进度。
+经验事件统一包含技能、来源、玩家 UUID、世界、原因、操作 ID 和反刷键。`operation_id` 为空的经验请求会被拒绝，防止绕开幂等与恢复账本。高频事件不直接逐次写文件，而是通过 SavedData 账本去重后更新玩家进度。
+
+管理员可使用 `/skills health` 查看本次运行中的经验成功/拒绝计数、来源分布，以及 XP 事务的 `PREPARED`、`COMMITTED`、`ROLLED_BACK` 数量，用于区分配置、限流、重复操作和持久化故障。
 
 ## 已实现的行为边界
 
@@ -93,11 +95,27 @@ config/omnitools/skills/config.json
     "max_level": 1000,
     "points_every_levels": 10,
     "max_daily_xp": 250000,
-    "min_interval_ticks": 4
+    "min_interval_ticks": 4,
+    "hud": {
+      "enabled": true,
+      "bossbar_enabled": true,
+      "duration_ticks": 60,
+      "update_interval_ticks": 3,
+      "actionbar_enabled": true,
+      "level_up_title": true,
+      "passive_feedback": true,
+      "max_queued_messages": 3
+    }
   },
   "trees": []
 }
 ```
+
+### 技能 HUD 反馈
+
+技能经验成功写入账本后，服务端会复用一条个人 BossBar 显示技能名称、等级、本次合并经验和当前等级进度；连续获得经验会合并显示并按 `update_interval_ticks` 限频刷新，满级显示“已满级”。普通经验不额外逐条发送 ActionBar，避免挖掘等高频来源刷屏。达到新等级时会显示一次标题、副标题、音效和 ActionBar，不会为连续跨越的每一级逐条刷屏。主动能力使用 ActionBar 显示剩余时间，被动能力只在真实触发后提示。
+
+HUD 状态只保存在内存中，玩家断线、重生、停服或技能模块关闭时会清理，不写入玩家 SavedData。HUD 出错只会记录结构化技能模块警告并跳过本次显示，已经成功结算的经验不会回滚。`duration_ticks` 支持 1–600，`update_interval_ticks` 支持 1–20，`max_queued_messages` 支持 0–16。
 
 实际使用时 `trees` 不能为空；请保留生成文件中的十个定义。每项技能定义包含 `id`、`display`、`icon`、`attribute`、`sources`、`level_multipliers` 和两个 `skills`（一个 `active`、一个 `passive`）。主动/被动的 `tuning` 字段由服务端校验并按 1–10 级线性插值：
 
@@ -178,7 +196,7 @@ config/omnitools/skills/config.json
 
 ## 操作账本与故障安全
 
-XP 操作和被动/主动副作用使用不同的操作 ID namespace。操作在扣经验、生成掉落、修改实体或破坏额外方块前先写入 `omnitools_skill_ledger`：
+XP 操作和被动/主动副作用使用不同的操作 ID namespace。带操作 ID 的 XP 会在进度修改前立即写入 `omnitools_skill_xp_transactions` 的 `PREPARED` 前后快照；后续进度与 `COMMITTED` 状态在主线程每 20 tick 合并保存，停服时强制刷写。启动恢复只处理 `PREPARED`：当前进度等于目标快照时确认提交，等于原快照时补齐目标快照；两者均不匹配时保留事务供人工检查，绝不覆盖未知进度。`COMMITTED` 与 `ROLLED_BACK` 均保持终态。回滚记录允许使用同一操作 ID 安全重试。被动/主动副作用仍使用 `omnitools_skill_ledger`：
 
 - 重放同一事件只会返回重复操作，不会再次发放经验、效果或掉落。
 - 账本按玩家保存并有界裁剪；测试世界缺少 SavedData 时退回有界内存账本并默认拒绝重复操作。

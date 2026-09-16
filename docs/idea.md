@@ -6639,3 +6639,279 @@ skills.mcmmo.party.enabled = true
 ## Development request 2026/9/13 17:46:07
 
 生成一个本次的更新日志，以纯文本形式输出给我
+
+---
+
+## Development request 2026/9/13 17:53:15
+
+可以增加一个独立的 `SkillHudService`，仿照 mcMMO 的反馈方式，但只复刻交互体验，不直接复制其源码或资源。
+
+## 一、挖掘经验 BossBar
+
+玩家成功挖掘方块并获得经验后，在屏幕顶部显示个人 BossBar：
+
+```text
+⛏ 矿工 Lv.42 · +15 XP · 1240 / 2000
+```
+
+进度计算：
+
+```text
+当前等级进度 =
+(当前经验 - 本级起始经验)
+÷ (下一级所需经验 - 本级起始经验)
+```
+
+建议规则：
+
+- 每名玩家只复用一条技能经验 BossBar。
+- 首次获得经验时显示。
+- 持续显示约 3 秒。
+- 同一技能连续获得经验时合并数值并刷新计时。
+- 每 2～4 tick 最多更新一次，避免挖掘大量方块时发送过多数据包。
+- 满级显示 `已满级`，进度固定为 100%。
+- 不同技能同时获得经验时，显示最近一次或按优先级排队，不创建大量 BossBar。
+
+## 二、挖掘事件流程
+
+```text
+玩家成功破坏方块
+→ 校验游戏模式、保护区域和刷经验限制
+→ 计算矿工经验
+→ 提交技能经验账本
+→ 发布 SkillXpGrantedEvent
+→ 更新矿工 BossBar
+→ 判断升级和技能解锁
+```
+
+只有经验真正提交成功后才显示 BossBar。若经验结算失败，不应显示虚假的经验提示。
+
+挖掘经验应排除：
+
+- 创造模式；
+- 爆炸或红石间接破坏；
+- 命令破坏；
+- 非玩家破坏；
+- 短时间内重复放置和破坏的方块；
+- 不在配置白名单中的方块。
+
+## 三、升级反馈
+
+升级时不要只更新进度条，还应增加短暂反馈：
+
+```text
+标题：矿工等级提升！
+副标题：Lv.42 → Lv.43
+ActionBar：解锁新的采矿能力
+音效：等级提升音效
+粒子：少量绿色或金色粒子
+```
+
+如果一次经验导致连续升级多级，应合并为一条提示：
+
+```text
+矿工等级提升：42 → 45
+```
+
+达到 100 级时：
+
+```text
+矿脉爆发已解锁！
+```
+
+不建议为每一级连续播放标题和音效，否则礼包经验或大量批量经验会造成刷屏。
+
+## 四、其他技能的表现形式
+
+| 技能 | 顶部显示 | 触发反馈 |
+|---|---|---|
+| Mining | 矿工经验 BossBar | 急迫、挖掘粒子 |
+| Woodcutting | 伐木经验 BossBar | 连锁砍伐提示 |
+| Herbalism | 农业经验 BossBar | 额外收获提示 |
+| Swords | 剑术经验 BossBar | 暴击、流血提示 |
+| Axes | 斧术经验 BossBar | 范围攻击提示 |
+| Archery | 射术经验 BossBar | 箭矢回收或特殊命中 |
+| Repair | 修理经验 BossBar | 修理成功、材料节省 |
+| Alchemy | 炼金经验 BossBar | 药水强化、材料返还 |
+| Fishing | 钓鱼经验 BossBar | 宝藏或稀有鱼获 |
+
+被动技能只在实际触发时提示，例如：
+
+```text
+丰收矿工触发：额外获得 3 个钻石
+```
+
+不要在每次判定失败时发送消息。
+
+## 五、主动技能显示
+
+主动技能不建议长期占用第二条 BossBar，避免屏幕顶部堆叠。默认使用 ActionBar：
+
+```text
+矿脉爆发已激活 · 急迫 V · 剩余 01:42
+```
+
+冷却结束时：
+
+```text
+矿脉爆发已就绪
+```
+
+使用 BossBar 时，建议只在主动技能持续期间暂时切换显示模式：
+
+```text
+矿脉爆发 · 01:42
+```
+
+技能经验 BossBar 在主动技能结束后恢复。
+
+## 六、推荐内部结构
+
+```text
+SkillXpService
+    负责经验计算和提交
+
+SkillHudService
+    负责 BossBar、ActionBar、标题和音效
+
+SkillFeedbackEvent
+    经验获得、升级、主动技能、被动触发
+
+PlayerSkillHudState
+    当前显示技能、BossBar、过期时间、待显示消息
+```
+
+经验事件示例字段：
+
+```text
+playerUuid
+skillId
+source
+xpAmount
+oldLevel
+newLevel
+currentXp
+nextLevelXp
+operationId
+```
+
+这样挖矿、击杀、钓鱼、制造等所有来源都能使用同一套表现逻辑。
+
+## 七、配置建议
+
+```text
+skills.hud.enabled = true
+skills.hud.bossbar.enabled = true
+skills.hud.bossbar.duration-ticks = 60
+skills.hud.bossbar.update-interval = 3
+skills.hud.actionbar.enabled = true
+skills.hud.level-up-title = true
+skills.hud.passive-feedback = true
+skills.hud.max-queued-messages = 3
+```
+
+每个技能还可以配置：
+
+```text
+skills.mining.hud.color = GREEN
+skills.mining.hud.icon = "⛏"
+skills.mining.hud.level-up-sound = "ui.toast.challenge_complete"
+```
+
+## 八、稳定性与性能要求
+
+- BossBar 只保存在内存中，不写入玩家存档。
+- 玩家退出时立即移除 BossBar 和 HUD 状态。
+- 所有 HUD 更新必须在服务端主线程执行。
+- 经验结算、技能效果和 HUD 更新分离。
+- HUD 发生异常时，只禁用该玩家的显示，不回滚已成功获得的经验。
+- 日志记录玩家 UUID、技能、经验来源、等级、操作 ID 和完整异常堆栈。
+- 不要在每次方块破坏时直接创建或销毁 BossBar 对象。
+
+## 九、推荐上线顺序
+
+1. 先实现 Mining 的经验 BossBar。
+2. 抽象为所有技能通用的 HUD 服务。
+3. 增加升级标题、音效和技能解锁提示。
+4. 增加主动技能 ActionBar 和冷却反馈。
+5. 最后加入被动触发粒子、稀有掉落提示和可配置主题。
+
+验收标准是：挖掘经验只结算一次、BossBar 数值与实际经验一致、连续挖掘不会造成卡顿或刷屏、玩家退出后不会残留 BossBar，且 HUD 出错不会影响技能数据。
+
+---
+
+## Development request 2026/9/13 20:42:13
+
+继续
+
+---
+
+## Development request 2026/9/14 10:19:01
+
+继续
+
+---
+
+## Development request 2026/9/14 10:52:08
+
+继续
+
+---
+
+## Development request 2026/9/14 10:52:08
+
+继续
+
+---
+
+## Development request 2026/9/14 13:40:57
+
+继续
+
+---
+
+## Development request 2026/9/14 13:41:12
+
+继续
+
+---
+
+## Development request 2026/9/14 13:41:14
+
+继续
+
+---
+
+## Development request 2026/9/14 14:47:47
+
+继续
+
+---
+
+## Development request 2026/9/14 14:54:23
+
+继续
+
+---
+
+## Development request 2026/9/15 13:41:51
+
+这次更新后我发现技能树出现了ug，不加经验
+
+---
+
+## Development request 2026/9/15 15:48:04
+
+技能树模块还有什么可优化的点
+
+---
+
+## Development request 2026/9/15 18:26:46
+
+按照这个方案，逐步优化
+
+---
+
+## Development request 2026/9/16 14:53:50
+
+上次我让你总结了一次更新日志，把自那以后的更新内容输出为文本给我

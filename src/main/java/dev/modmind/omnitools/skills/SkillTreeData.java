@@ -143,28 +143,7 @@ public final class SkillTreeData extends SavedData {
             CompoundTag treeTags = new CompoundTag();
             for (Map.Entry<String, Progress> entry : data.players.getOrDefault(playerId, Map.of()).entrySet()) {
                 Progress progress = entry.getValue();
-                CompoundTag tag = new CompoundTag();
-                tag.putInt(LEVEL_KEY, progress.level());
-                tag.putLong(XP_KEY, progress.currentXp());
-                tag.putLong(TOTAL_XP_KEY, progress.totalXp());
-                tag.putInt(AVAILABLE_POINTS_KEY, progress.availablePoints());
-                tag.putInt(ATTRIBUTE_POINTS_KEY, progress.attributePoints());
-                tag.putInt(SKILL_POINTS_KEY, progress.skillPoints());
-                tag.putInt(REWARD_POINTS_KEY, progress.rewardPoints());
-                tag.putInt(MASTERY_POINTS_KEY, progress.masteryPoints());
-                ListTag unlocked = new ListTag();
-                progress.unlockedSkills().forEach(id -> unlocked.add(StringTag.valueOf(id)));
-                tag.put(UNLOCKED_KEY, unlocked);
-                tag.putLong(OVERFLOW_XP_KEY, progress.overflowXp());
-                tag.putLong(DAILY_XP_KEY, progress.dailyXp());
-                tag.putLong(DAILY_EPOCH_DAY_KEY, progress.dailyEpochDay());
-                tag.putLong(ULTIMATE_COOLDOWN_UNTIL_KEY, progress.ultimateCooldownUntilEpochMillis());
-                CompoundTag skillLevels = new CompoundTag();
-                progress.skillLevels().forEach((id, level) -> skillLevels.putInt(id, level));
-                tag.put(SKILL_LEVELS_KEY, skillLevels);
-                tag.putLong(ACTIVE_COOLDOWN_UNTIL_KEY, progress.activeCooldownUntilEpochMillis());
-                tag.putLong(RESET_COOLDOWN_UNTIL_KEY, progress.skillResetCooldownUntilEpochMillis());
-                treeTags.put(entry.getKey(), tag);
+                treeTags.put(entry.getKey(), encodeProgress(progress));
             }
             playerTag.put(TREES_KEY, treeTags);
             AnnouncementState announcement = data.announcements.get(playerId);
@@ -182,6 +161,53 @@ public final class SkillTreeData extends SavedData {
         }
         root.put(PLAYERS_KEY, playersTag);
         return root;
+    }
+
+    /** Shared snapshot codec used by the XP transaction journal. */
+    static CompoundTag encodeProgress(Progress progress) {
+        if (progress == null) return new CompoundTag();
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(LEVEL_KEY, progress.level());
+        tag.putLong(XP_KEY, progress.currentXp());
+        tag.putLong(TOTAL_XP_KEY, progress.totalXp());
+        tag.putInt(AVAILABLE_POINTS_KEY, progress.availablePoints());
+        tag.putInt(ATTRIBUTE_POINTS_KEY, progress.attributePoints());
+        tag.putInt(SKILL_POINTS_KEY, progress.skillPoints());
+        tag.putInt(REWARD_POINTS_KEY, progress.rewardPoints());
+        tag.putInt(MASTERY_POINTS_KEY, progress.masteryPoints());
+        ListTag unlocked = new ListTag();
+        progress.unlockedSkills().forEach(id -> unlocked.add(StringTag.valueOf(id)));
+        tag.put(UNLOCKED_KEY, unlocked);
+        tag.putLong(OVERFLOW_XP_KEY, progress.overflowXp());
+        tag.putLong(DAILY_XP_KEY, progress.dailyXp());
+        tag.putLong(DAILY_EPOCH_DAY_KEY, progress.dailyEpochDay());
+        tag.putLong(ULTIMATE_COOLDOWN_UNTIL_KEY, progress.ultimateCooldownUntilEpochMillis());
+        CompoundTag skillLevels = new CompoundTag();
+        progress.skillLevels().forEach((id, level) -> skillLevels.putInt(id, level));
+        tag.put(SKILL_LEVELS_KEY, skillLevels);
+        tag.putLong(ACTIVE_COOLDOWN_UNTIL_KEY, progress.activeCooldownUntilEpochMillis());
+        tag.putLong(RESET_COOLDOWN_UNTIL_KEY, progress.skillResetCooldownUntilEpochMillis());
+        return tag;
+    }
+
+    static Progress decodeProgress(CompoundTag tag) {
+        if (tag == null) return Progress.empty();
+        Set<String> unlocked = new HashSet<>();
+        ListTag list = tag.getListOrEmpty(UNLOCKED_KEY);
+        for (int index = 0; index < list.size(); index++) {
+            list.getString(index).ifPresent(id -> { if (!id.isBlank()) unlocked.add(id); });
+        }
+        return new Progress(Math.max(0, tag.getIntOr(LEVEL_KEY, 0)),
+                Math.max(0L, tag.getLongOr(XP_KEY, 0L)), Math.max(0L, tag.getLongOr(TOTAL_XP_KEY, 0L)),
+                Math.max(0, tag.getIntOr(AVAILABLE_POINTS_KEY, 0)), Math.max(0, tag.getIntOr(ATTRIBUTE_POINTS_KEY, 0)),
+                Math.max(0, tag.getIntOr(SKILL_POINTS_KEY, 0)), Math.max(0, tag.getIntOr(REWARD_POINTS_KEY, 0)),
+                Math.max(0, tag.getIntOr(MASTERY_POINTS_KEY, 0)), unlocked,
+                Math.max(0L, tag.getLongOr(OVERFLOW_XP_KEY, 0L)), Math.max(0L, tag.getLongOr(DAILY_XP_KEY, 0L)),
+                tag.getLongOr(DAILY_EPOCH_DAY_KEY, Long.MIN_VALUE),
+                Math.max(0L, tag.getLongOr(ULTIMATE_COOLDOWN_UNTIL_KEY, 0L)),
+                readSkillLevels(tag.getCompoundOrEmpty(SKILL_LEVELS_KEY)),
+                Math.max(0L, tag.getLongOr(ACTIVE_COOLDOWN_UNTIL_KEY, 0L)),
+                Math.max(0L, tag.getLongOr(RESET_COOLDOWN_UNTIL_KEY, 0L)));
     }
 
     /** Immutable progression snapshot; all updates pass through SkillTreeService validation. */

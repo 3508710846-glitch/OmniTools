@@ -159,7 +159,6 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
         Optional<TreeDefinition> direct = trees.stream().filter(tree -> tree.id().equals(normalized)).findFirst();
         if (direct.isPresent()) return direct;
         String canonical = LegacySkillAdapter.canonical(normalized);
-        if (canonical.equals(normalized)) return Optional.empty();
         Optional<TreeDefinition> canonicalTree = trees.stream().filter(tree -> tree.id().equals(canonical)).findFirst();
         if (canonicalTree.isPresent()) return canonicalTree;
         // During the one-time compatibility window a V1 configuration may still use the old
@@ -342,7 +341,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                            double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic,
                            AnnouncementSettings announcements, long pointRewardCurrency,
                            SkillEngine engine, double xpMultiplier, boolean partyEnabled,
-                           boolean legacyEnabled) {
+                           boolean legacyEnabled, HudSettings hud) {
         public Settings {
             boolean modern = maxLevel == MAX_LEVEL && pointsEveryLevels == POINTS_EVERY_LEVELS;
             boolean legacy = maxLevel == LEGACY_MAX_LEVEL && pointsEveryLevels == LEGACY_POINTS_EVERY_LEVELS;
@@ -378,6 +377,19 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             if (!Double.isFinite(xpMultiplier) || xpMultiplier <= 0.0D || xpMultiplier > 100.0D) {
                 throw new JsonParseException("skills.settings.mcmmo.xp_multiplier must be between 0 and 100");
             }
+            hud = hud == null ? HudSettings.defaults() : hud;
+        }
+
+        /** Compatibility constructor for callers that already supplied the engine flags. */
+        public Settings(int maxLevel, int pointsEveryLevels, long maxDailyXp, int minIntervalTicks,
+                        double baseAttributeCap, double pointAttributeCap, double pointAttributeBonus,
+                        double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic,
+                        AnnouncementSettings announcements, long pointRewardCurrency,
+                        SkillEngine engine, double xpMultiplier, boolean partyEnabled,
+                        boolean legacyEnabled) {
+            this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
+                    pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic, announcements,
+                    pointRewardCurrency, engine, xpMultiplier, partyEnabled, legacyEnabled, HudSettings.defaults());
         }
 
         /** Compatibility constructor for callers that only configure the original progression fields. */
@@ -386,7 +398,8 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                         double maxTitleXpBonus, long xpBase, long xpLinear, double xpQuadratic) {
             this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
                     pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic,
-                    AnnouncementSettings.defaults(), 250L, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false);
+                    AnnouncementSettings.defaults(), 250L, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false,
+                    HudSettings.defaults());
         }
 
         /** Compatibility constructor for callers that already supplied announcement settings. */
@@ -396,20 +409,22 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                         AnnouncementSettings announcements, long pointRewardCurrency) {
             this(maxLevel, pointsEveryLevels, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
                     pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic, announcements,
-                    pointRewardCurrency, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false);
+                    pointRewardCurrency, inferEngine(maxLevel, pointsEveryLevels), 1.0D, true, false,
+                    HudSettings.defaults());
         }
 
         static Settings defaults() {
             return new Settings(MCMOO_MAX_LEVEL, MCMOO_POINTS_EVERY_LEVELS, 250_000L, 4, BASE_ATTRIBUTE_CAP,
                     POINT_ATTRIBUTE_CAP, POINT_ATTRIBUTE_BONUS, MAX_TITLE_XP_BONUS, 100L, 25L, 0.015D,
-                    AnnouncementSettings.defaults(), 250L, SkillEngine.MCMOO, 1.0D, true, false);
+                    AnnouncementSettings.defaults(), 250L, SkillEngine.MCMOO, 1.0D, true, false,
+                    HudSettings.defaults());
         }
 
         static Settings parse(JsonObject object, SkillEngine rootEngine) {
-            ConfigFieldReporter.warnUnknown(object, "skills.settings",
+                    ConfigFieldReporter.warnUnknown(object, "skills.settings",
                     Set.of("engine", "mcmmo", "max_level", "points_every_levels", "max_daily_xp", "min_interval_ticks",
                             "base_attribute_cap", "point_attribute_cap", "point_attribute_bonus", "max_title_xp_bonus",
-                            "xp_base", "xp_linear", "xp_quadratic", "announcements", "point_reward_currency"));
+                            "xp_base", "xp_linear", "xp_quadratic", "announcements", "point_reward_currency", "hud"));
             String localEngine = string(object, "engine", "");
             SkillEngine engine = rootEngine != null ? rootEngine : (!localEngine.isBlank()
                     ? SkillEngine.parse(localEngine) : inferEngine(integer(object, "max_level", MAX_LEVEL, "skills.settings"),
@@ -433,7 +448,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                     decimal(optionalObject(object, "mcmmo", "skills.settings"), "xp_multiplier", 1.0D,
                             "skills.settings.mcmmo"), bool(optionalObject(object, "mcmmo", "skills.settings"), "party_enabled", true,
                             "skills.settings.mcmmo"), bool(optionalObject(object, "mcmmo", "skills.settings"), "legacy_enabled", false,
-                            "skills.settings.mcmmo"));
+                            "skills.settings.mcmmo"), HudSettings.parse(optionalObject(object, "hud", "skills.settings")));
         }
 
         static Settings parse(JsonObject object) { return parse(object, null); }
@@ -447,7 +462,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             int points = replacement == SkillEngine.LEGACY ? LEGACY_POINTS_EVERY_LEVELS : POINTS_EVERY_LEVELS;
             return new Settings(level, points, maxDailyXp, minIntervalTicks, baseAttributeCap, pointAttributeCap,
                     pointAttributeBonus, maxTitleXpBonus, xpBase, xpLinear, xpQuadratic, announcements,
-                    pointRewardCurrency, replacement, xpMultiplier, partyEnabled, legacyEnabled);
+                    pointRewardCurrency, replacement, xpMultiplier, partyEnabled, legacyEnabled, hud);
         }
 
         Settings withMcmmo(JsonObject object, String context) {
@@ -463,7 +478,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
                     baseAttributeCap, pointAttributeCap, pointAttributeBonus, maxTitleXpBonus, xpBase,
                     xpLinear, xpQuadratic, announcements, pointRewardCurrency, selected,
                     decimal(object, "xp_multiplier", xpMultiplier, context), partyValue,
-                    bool(object, "legacy_enabled", legacyEnabled, context));
+                    bool(object, "legacy_enabled", legacyEnabled, context), hud);
         }
 
         JsonObject mcmmoToJson() {
@@ -491,6 +506,7 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             object.add("announcements", announcements.toJson());
             object.addProperty("point_reward_currency", pointRewardCurrency);
             object.addProperty("engine", engine.serializedName());
+            object.add("hud", hud.toJson());
             if (engine == SkillEngine.MCMOO) object.add("mcmmo", mcmmoToJson());
             return object;
         }
@@ -499,6 +515,55 @@ public record SkillTreeConfig(int formatVersion, Settings settings, List<TreeDef
             if (maxLevel == MCMOO_MAX_LEVEL && pointsEveryLevels == MCMOO_POINTS_EVERY_LEVELS) return SkillEngine.MCMOO;
             if (maxLevel == LEGACY_MAX_LEVEL && pointsEveryLevels == LEGACY_POINTS_EVERY_LEVELS) return SkillEngine.LEGACY;
             return SkillEngine.PROFESSIONAL;
+        }
+    }
+
+    /** Server-side visual feedback settings. HUD state is transient and never persisted per player. */
+    public record HudSettings(boolean enabled, boolean bossbarEnabled, int durationTicks,
+                              int updateIntervalTicks, boolean actionbarEnabled, boolean levelUpTitle,
+                              boolean passiveFeedback, int maxQueuedMessages) {
+        public HudSettings {
+            if (durationTicks < 1 || durationTicks > 600) {
+                throw new JsonParseException("skills.settings.hud.duration_ticks must be between 1 and 600");
+            }
+            if (updateIntervalTicks < 1 || updateIntervalTicks > 20) {
+                throw new JsonParseException("skills.settings.hud.update_interval_ticks must be between 1 and 20");
+            }
+            if (maxQueuedMessages < 0 || maxQueuedMessages > 16) {
+                throw new JsonParseException("skills.settings.hud.max_queued_messages must be between 0 and 16");
+            }
+        }
+
+        static HudSettings defaults() {
+            return new HudSettings(true, true, 60, 3, true, true, true, 3);
+        }
+
+        static HudSettings parse(JsonObject object) {
+            if (object == null) return defaults();
+            ConfigFieldReporter.warnUnknown(object, "skills.settings.hud",
+                    Set.of("enabled", "bossbar_enabled", "duration_ticks", "update_interval_ticks",
+                            "actionbar_enabled", "level_up_title", "passive_feedback", "max_queued_messages"));
+            return new HudSettings(bool(object, "enabled", true, "skills.settings.hud"),
+                    bool(object, "bossbar_enabled", true, "skills.settings.hud"),
+                    integer(object, "duration_ticks", 60, "skills.settings.hud"),
+                    integer(object, "update_interval_ticks", 3, "skills.settings.hud"),
+                    bool(object, "actionbar_enabled", true, "skills.settings.hud"),
+                    bool(object, "level_up_title", true, "skills.settings.hud"),
+                    bool(object, "passive_feedback", true, "skills.settings.hud"),
+                    integer(object, "max_queued_messages", 3, "skills.settings.hud"));
+        }
+
+        JsonObject toJson() {
+            JsonObject object = new JsonObject();
+            object.addProperty("enabled", enabled);
+            object.addProperty("bossbar_enabled", bossbarEnabled);
+            object.addProperty("duration_ticks", durationTicks);
+            object.addProperty("update_interval_ticks", updateIntervalTicks);
+            object.addProperty("actionbar_enabled", actionbarEnabled);
+            object.addProperty("level_up_title", levelUpTitle);
+            object.addProperty("passive_feedback", passiveFeedback);
+            object.addProperty("max_queued_messages", maxQueuedMessages);
+            return object;
         }
     }
 

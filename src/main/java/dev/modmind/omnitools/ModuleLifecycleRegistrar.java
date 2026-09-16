@@ -3,6 +3,7 @@ package dev.modmind.omnitools;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
 import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
+import dev.modmind.omnitools.skills.SkillXpTransactionData;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.server.MinecraftServer;
 
@@ -19,6 +20,7 @@ final class ModuleLifecycleRegistrar {
 
     private static void onStarting(MinecraftServer server) {
         CloudStorageSessionManager.global().resetForServerStart();
+        ModMindEntry.skillHudService().clearAll();
         ModMindEntry.resetModuleServicesForStartup();
     }
 
@@ -27,6 +29,23 @@ final class ModuleLifecycleRegistrar {
         TitleData.bind(server);
         TitleData.importLegacy(server);
         ModMindEntry.reloadModulesAtStartup(server);
+        if (ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) {
+            ModuleFaultBoundary.run(ModuleId.SKILLS, "xp_transaction_reconcile",
+                    "xp_transactions_retained_for_retry", () -> {
+                        SkillXpTransactionData.RecoveryReport report = SkillXpTransactionData.get(server)
+                                .reconcileStartup(server);
+                        if (report.reconciled() > 0 || report.failed() > 0) {
+                            dev.modmind.omnitools.diagnostics.OperationalErrorReporter.global().info(
+                                    dev.modmind.omnitools.diagnostics.OperationalErrorReporter.Context
+                                            .forModule(ModuleId.SKILLS, "xp_transaction_reconcile")
+                                            .withState("COMPLETE")
+                                            .withParameters(java.util.Map.of("reconciled", Integer.toString(report.reconciled()),
+                                                    "failed", Integer.toString(report.failed())))
+                                            .withRecoveryAction("prepared_xp_snapshots_restored"),
+                                    "Skill XP transaction recovery completed");
+                        }
+                    });
+        }
         if (ModMindEntry.isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
             ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "journal_reconcile",
                     "journal_retained_for_manual_recovery", () -> {
@@ -71,8 +90,13 @@ final class ModuleLifecycleRegistrar {
                     () -> TitleEffectService.removeAll(server));
         }
         if (ModMindEntry.isModuleEnabled(ModuleId.SKILLS)) {
+            ModuleFaultBoundary.run(ModuleId.SKILLS, "xp_transaction_stop_flush",
+                    "xp_transactions_retained_for_startup_recovery",
+                    () -> ModMindEntry.skillTreeService().flushPendingXpTransactions(server, true));
             ModuleFaultBoundary.run(ModuleId.SKILLS, "server_stop_cleanup", "skill_attribute_cleanup_skipped",
                     () -> ModMindEntry.skillTreeService().removeAll(server));
+            ModuleFaultBoundary.run(ModuleId.SKILLS, "server_stop_hud_cleanup", "skill_hud_cleanup_skipped",
+                    () -> ModMindEntry.skillHudService().clearAll(server));
         }
         ModuleFaultBoundary.run(null, "server_stop_audit_flush", "audit_records_may_remain_queued", () -> {
             if (!AsyncAuditLogWriter.global().flush(java.time.Duration.ofSeconds(3L))) {

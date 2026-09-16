@@ -6,6 +6,7 @@ import dev.modmind.omnitools.TitleConfig;
 import dev.modmind.omnitools.TitleEffectConfig;
 import dev.modmind.omnitools.config.ModuleId;
 import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
+import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 import net.minecraft.core.Holder;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -39,6 +40,7 @@ import java.util.UUID;
 import java.util.Collections;
 import java.util.ArrayDeque;
 import java.nio.file.Path;
+import java.util.function.BiConsumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 
@@ -54,6 +56,10 @@ public final class SkillTreeService {
     private final Set<String> settledOperations = new java.util.LinkedHashSet<>();
     private final Map<String, Long> passiveTriggerCounts = new HashMap<>();
     private final SkillLedger transientLedger = new SkillLedger();
+    private final SkillXpDiagnostics xpDiagnostics = new SkillXpDiagnostics();
+    private boolean xpTransactionFlushPending;
+    private long lastXpTransactionFlushTick = -20L;
+    private volatile BiConsumer<ServerPlayer, SkillFeedbackEvent> feedbackListener = (player, event) -> { };
 
     public SkillTreeService(SkillTreeConfig config) {
         this.config = config == null ? SkillTreeConfig.empty() : config;
@@ -72,6 +78,11 @@ public final class SkillTreeService {
     public SkillTreeConfig config() { return config; }
     public long revision() { return revision; }
 
+    /** Installs a transient listener for successful skill feedback (normally SkillHudService). */
+    public void setFeedbackListener(BiConsumer<ServerPlayer, SkillFeedbackEvent> listener) {
+        feedbackListener = listener == null ? (player, event) -> { } : listener;
+    }
+
     /** Stable engine-facing API used by rewards, titles, sidebars and external integrations. */
     public SkillEngine engine() { return config.settings().engine(); }
 
@@ -88,28 +99,63 @@ public final class SkillTreeService {
         return activeCooldownRemainingSeconds(progress(player, LegacySkillAdapter.canonical(skillId)));
     }
 
-    /** Event-oriented API. Operation ids are claimed before mutation and persisted for replays. */
+    /** Event-oriented API. Every XP mutation requires a stable operation id for recovery and replay safety. */
     public synchronized XpResult grantSkillXp(ServerPlayer player, SkillXpEvent event) {
         return grantSkillXp(player, event, true);
     }
 
     public synchronized XpResult grantSkillXp(ServerPlayer player, SkillXpEvent event, boolean applyTitleXpBonus) {
         if (player == null || event == null || !player.getUUID().equals(event.playerId())) {
-            return XpResult.rejected(Status.INVALID_REQUEST);
+            return recordXpResult(XpResult.rejected(Status.INVALID_REQUEST), event == null ? null : event.source());
+        }
+        if (event.operationId().isBlank()) {
+            return recordXpResult(XpResult.rejected(Status.OPERATION_ID_REQUIRED), event.source());
         }
         String skillId = LegacySkillAdapter.canonical(event.skillId());
-        if (config.tree(skillId).isEmpty()) return XpResult.rejected(Status.UNKNOWN_TREE);
-        if (event.operationId().isBlank()) {
-            return addSkillXp(player, skillId, event.amount(), event.source(), applyTitleXpBonus);
+        if (config.tree(skillId).isEmpty()) return recordXpResult(XpResult.rejected(Status.UNKNOWN_TREE), event.source());
+        SkillTreeData.Progress before = progress(player, skillId);
+        if (operationAlreadyClaimed(player, event.operationId())) {
+            return recordXpResult(XpResult.rejected(Status.DUPLICATE_OPERATION), event.source());
         }
-        if (!claimOperation(player, event.operationId())) {
-            return XpResult.rejected(Status.DUPLICATE_OPERATION);
-        }
-        XpResult result = addSkillXp(player, skillId, event.amount(), event.source(), applyTitleXpBonus);
+        XpResult result = addSkillXp(player, skillId, event.amount(), event.source(), applyTitleXpBonus,
+                event.operationId());
+        publishXpFeedback(player, event, skillId, before, result);
         if (!result.granted()) {
             audit("xp_rejected", event.operationId(), result.status().name().toLowerCase(java.util.Locale.ROOT));
         }
+        return recordXpResult(result, event.source());
+    }
+
+    private XpResult recordXpResult(XpResult result, SkillXpSource source) {
+        xpDiagnostics.record(result, source);
         return result;
+    }
+
+    private void publishXpFeedback(ServerPlayer player, SkillXpEvent input, String skillId,
+                                   SkillTreeData.Progress before, XpResult result) {
+        if (result == null || !result.granted() || result.acceptedXp() <= 0L) return;
+        SkillTreeConfig.TreeDefinition tree = config.tree(skillId).orElse(null);
+        if (tree == null) return;
+        SkillTreeData.Progress after = result.progress();
+        long next = after.level() >= config.settings().maxLevel() ? 0L : xpRequired(tree, after.level());
+        dispatchFeedback(player, SkillFeedbackEvent.xp(player.getUUID(), skillId, input.source(),
+                result.acceptedXp(), before == null ? 0 : before.level(), after.level(),
+                after.currentXp(), next, input.operationId()));
+    }
+
+    private void dispatchFeedback(ServerPlayer player, SkillFeedbackEvent event) {
+        try {
+            feedbackListener.accept(player, event);
+        } catch (Throwable failure) {
+            OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                    .forModule(ModuleId.SKILLS, "feedback_listener")
+                    .withPlayer(player == null ? null : player.getUUID())
+                    .withWorld(player == null ? "" : player.level().dimension().toString())
+                    .withState("HUD")
+                    .withParameters(Map.of("skill", event == null ? "" : event.skillId(),
+                            "operationId", event == null ? "" : event.operationId()))
+                    .withRecoveryAction("skill_progress_kept;feedback_skipped"), failure);
+        }
     }
 
     public McmmoSkillModule.AbilitySnapshot abilitySnapshot(ServerPlayer player, String skillId) {
@@ -121,25 +167,16 @@ public final class SkillTreeService {
                 activeCooldownRemainingSeconds(progress), active);
     }
 
-    private boolean claimOperation(ServerPlayer player, String operationId) {
+    private boolean operationAlreadyClaimed(ServerPlayer player, String operationId) {
         if (player == null || operationId == null || operationId.isBlank()) return false;
-        // Scope XP claims by player and namespace them separately from ability/passive claims.
-        // Keep accepting the pre-namespace raw ids so upgrading an existing server cannot replay
-        // an XP event that was already persisted by an older build.
         String scoped = "xp:" + player.getUUID() + ":" + operationId;
         try {
             SkillLedgerData ledger = SkillLedgerData.get(player.level().getServer());
-            if (ledger.contains(player.getUUID(), operationId)
-                    || ledger.contains(player.getUUID(), scoped)) {
-                return false;
-            }
-            return ledger.claim(player.getUUID(), scoped);
+            return ledger.contains(player.getUUID(), operationId) || ledger.contains(player.getUUID(), scoped)
+                    || SkillXpTransactionData.get(player.level().getServer())
+                    .hasBlockingOperation(player.getUUID(), operationId);
         } catch (RuntimeException unavailable) {
-            // Unit/test worlds can lack SavedData; retain the same fail-closed semantics in memory.
-            if (transientLedger.contains(operationId) || transientLedger.contains(scoped)) {
-                return false;
-            }
-            return transientLedger.claim(scoped);
+            return transientLedger.contains(operationId) || transientLedger.contains(scoped);
         }
     }
 
@@ -364,6 +401,9 @@ public final class SkillTreeService {
         SkillTreeData.Progress updated = copy(progress, progress.availablePoints(), progress.attributePoints(), progress.skillPoints(),
                 progress.unlockedSkills(), progress.skillLevels(), System.currentTimeMillis() + cooldown, progress.skillResetCooldownUntilEpochMillis());
         data.replace(player.getUUID(), tree.id(), updated);
+        dispatchFeedback(player, SkillFeedbackEvent.active(player.getUUID(), tree.id(), level,
+                "ability:" + player.getUUID() + ":" + tree.id() + ":" + updated.activeCooldownUntilEpochMillis(),
+                active.display()));
         return new PointResult(Status.GRANTED, updated);
     }
 
@@ -374,14 +414,38 @@ public final class SkillTreeService {
                 p.ultimateCooldownUntilEpochMillis(), levels, activeCooldown, resetCooldown);
     }
 
-    /** The only supported XP mutation path for behavior events, rewards, commands and future modules. */
+    /**
+     * Legacy convenience entry point retained for binary compatibility. It cannot provide a
+     * durable operation id, so callers must migrate to {@link #grantSkillXp(ServerPlayer, SkillXpEvent)}.
+     */
+    @Deprecated(forRemoval = false)
     public synchronized XpResult addSkillXp(ServerPlayer player, String treeId, long requestedXp, SkillXpSource source) {
-        return addSkillXp(player, treeId, requestedXp, source, true);
+        return recordXpResult(XpResult.rejected(Status.OPERATION_ID_REQUIRED), source);
     }
 
-    /** Applies a source that may opt out of title XP bonuses, such as a configured paid package. */
+    /**
+     * Legacy convenience entry point retained for binary compatibility. Use a {@link SkillXpEvent}
+     * with a stable operation id instead.
+     */
+    @Deprecated(forRemoval = false)
     public synchronized XpResult addSkillXp(ServerPlayer player, String treeId, long requestedXp, SkillXpSource source,
                                             boolean applyTitleXpBonus) {
+        return recordXpResult(XpResult.rejected(Status.OPERATION_ID_REQUIRED), source);
+    }
+
+    /** Returns runtime XP counters and transaction state for administrators; player data is not exposed. */
+    public SkillXpDiagnostics.Snapshot xpHealth(MinecraftServer server) {
+        SkillXpTransactionData.Summary transactions = null;
+        try {
+            transactions = SkillXpTransactionData.get(server).summary();
+        } catch (RuntimeException ignored) {
+            // The event counters remain useful during partial startup or a damaged SavedData load.
+        }
+        return xpDiagnostics.snapshot(transactions);
+    }
+
+    private synchronized XpResult addSkillXp(ServerPlayer player, String treeId, long requestedXp, SkillXpSource source,
+                                              boolean applyTitleXpBonus, String operationId) {
         if (player == null || source == null || requestedXp <= 0L) return XpResult.rejected(Status.INVALID_REQUEST);
         Optional<SkillTreeConfig.TreeDefinition> target = config.tree(treeId);
         if (target.isEmpty()) return XpResult.rejected(Status.UNKNOWN_TREE);
@@ -441,15 +505,86 @@ public final class SkillTreeService {
                 before.availablePoints() + newPoints, before.attributePoints(), before.skillPoints(), before.rewardPoints(),
                 before.masteryPoints(), unlocked, overflowXp, saturatedAdd(dailyXp, accepted), epochDay,
                 before.ultimateCooldownUntilEpochMillis());
-        data.replace(player.getUUID(), tree.id(), after);
-        refreshAttributes(player);
-        after = triggerUltimate(player, data, tree, source, after);
-        if (levelsGained > 0) {
-            sendLevelNotices(player, tree, before, after);
-            queueMilestoneAnnouncement(player, data, tree, before.level(), after.level(), totalBefore,
-                    totalLevel(data, player.getUUID()));
+        SkillXpTransactionData journal = null;
+        String transactionId = "";
+        if (operationId != null && !operationId.isBlank()) {
+            try {
+                journal = SkillXpTransactionData.get(player.level().getServer());
+                Optional<SkillXpTransactionData.Entry> prepared = journal.prepare(player.getUUID(), operationId,
+                        tree.id(), source, before, after, System.currentTimeMillis());
+                if (prepared.isEmpty()) return XpResult.rejected(Status.DUPLICATE_OPERATION);
+                transactionId = prepared.get().transactionId();
+                // The PREPARED target must reach durable storage before this method can change
+                // progress. Later checkpoints may batch the progress and COMMITTED state because
+                // startup can deterministically finish this target from the saved evidence.
+                journal.flush(player.level().getServer());
+                xpTransactionFlushPending = true;
+            } catch (RuntimeException failure) {
+                audit("xp_prepare_failed", operationId, failure.getClass().getSimpleName());
+                return XpResult.rejected(Status.PERSISTENCE_UNAVAILABLE);
+            }
         }
-        return new XpResult(Status.GRANTED, accepted, levelsGained, after, Math.max(0L, config.settings().maxDailyXp() - after.dailyXp()));
+        boolean commitTransitioned = false;
+        try {
+            data.replace(player.getUUID(), tree.id(), after);
+            if (journal != null) {
+                journal.commit(transactionId, after, System.currentTimeMillis());
+                commitTransitioned = true;
+                xpTransactionFlushPending = true;
+                // Preserve the legacy bounded ledger as a compatibility index. The transaction
+                // journal remains authoritative for new operations.
+                try { SkillLedgerData.get(player.level().getServer()).claim(player.getUUID(),
+                        "xp:" + player.getUUID() + ":" + operationId); } catch (RuntimeException ignored) { }
+            }
+            runCommittedXpSideEffects(player, data, tree, source, before, after, levelsGained, totalBefore, operationId);
+            return new XpResult(Status.GRANTED, accepted, levelsGained, after,
+                    Math.max(0L, config.settings().maxDailyXp() - after.dailyXp()));
+        } catch (RuntimeException | Error failure) {
+            if (commitTransitioned) {
+                // The terminal state and target snapshot are already updated in memory. Do not
+                // restore the before-image: a later checkpoint must persist this exact pair.
+                xpTransactionFlushPending = true;
+                OperationalErrorReporter.global().error(OperationalErrorReporter.Context
+                        .forModule(ModuleId.SKILLS, "xp_transaction_commit")
+                        .withPlayer(player.getUUID()).withWorld(player.level().dimension().toString())
+                        .withState("COMMIT_PENDING_FLUSH")
+                        .withParameters(Map.of("skill", tree.id(), "operationId", operationId))
+                        .withRecoveryAction("live_progress_retained;retry_next_checkpoint"), failure);
+                return XpResult.rejected(Status.PERSISTENCE_UNAVAILABLE);
+            }
+            // PREPARED was persisted before the mutation. Do not guess whether a later write
+            // reached disk or restore a conflicting live image; recovery will complete the saved
+            // target exactly once on the next start if this checkpoint cannot finish.
+            xpTransactionFlushPending = true;
+            OperationalErrorReporter.global().error(OperationalErrorReporter.Context
+                    .forModule(ModuleId.SKILLS, "xp_transaction")
+                    .withPlayer(player.getUUID()).withWorld(player.level().dimension().toString())
+                    .withState("PREPARED").withParameters(Map.of("skill", tree.id(), "operationId", operationId))
+                    .withRecoveryAction("prepared_target_retained_for_checkpoint_or_startup_recovery"), failure);
+            return XpResult.rejected(Status.PERSISTENCE_UNAVAILABLE);
+        }
+    }
+
+    /** Presentation and short-lived effects run after the XP transaction is already durable. */
+    private void runCommittedXpSideEffects(ServerPlayer player, SkillTreeData data, SkillTreeConfig.TreeDefinition tree,
+                                           SkillXpSource source, SkillTreeData.Progress before,
+                                           SkillTreeData.Progress after, int levelsGained, int totalBefore,
+                                           String operationId) {
+        try {
+            refreshAttributes(player);
+            SkillTreeData.Progress effectProgress = triggerUltimate(player, data, tree, source, after);
+            if (levelsGained > 0) {
+                sendLevelNotices(player, tree, before, effectProgress);
+                queueMilestoneAnnouncement(player, data, tree, before.level(), effectProgress.level(), totalBefore,
+                        totalLevel(data, player.getUUID()));
+            }
+        } catch (RuntimeException exception) {
+            OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                    .forModule(ModuleId.SKILLS, "xp_committed_side_effect")
+                    .withPlayer(player.getUUID()).withWorld(player.level().dimension().toString())
+                    .withState("COMMITTED").withParameters(Map.of("skill", tree.id(), "operationId", operationId))
+                    .withRecoveryAction("xp_kept;presentation_or_effect_skipped"), exception);
+        }
     }
 
     public synchronized PointResult investAttribute(ServerPlayer player, String treeId) {
@@ -516,6 +651,8 @@ public final class SkillTreeService {
             if (!drop.isEmpty()) Block.popResource(world, pos, drop.copy());
         }
         countPassive(treeId, "extra_drop");
+        dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), treeId, operationId,
+                "extra_drop"));
         audit("passive_drop", operationId, "granted");
         return true;
     }
@@ -576,18 +713,26 @@ public final class SkillTreeService {
         if (meleeTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.STRENGTH, 40, 0, false, true, true), player);
             countPassive(meleeSkill, "critical_rhythm");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), meleeSkill, operationId,
+                    "critical_rhythm"));
         }
         if (axesTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.STRENGTH, 40, 0, false, true, true), player);
             countPassive("axes", "skull_splitter");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), "axes", operationId,
+                    "skull_splitter"));
         }
         if (rangedTriggered) {
             target.addEffect(new MobEffectInstance(MobEffects.GLOWING, 100, 0, false, false, true), player);
             countPassive(rangedSkill, "loot_intuition");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), rangedSkill, operationId,
+                    "loot_intuition"));
         }
         if (defenseTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 40, 0, false, true, true), player);
             countPassive(defenseSkill, "steadfast_counter");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), defenseSkill, operationId,
+                    "steadfast_counter"));
         }
     }
 
@@ -605,10 +750,14 @@ public final class SkillTreeService {
         if (smithingTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.HASTE, 60, 0, false, true, true), player);
             countPassive(repairSkill, "material_saving");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), repairSkill, operationId,
+                    "material_saving"));
         }
         if (alchemyTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.LUCK, 60, 0, false, true, true), player);
             countPassive("alchemy", "recipe_mastery");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), "alchemy", operationId,
+                    "recipe_mastery"));
         }
     }
 
@@ -650,10 +799,14 @@ public final class SkillTreeService {
         if (farmerTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.SATURATION, 20, 0, false, true, true), player);
             countPassive(farmingSkill, "natural_gift");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), farmingSkill, operationId,
+                    "natural_gift"));
         }
         if (explorationTriggered) {
             player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 40, 0, false, true, true), player);
             countPassive(explorationSkill, "adventure_intuition");
+            dispatchFeedback(player, SkillFeedbackEvent.passive(player.getUUID(), explorationSkill, operationId,
+                    "adventure_intuition"));
         }
     }
 
@@ -773,6 +926,7 @@ public final class SkillTreeService {
      */
     public synchronized void tick(MinecraftServer server) {
         if (server == null) return;
+        flushPendingXpTransactions(server, false);
         flushMilestoneAnnouncements(server);
         if (server.getTickCount() % 20 == 0) {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -817,6 +971,26 @@ public final class SkillTreeService {
         if (player != null) {
             lastPositions.remove(player.getUUID());
             craftOperationSequences.remove(player.getUUID());
+        }
+    }
+
+    /** Group-commits dirty XP journal/progress SavedData at most once per second on the main thread. */
+    public synchronized boolean flushPendingXpTransactions(MinecraftServer server, boolean force) {
+        if (server == null || !xpTransactionFlushPending) return true;
+        long tick = server.getTickCount();
+        if (!force && tick - lastXpTransactionFlushTick < 20L) return true;
+        try {
+            SkillXpTransactionData.get(server).flush(server);
+            xpTransactionFlushPending = false;
+            lastXpTransactionFlushTick = tick;
+            return true;
+        } catch (RuntimeException exception) {
+            OperationalErrorReporter.global().warn(OperationalErrorReporter.Context
+                    .forModule(ModuleId.SKILLS, "xp_transaction_flush")
+                    .withState("PENDING")
+                    .withParameters(Map.of("pending", "true"))
+                    .withRecoveryAction("retain_transactions_and_retry_next_checkpoint"), exception);
+            return false;
         }
     }
 
@@ -1076,7 +1250,7 @@ public final class SkillTreeService {
         return result >= Long.MAX_VALUE ? Long.MAX_VALUE : Math.max(1L, Math.round(result));
     }
 
-    public enum Status { GRANTED, INVALID_REQUEST, UNKNOWN_TREE, UNKNOWN_SKILL, SOURCE_NOT_ALLOWED, RATE_LIMITED, DAILY_LIMIT_REACHED, NO_POINTS, ATTRIBUTE_CAP_REACHED, LEVEL_REQUIRED, ALREADY_UNLOCKED, REWARD_DISABLED, CURRENCY_OVERFLOW, SKILL_CAP_REACHED, ACTIVE_COOLDOWN, RESET_COOLDOWN, RESET_RESOURCE_REQUIRED, BLOCKED_BY_COLLISION, DUPLICATE_OPERATION, ENGINE_MANAGED }
+    public enum Status { GRANTED, INVALID_REQUEST, OPERATION_ID_REQUIRED, UNKNOWN_TREE, UNKNOWN_SKILL, SOURCE_NOT_ALLOWED, RATE_LIMITED, DAILY_LIMIT_REACHED, NO_POINTS, ATTRIBUTE_CAP_REACHED, LEVEL_REQUIRED, ALREADY_UNLOCKED, REWARD_DISABLED, CURRENCY_OVERFLOW, SKILL_CAP_REACHED, ACTIVE_COOLDOWN, RESET_COOLDOWN, RESET_RESOURCE_REQUIRED, BLOCKED_BY_COLLISION, DUPLICATE_OPERATION, PERSISTENCE_UNAVAILABLE, TRANSACTION_FAILED, ENGINE_MANAGED }
     public record XpResult(Status status, long acceptedXp, int levelsGained, SkillTreeData.Progress progress, long dailyRemaining) {
         static XpResult rejected(Status status) { return new XpResult(status, 0L, 0, SkillTreeData.Progress.empty(), 0L); }
         public boolean granted() { return status == Status.GRANTED; }
