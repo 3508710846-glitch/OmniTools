@@ -76,6 +76,7 @@ import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
 import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.diagnostics.ModuleHealthRegistry;
 import dev.modmind.omnitools.diagnostics.ModuleResourceBudget;
+import dev.modmind.omnitools.diagnostics.OperationLedgerDiagnostics;
 import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 
 public final class ModMindEntry implements ModInitializer {
@@ -784,18 +785,22 @@ public final class ModMindEntry implements ModInitializer {
 
     private static int listCloudStorageRecovery(CommandSourceStack source) {
         List<CloudStorageJournalData.Entry> entries = CloudStorageJournalData.get(source.getServer()).entries();
-        long pending = entries.stream().filter(entry -> entry.status() == CloudStorageJournalData.Status.PREPARED
-                || entry.status() == CloudStorageJournalData.Status.QUARANTINED).count();
+        long pending = entries.stream().filter(ModMindEntry::awaitingCloudStorageRecovery).count();
         source.sendSuccess(() -> Component.literal("cloud storage operations=" + entries.size()
                 + ", awaiting recovery=" + pending), false);
-        entries.stream().filter(entry -> entry.status() == CloudStorageJournalData.Status.PREPARED
-                        || entry.status() == CloudStorageJournalData.Status.QUARANTINED)
+        entries.stream().filter(ModMindEntry::awaitingCloudStorageRecovery)
                 .sorted(java.util.Comparator.comparingLong(CloudStorageJournalData.Entry::updatedAt).reversed())
                 .limit(10)
                 .forEach(entry -> source.sendSuccess(() -> Component.literal("operation=" + entry.operationId()
                         + " status=" + entry.status() + " type=" + entry.operation() + " owner="
                         + entry.ownerId() + " page=" + (entry.page() + 1) + " reason=" + entry.reason()), false));
         return pending > 0 ? 1 : 0;
+    }
+
+    private static boolean awaitingCloudStorageRecovery(CloudStorageJournalData.Entry entry) {
+        return entry.status() == CloudStorageJournalData.Status.PREPARED
+                || (entry.status() == CloudStorageJournalData.Status.QUARANTINED
+                && !entry.resolutionApplied());
     }
 
     private static int inspectCloudStorageRecovery(CommandSourceStack source, String operationText) {
@@ -1890,7 +1895,27 @@ public final class ModMindEntry implements ModInitializer {
     private static LiteralArgumentBuilder<CommandSourceStack> diagnoseCommand() {
         return Commands.literal("diagnose")
                 .requires(COMMAND_PERMISSIONS.requirement(CommandAction.DIAGNOSE))
-                .executes(context -> diagnose(context.getSource()));
+                .executes(context -> diagnose(context.getSource()))
+                .then(Commands.literal("operation")
+                        .then(Commands.argument("operation", StringArgumentType.greedyString())
+                                .executes(context -> diagnoseOperation(context.getSource(),
+                                        StringArgumentType.getString(context, "operation")))));
+    }
+
+    /** Locates evidence only; each module retains ownership of any recovery decision. */
+    private static int diagnoseOperation(CommandSourceStack source, String operationId) {
+        String requested = operationId == null ? "" : operationId.trim();
+        List<OperationLedgerDiagnostics.Entry> entries = OperationLedgerDiagnostics.find(source.getServer(), requested);
+        if (entries.isEmpty()) {
+            source.sendFailure(ServerText.translatable("command.omnitools.diagnose.operation_not_found", requested));
+            return 0;
+        }
+        for (OperationLedgerDiagnostics.Entry entry : entries) {
+            source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.operation_entry",
+                    entry.operationId(), entry.ledger(), entry.state().name(),
+                    OperationLedgerDiagnostics.updatedAtText(entry.updatedAt())), false);
+        }
+        return entries.size();
     }
 
     /** Prints only immutable snapshot data and read-only runtime counters. */
@@ -1913,6 +1938,10 @@ public final class ModMindEntry implements ModInitializer {
                 commandSecurity), false);
         source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.unresolved_rewards",
                 RewardClaimLedger.unresolvedEntryCount(source.getServer())), false);
+        OperationLedgerDiagnostics.Summary ledgerSummary = OperationLedgerDiagnostics.inspect(source.getServer());
+        source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.operation_ledgers",
+                ledgerSummary.total(), ledgerSummary.pendingRecovery(), ledgerSummary.quarantined(),
+                ledgerSummary.failed(), ledgerSummary.latestUpdateText()), false);
 
         SidebarService.DiagnosticStatus sidebar = sidebarService().diagnosticStatus();
         source.sendSuccess(() -> ServerText.translatable("command.omnitools.diagnose.sidebar_conflicts",

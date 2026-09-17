@@ -138,7 +138,7 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
     @Override
     public ItemStack quickMoveStack(Player player, int slotIndex) {
         if (!(player instanceof ServerPlayer serverPlayer) || !stillValid(serverPlayer)
-                || slotIndex < 0 || slotIndex >= slots.size() || slotIndex >= PLAYER_SLOT_START + 36) return ItemStack.EMPTY;
+                || !isQuickMoveSource(slotIndex)) return ItemStack.EMPTY;
         Slot source = slots.get(slotIndex);
         if (!source.hasItem()) return ItemStack.EMPTY;
         ItemStack original = source.getItem().copy();
@@ -148,6 +148,17 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
         if (!moved) return ItemStack.EMPTY;
         if (source.getItem().isEmpty()) source.set(ItemStack.EMPTY); else source.setChanged();
         return original;
+    }
+
+    /**
+     * Control-row slots are deliberately excluded from vanilla quick-move transfers.  They are
+     * read-only navigation/status controls, but still have real ItemStacks for rendering; treating
+     * them as player slots would let Shift-click move a control item into cloud storage.
+     */
+    static boolean isQuickMoveSource(int slotIndex) {
+        return slotIndex >= 0
+                && slotIndex < PLAYER_SLOT_START + 36
+                && (slotIndex < STORAGE_SLOT_COUNT || slotIndex >= PLAYER_SLOT_START);
     }
 
     @Override

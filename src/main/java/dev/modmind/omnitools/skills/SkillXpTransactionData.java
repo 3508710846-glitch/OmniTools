@@ -49,6 +49,12 @@ public final class SkillXpTransactionData extends SavedData {
         return overworld.getDataStorage().computeIfAbsent(TYPE);
     }
 
+    /** Reads existing transaction evidence for diagnostics without creating or dirtying SavedData. */
+    public static Optional<SkillXpTransactionData> find(MinecraftServer server) {
+        ServerLevel overworld = server == null ? null : server.getLevel(Level.OVERWORLD);
+        return overworld == null ? Optional.empty() : Optional.ofNullable(overworld.getDataStorage().get(TYPE));
+    }
+
     /**
      * Creates and persists a PREPARED entry, or returns empty when the operation is already
      * prepared or committed. Rolled-back operations may be retried with the same operation id.

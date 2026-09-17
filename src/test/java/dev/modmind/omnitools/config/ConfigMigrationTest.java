@@ -101,6 +101,32 @@ class ConfigMigrationTest {
     }
 
     @Test
+    void migrationBackupRestoresTheExactPreMigrationRoot() throws IOException {
+        Path root = temporaryDirectory.resolve("omnitools");
+        String source = """
+                {
+                  "format_version": 1,
+                  "global": { "timezone": "UTC" },
+                  "modules": { "daily_checkin": { "enabled": true } }
+                }
+                """;
+        writeRoot(root, source);
+
+        ConfigMigration.migrate(root, temporaryDirectory.resolve("legacy-config"));
+
+        Path backup;
+        try (Stream<Path> files = Files.list(root)) {
+            backup = files.filter(path -> path.getFileName().toString().startsWith("config.json.v1.bak-"))
+                    .findFirst().orElseThrow();
+        }
+        Path restored = temporaryDirectory.resolve("restored").resolve("config.json");
+        Files.createDirectories(restored.getParent());
+        Files.copy(backup, restored);
+
+        assertEquals(source.trim(), Files.readString(restored, StandardCharsets.UTF_8).trim());
+    }
+
+    @Test
     void rejectsMalformedModuleEntriesInsteadOfSilentlyEnablingThem() throws IOException {
         Path root = temporaryDirectory.resolve("omnitools");
         writeRoot(root, """

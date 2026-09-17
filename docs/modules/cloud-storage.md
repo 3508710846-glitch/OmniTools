@@ -50,7 +50,7 @@
 
 ## 9. 指令、权限与默认角色
 
-`/omnitools storage` 默认 `ADMIN`。`/omnitools storage recovery list|inspect <操作UUID>|resolve <操作UUID> commit|rollback` 使用独立的 `storage.recovery` 管理员权限；即使模块临时关闭，该恢复入口仍可使用。权限配置的 `storage.open` 可用字符串角色或对象完整写法；见[权限](permissions.md)。
+`/omnitools storage` 默认 `ADMIN`。`/omnitools diagnose operation <操作ID>` 可先只读定位该操作的账本状态；`/omnitools storage recovery list|inspect <操作UUID>|resolve <操作UUID> commit|rollback` 使用独立的 `storage.recovery` 管理员权限；即使模块临时关闭，该恢复入口仍可使用。恢复前必须核对前后页面快照、玩家背包和操作时间，诊断命令本身不会改变记录。权限配置的 `storage.open` 可用字符串角色或对象完整写法；见[权限](permissions.md)。
 
 ## 10. 占位符
 

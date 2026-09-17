@@ -229,6 +229,100 @@ class CloudStorageJournalDataTest {
         assertEquals(2, restoredStorage.page(OWNER, 0).get(7).getCount());
     }
 
+    @Test
+    void preparedOperationWithOnlyTheBeforeImageIsQuarantinedAndStaysTerminal() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(2, new ItemStack(Items.EMERALD, 4));
+        CloudStorageData storage = new CloudStorageData();
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 400L);
+
+        CloudStorageJournalData.RecoveryReport first = journal.reconcile(storage);
+        assertEquals(new CloudStorageJournalData.RecoveryReport(0, 1), first);
+        CloudStorageJournalData.Entry quarantined = journal.find(prepared.operationId()).orElseThrow();
+        assertEquals(CloudStorageJournalData.Status.QUARANTINED, quarantined.status());
+        assertTrue(journal.hasUnresolvedOperation(OWNER));
+
+        CloudStorageJournalData.RecoveryReport retry = journal.reconcile(storage);
+        assertEquals(new CloudStorageJournalData.RecoveryReport(0, 0), retry);
+        assertEquals(quarantined, journal.find(prepared.operationId()).orElseThrow());
+    }
+
+    @Test
+    void crashAfterPreparedFlushKeepsTheOriginalPageAndQuarantinesAfterRestart() {
+        List<ItemStack> before = emptyPage();
+        before.set(3, new ItemStack(Items.IRON_INGOT, 8));
+        List<ItemStack> after = emptyPage();
+        after.set(3, new ItemStack(Items.IRON_INGOT, 12));
+        CloudStorageData storage = new CloudStorageData();
+        storage.replacePage(OWNER, 0, before);
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 500L);
+
+        CloudStorageJournalData restartedJournal = restart(journal);
+        CloudStorageData restartedStorage = restart(storage);
+        assertEquals(new CloudStorageJournalData.RecoveryReport(0, 1), restartedJournal.reconcile(restartedStorage));
+
+        assertEquals(8, restartedStorage.page(OWNER, 0).get(3).getCount());
+        assertEquals(CloudStorageJournalData.Status.QUARANTINED,
+                restartedJournal.find(prepared.operationId()).orElseThrow().status());
+        assertTrue(restartedJournal.hasUnresolvedOperation(OWNER));
+    }
+
+    @Test
+    void crashAfterPageFlushBeforeCommitFlushCommitsThePreparedOperationAfterRestart() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(5, new ItemStack(Items.DIAMOND, 2));
+        CloudStorageData storage = new CloudStorageData();
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 600L);
+        storage.replacePage(OWNER, 0, after);
+
+        CloudStorageJournalData restartedJournal = restart(journal);
+        CloudStorageData restartedStorage = restart(storage);
+        assertEquals(new CloudStorageJournalData.RecoveryReport(1, 0), restartedJournal.reconcile(restartedStorage));
+
+        assertEquals(2, restartedStorage.page(OWNER, 0).get(5).getCount());
+        assertEquals(CloudStorageJournalData.Status.COMMITTED,
+                restartedJournal.find(prepared.operationId()).orElseThrow().status());
+        assertTrue(!restartedJournal.hasUnresolvedOperation(OWNER));
+    }
+
+    @Test
+    void crashAfterCommitFlushLeavesTheCommittedRecordAndPageUntouchedAfterRestart() {
+        List<ItemStack> before = emptyPage();
+        List<ItemStack> after = emptyPage();
+        after.set(8, new ItemStack(Items.EMERALD, 6));
+        CloudStorageData storage = new CloudStorageData();
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0,
+                CloudStorageJournalData.Operation.DEPOSIT, before, after, 700L);
+        storage.replacePage(OWNER, 0, after);
+        journal.transition(prepared.operationId(), CloudStorageJournalData.Status.COMMITTED, "page persisted");
+
+        CloudStorageJournalData restartedJournal = restart(journal);
+        CloudStorageData restartedStorage = restart(storage);
+        assertEquals(new CloudStorageJournalData.RecoveryReport(0, 0), restartedJournal.reconcile(restartedStorage));
+
+        assertEquals(6, restartedStorage.page(OWNER, 0).get(8).getCount());
+        assertEquals(CloudStorageJournalData.Status.COMMITTED,
+                restartedJournal.find(prepared.operationId()).orElseThrow().status());
+        assertTrue(!restartedJournal.hasUnresolvedOperation(OWNER));
+    }
+
+    private static CloudStorageJournalData restart(CloudStorageJournalData data) {
+        return CloudStorageJournalData.fromTag(CloudStorageJournalData.toTag(data));
+    }
+
+    private static CloudStorageData restart(CloudStorageData data) {
+        return CloudStorageData.fromTag(CloudStorageData.toTag(data));
+    }
+
     private static List<ItemStack> emptyPage() {
         List<ItemStack> page = new ArrayList<>(CloudStorageData.SLOTS_PER_PAGE);
         for (int slot = 0; slot < CloudStorageData.SLOTS_PER_PAGE; slot++) {

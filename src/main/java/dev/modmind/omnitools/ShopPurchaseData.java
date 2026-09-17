@@ -56,6 +56,12 @@ public final class ShopPurchaseData extends SavedData {
         }
     }
 
+    /** Reads existing purchase evidence for diagnostics without creating or dirtying SavedData. */
+    public static Optional<ShopPurchaseData> find(MinecraftServer server) {
+        ServerLevel level = server == null ? null : server.getLevel(Level.OVERWORLD);
+        return level == null ? Optional.empty() : Optional.ofNullable(level.getDataStorage().get(TYPE));
+    }
+
     public synchronized PurchaseTransaction createIfAbsent(PurchaseTransaction candidate) {
         PurchaseTransaction existing = transactions.get(candidate.transactionId());
         if (existing != null) {

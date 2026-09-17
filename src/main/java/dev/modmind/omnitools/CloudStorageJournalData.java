@@ -53,6 +53,12 @@ public final class CloudStorageJournalData extends SavedData {
         }
     }
 
+    /** Reads existing journal evidence for diagnostics without creating or dirtying SavedData. */
+    public static Optional<CloudStorageJournalData> find(MinecraftServer server) {
+        ServerLevel overworld = server == null ? null : server.getLevel(Level.OVERWORLD);
+        return overworld == null ? Optional.empty() : Optional.ofNullable(overworld.getDataStorage().get(TYPE));
+    }
+
     public synchronized Entry prepare(UUID ownerId, int page, Operation operation, List<ItemStack> before,
                                       List<ItemStack> after, long now) {
         return prepare(ownerId, page, operation, before, after, now, null, "direct");
