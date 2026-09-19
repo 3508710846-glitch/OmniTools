@@ -91,6 +91,15 @@ public final class TitleConfig {
         return titles.values().stream().anyMatch(TitleDefinition::inlineEffectsConfigured);
     }
 
+    /**
+     * Whether this snapshot still needs the v1 title_effects file to resolve an effect id.
+     * Empty v2 effect arrays intentionally do not create that dependency.
+     */
+    public synchronized boolean requiresLegacyEffectConfig() {
+        return titles.values().stream().anyMatch(title -> !title.inlineEffectsConfigured()
+                && !title.effects().isEmpty());
+    }
+
     /** Resolves the effects for a title, preferring its v2 embedded snapshot over v1 ids. */
     public synchronized List<TitleEffectConfig.EffectDefinition> effectsFor(TitleDefinition title,
                                                                               TitleEffectConfig legacyEffects) {

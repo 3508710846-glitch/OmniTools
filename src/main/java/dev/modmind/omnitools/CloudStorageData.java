@@ -30,6 +30,8 @@ public final class CloudStorageData extends SavedData {
     private static final String PLAYERS_KEY = "players";
     private static final String UNLOCKED_PAGES_KEY = "unlocked_pages";
     private static final String PAGES_KEY = "pages";
+    private static final String EXPANSIONS_KEY = "expansions";
+    private static final int MAX_EXPANSION_OPERATIONS = 512;
     static final int MAX_ITEM_BYTES = 32 * 1024;
     private static final ThreadLocal<HolderLookup.Provider> LOADING_REGISTRIES = new ThreadLocal<>();
 
@@ -50,6 +52,8 @@ public final class CloudStorageData extends SavedData {
     }
 
     private final Map<UUID, StorageRecord> players = new HashMap<>();
+    /** Wallet-linked page-unlock intents. PREPARED entries make a debit recoverable after a stop. */
+    private final Map<UUID, ExpansionOperation> expansions = new HashMap<>();
     /** Retains a corrupt player record byte-for-byte so later saves cannot silently erase it. */
     private final Map<String, CompoundTag> malformedRecords = new HashMap<>();
     private HolderLookup.Provider registries;
@@ -71,6 +75,15 @@ public final class CloudStorageData extends SavedData {
 
     public static CloudStorageData get(ServerPlayer player) {
         return get(player.level().getServer());
+    }
+
+    /** Forces cloud-storage pages and expansion evidence to disk at an irreversible wallet boundary. */
+    public void flush(MinecraftServer server) {
+        ServerLevel overworld = server == null ? null : server.getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            throw new IllegalStateException("The overworld is not available while saving cloud storage data");
+        }
+        overworld.getDataStorage().saveAndJoin();
     }
 
     public synchronized int unlockedPages(UUID playerId) {
@@ -310,6 +323,78 @@ public final class CloudStorageData extends SavedData {
         return new PageUnlockResult(true, record.unlockedPages);
     }
 
+    /** Creates a durable expansion intent without changing either balance or page access. */
+    public synchronized ExpansionPreparation prepareNextPageUnlock(UUID playerId, int configuredMaximum) {
+        if (playerId == null) return ExpansionPreparation.rejected("cloud storage player id is required");
+        rejectQuarantinedRecord(playerId);
+        ExpansionOperation pending = expansions.values().stream()
+                .filter(operation -> operation.ownerId().equals(playerId) && operation.status() == ExpansionStatus.PREPARED)
+                .findFirst().orElse(null);
+        if (pending != null) return ExpansionPreparation.pending(pending);
+        int maximum = Math.max(CloudStorageConfig.MIN_PAGES,
+                Math.min(CloudStorageConfig.MAX_PAGES, configuredMaximum));
+        StorageRecord record = players.computeIfAbsent(playerId, ignored -> new StorageRecord());
+        if (record.unlockedPages >= maximum) return ExpansionPreparation.rejected("all cloud storage pages are already unlocked");
+        ExpansionOperation operation = new ExpansionOperation(UUID.randomUUID(), playerId, record.unlockedPages,
+                record.unlockedPages + 1, ExpansionStatus.PREPARED, System.currentTimeMillis(), System.currentTimeMillis(), "");
+        expansions.put(operation.operationId(), operation);
+        trimExpansionOperations();
+        setDirty();
+        return ExpansionPreparation.prepared(operation);
+    }
+
+    /** Completes an already durable expansion intent. Repeating a completed operation is harmless. */
+    public synchronized PageUnlockResult commitPreparedPageUnlock(UUID playerId, UUID operationId) {
+        ExpansionOperation operation = expansions.get(operationId);
+        if (operation == null || playerId == null || !operation.ownerId().equals(playerId)) {
+            return new PageUnlockResult(false, unlockedPages(playerId));
+        }
+        if (operation.status() == ExpansionStatus.COMMITTED) {
+            return new PageUnlockResult(true, operation.targetUnlockedPages());
+        }
+        if (operation.status() != ExpansionStatus.PREPARED) {
+            return new PageUnlockResult(false, unlockedPages(playerId));
+        }
+        StorageRecord record = players.computeIfAbsent(playerId, ignored -> new StorageRecord());
+        if (record.unlockedPages == operation.beforeUnlockedPages()) {
+            record.unlockedPages = operation.targetUnlockedPages();
+            record.ensurePageCount(record.unlockedPages);
+        } else if (record.unlockedPages != operation.targetUnlockedPages()) {
+            return new PageUnlockResult(false, record.unlockedPages);
+        }
+        expansions.put(operationId, operation.withStatus(ExpansionStatus.COMMITTED, "page access persisted"));
+        setDirty();
+        return new PageUnlockResult(true, record.unlockedPages);
+    }
+
+    /** Rolls back an intent only before a durable wallet debit is observed. */
+    public synchronized void rollbackPreparedPageUnlock(UUID playerId, UUID operationId, String reason) {
+        ExpansionOperation operation = expansions.get(operationId);
+        if (operation == null || playerId == null || !operation.ownerId().equals(playerId)
+                || operation.status() != ExpansionStatus.PREPARED) return;
+        expansions.put(operationId, operation.withStatus(ExpansionStatus.ROLLED_BACK, reason));
+        setDirty();
+    }
+
+    /** Startup reconciliation uses the wallet marker as the source of truth for each prepared debit. */
+    public synchronized ExpansionRecoveryReport reconcileExpansions(MinecraftServer server) {
+        if (server == null) return new ExpansionRecoveryReport(0, 0, 0);
+        int committed = 0;
+        int rolledBack = 0;
+        int unresolved = 0;
+        for (ExpansionOperation operation : List.copyOf(expansions.values())) {
+            if (operation.status() != ExpansionStatus.PREPARED) continue;
+            if (CheckinData.get(server).hasCloudStorageExpansionCharge(operation.ownerId(), operation.operationId())) {
+                PageUnlockResult result = commitPreparedPageUnlock(operation.ownerId(), operation.operationId());
+                if (result.unlocked()) committed++; else unresolved++;
+            } else {
+                rollbackPreparedPageUnlock(operation.ownerId(), operation.operationId(), "startup wallet debit absent");
+                rolledBack++;
+            }
+        }
+        return new ExpansionRecoveryReport(committed, rolledBack, unresolved);
+    }
+
     static CloudStorageData fromTag(CompoundTag root) {
         CloudStorageData data = new CloudStorageData();
         CompoundTag playerTags = root.getCompoundOrEmpty(PLAYERS_KEY);
@@ -330,6 +415,17 @@ public final class CloudStorageData extends SavedData {
                 System.err.println("[omnitools] Retaining malformed cloud storage record " + key + ": "
                         + describe(exception));
                 data.malformedRecords.put(key, playerTags.getCompoundOrEmpty(key).copy());
+            }
+        }
+        CompoundTag expansionTags = root.getCompoundOrEmpty(EXPANSIONS_KEY);
+        for (String key : expansionTags.keySet()) {
+            try {
+                UUID operationId = UUID.fromString(key);
+                ExpansionOperation operation = ExpansionOperation.fromTag(operationId, expansionTags.getCompoundOrEmpty(key));
+                data.expansions.put(operationId, operation);
+            } catch (RuntimeException exception) {
+                System.err.println("[omnitools] Retaining malformed cloud storage expansion evidence " + key + ": "
+                        + describe(exception));
             }
         }
         return data;
@@ -355,6 +451,11 @@ public final class CloudStorageData extends SavedData {
             }
         }
         root.put(PLAYERS_KEY, playerTags);
+        CompoundTag expansionTags = new CompoundTag();
+        for (Map.Entry<UUID, ExpansionOperation> entry : data.expansions.entrySet()) {
+            expansionTags.put(entry.getKey().toString(), entry.getValue().toTag());
+        }
+        root.put(EXPANSIONS_KEY, expansionTags);
         return root;
     }
 
@@ -384,6 +485,19 @@ public final class CloudStorageData extends SavedData {
         }
     }
 
+    private void trimExpansionOperations() {
+        if (expansions.size() <= MAX_EXPANSION_OPERATIONS) return;
+        List<ExpansionOperation> terminal = expansions.values().stream()
+                .filter(operation -> operation.status() != ExpansionStatus.PREPARED)
+                .sorted(java.util.Comparator.comparingLong(ExpansionOperation::updatedAtMillis))
+                .toList();
+        int remove = expansions.size() - MAX_EXPANSION_OPERATIONS;
+        for (ExpansionOperation operation : terminal) {
+            if (remove-- <= 0) break;
+            expansions.remove(operation.operationId());
+        }
+    }
+
     private static int clampPageCount(int value) {
         return Math.max(CloudStorageConfig.MIN_PAGES, Math.min(CloudStorageConfig.MAX_PAGES, value));
     }
@@ -406,6 +520,58 @@ public final class CloudStorageData extends SavedData {
     }
 
     public record PageUnlockResult(boolean unlocked, int unlockedPages) {
+    }
+
+    public enum ExpansionStatus { PREPARED, COMMITTED, ROLLED_BACK }
+
+    public record ExpansionPreparation(ExpansionStatus status, ExpansionOperation operation, String reason) {
+        static ExpansionPreparation prepared(ExpansionOperation operation) {
+            return new ExpansionPreparation(ExpansionStatus.PREPARED, operation, "");
+        }
+        static ExpansionPreparation pending(ExpansionOperation operation) {
+            return new ExpansionPreparation(ExpansionStatus.PREPARED, operation, "pending expansion recovery");
+        }
+        static ExpansionPreparation rejected(String reason) {
+            return new ExpansionPreparation(null, null, reason == null ? "" : reason);
+        }
+        public boolean prepared() { return status == ExpansionStatus.PREPARED && operation != null && reason.isBlank(); }
+    }
+
+    public record ExpansionRecoveryReport(int committed, int rolledBack, int unresolved) {
+    }
+
+    public record ExpansionOperation(UUID operationId, UUID ownerId, int beforeUnlockedPages,
+                                     int targetUnlockedPages, ExpansionStatus status, long createdAtMillis,
+                                     long updatedAtMillis, String reason) {
+        public ExpansionOperation {
+            if (operationId == null || ownerId == null || beforeUnlockedPages < CloudStorageConfig.MIN_PAGES
+                    || targetUnlockedPages != beforeUnlockedPages + 1 || targetUnlockedPages > CloudStorageConfig.MAX_PAGES
+                    || status == null || createdAtMillis <= 0L || updatedAtMillis <= 0L) {
+                throw new IllegalArgumentException("Cloud storage expansion operation is invalid");
+            }
+            reason = reason == null ? "" : reason.trim();
+        }
+        ExpansionOperation withStatus(ExpansionStatus next, String nextReason) {
+            return new ExpansionOperation(operationId, ownerId, beforeUnlockedPages, targetUnlockedPages, next,
+                    createdAtMillis, System.currentTimeMillis(), nextReason);
+        }
+        CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putString("owner", ownerId.toString());
+            tag.putInt("before_pages", beforeUnlockedPages);
+            tag.putInt("target_pages", targetUnlockedPages);
+            tag.putString("status", status.name());
+            tag.putLong("created_at", createdAtMillis);
+            tag.putLong("updated_at", updatedAtMillis);
+            if (!reason.isBlank()) tag.putString("reason", reason);
+            return tag;
+        }
+        static ExpansionOperation fromTag(UUID operationId, CompoundTag tag) {
+            return new ExpansionOperation(operationId, UUID.fromString(tag.getStringOr("owner", "")),
+                    tag.getIntOr("before_pages", 0), tag.getIntOr("target_pages", 0),
+                    ExpansionStatus.valueOf(tag.getStringOr("status", "PREPARED")),
+                    tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L), tag.getStringOr("reason", ""));
+        }
     }
 
     public record CommitResult(Status status, UUID operationId, String reason) {

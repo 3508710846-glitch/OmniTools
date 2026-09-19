@@ -4,6 +4,7 @@ import dev.modmind.omnitools.CloudStorageJournalData;
 import dev.modmind.omnitools.ShopPurchaseData;
 import dev.modmind.omnitools.reward.RewardClaimLedger;
 import dev.modmind.omnitools.skills.SkillXpTransactionData;
+import dev.modmind.omnitools.divination.DivinationData;
 import net.minecraft.server.MinecraftServer;
 
 import java.time.Instant;
@@ -37,6 +38,8 @@ public final class OperationLedgerDiagnostics {
         RewardClaimLedger.find(server).ifPresent(ledger -> ledger.allEntries().forEach(entry ->
                 entries.add(new Entry("reward", entry.eventId() + "#" + entry.rewardId(),
                         state(entry.entry().status()), entry.entry().updatedAt()))));
+        DivinationData.find(server).ifPresent(data -> data.operations().forEach(entry ->
+                entries.add(new Entry("divination", entry.operationId(), state(entry.state()), entry.updatedAtMillis()))));
         return List.copyOf(entries);
     }
 
@@ -70,6 +73,14 @@ public final class OperationLedgerDiagnostics {
     }
 
     public static State state(SkillXpTransactionData.Status status) {
+        return switch (status) {
+            case PREPARED -> State.PREPARED;
+            case COMMITTED -> State.COMMITTED;
+            case ROLLED_BACK -> State.ROLLED_BACK;
+        };
+    }
+
+    public static State state(DivinationData.OperationState status) {
         return switch (status) {
             case PREPARED -> State.PREPARED;
             case COMMITTED -> State.COMMITTED;

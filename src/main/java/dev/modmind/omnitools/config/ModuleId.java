@@ -18,7 +18,8 @@ public enum ModuleId {
     SIDEBAR("sidebar"),
     LEADERBOARDS("leaderboards"),
     PACKAGES("packages"),
-    SKILLS("skills");
+    SKILLS("skills"),
+    DIVINATION("divination");
 
     private final String id;
 

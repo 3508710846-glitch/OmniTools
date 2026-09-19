@@ -50,7 +50,8 @@ public final class ModuleManagerScreenHandler extends ChestMenu {
             Map.entry(ModuleId.SIDEBAR, () -> Items.PAPER),
             Map.entry(ModuleId.LEADERBOARDS, () -> Items.GOLD_INGOT),
             Map.entry(ModuleId.PACKAGES, () -> Items.CHEST),
-            Map.entry(ModuleId.SKILLS, () -> Items.EXPERIENCE_BOTTLE));
+            Map.entry(ModuleId.SKILLS, () -> Items.EXPERIENCE_BOTTLE),
+            Map.entry(ModuleId.DIVINATION, () -> Items.AMETHYST_SHARD));
 
     private final SimpleContainer moduleContainer;
     private final UUID ownerId;

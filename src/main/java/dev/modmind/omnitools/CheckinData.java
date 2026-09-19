@@ -39,6 +39,8 @@ public final class CheckinData extends SavedData {
     private static final String BALANCE_KEY = "balance";
     private static final String CURRENCY_REWARD_EVENTS_KEY = "currency_reward_events";
     private static final String SHOP_PURCHASE_EVENTS_KEY = "shop_purchase_events";
+    private static final String DIVINATION_REROLL_EVENTS_KEY = "divination_reroll_events";
+    private static final String CLOUD_STORAGE_EXPANSION_EVENTS_KEY = "cloud_storage_expansion_events";
     private static final String MONTHLY_REWARDS_KEY = "monthly_rewards";
     private static final String ONLINE_TIME_DAY_KEY = "online_time_day";
     private static final String ONLINE_TIME_MILLIS_KEY = "online_time_millis";
@@ -371,6 +373,55 @@ public final class CheckinData extends SavedData {
         record.shopPurchaseEvents.add(key);
         setDirty();
         return ShopPurchaseChargeResult.CHARGED;
+    }
+
+    /** Charges one divination reroll exactly once under the same balance monitor as other wallet actions. */
+    public synchronized DivinationRerollChargeResult chargeDivinationReroll(UUID playerId, String operationId,
+                                                                             long amount, String playerName) {
+        requireNonNegative(amount);
+        if (playerId == null || operationId == null || operationId.isBlank()) {
+            throw new IllegalArgumentException("divination reroll player and operation id are required");
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        if (record.divinationRerollEvents.contains(operationId)) {
+            return DivinationRerollChargeResult.ALREADY_CHARGED;
+        }
+        if (record.balance < amount) return DivinationRerollChargeResult.INSUFFICIENT_CURRENCY;
+        record.balance -= amount;
+        record.divinationRerollEvents.add(operationId);
+        setDirty();
+        return DivinationRerollChargeResult.CHARGED;
+    }
+
+    /** Returns whether this durable wallet has recorded the matching divination reroll debit. */
+    public synchronized boolean hasDivinationRerollCharge(UUID playerId, String operationId) {
+        PlayerRecord record = players.get(playerId);
+        return record != null && operationId != null && record.divinationRerollEvents.contains(operationId);
+    }
+
+    /** Debits one cloud-storage expansion exactly once and retains its stable recovery marker. */
+    public synchronized CloudStorageExpansionChargeResult chargeCloudStorageExpansion(UUID playerId, UUID operationId,
+                                                                                        long amount, String playerName) {
+        requireNonNegative(amount);
+        if (playerId == null || operationId == null) {
+            throw new IllegalArgumentException("cloud storage expansion player and operation id are required");
+        }
+        PlayerRecord record = getOrCreateRecord(playerId, playerName);
+        String key = operationId.toString();
+        if (record.cloudStorageExpansionEvents.contains(key)) {
+            return CloudStorageExpansionChargeResult.ALREADY_CHARGED;
+        }
+        if (record.balance < amount) return CloudStorageExpansionChargeResult.INSUFFICIENT_CURRENCY;
+        record.balance -= amount;
+        record.cloudStorageExpansionEvents.add(key);
+        setDirty();
+        return CloudStorageExpansionChargeResult.CHARGED;
+    }
+
+    /** Read-only proof used by cloud-storage startup recovery. */
+    public synchronized boolean hasCloudStorageExpansionCharge(UUID playerId, UUID operationId) {
+        PlayerRecord record = players.get(playerId);
+        return record != null && operationId != null && record.cloudStorageExpansionEvents.contains(operationId.toString());
     }
 
     /** Returns whether the durable balance record proves this shop transaction was charged. */
@@ -781,6 +832,8 @@ public final class CheckinData extends SavedData {
                 record.balance = Math.max(0L, playerTag.getLongOr(BALANCE_KEY, 0L));
                 readIds(playerTag.getListOrEmpty(CURRENCY_REWARD_EVENTS_KEY), record.currencyRewardEvents);
                 readIds(playerTag.getListOrEmpty(SHOP_PURCHASE_EVENTS_KEY), record.shopPurchaseEvents);
+                readIds(playerTag.getListOrEmpty(DIVINATION_REROLL_EVENTS_KEY), record.divinationRerollEvents);
+                readIds(playerTag.getListOrEmpty(CLOUD_STORAGE_EXPANSION_EVENTS_KEY), record.cloudStorageExpansionEvents);
                 record.makeupCards = Math.max(0L, playerTag.getLongOr(MAKEUP_CARDS_KEY, 0L));
                 readIds(playerTag.getListOrEmpty(MAKEUP_REWARD_EVENTS_KEY), record.makeupCardRewardEvents);
                 for (long day : playerTag.getLongArray(MAKEUP_DAYS_KEY).orElseGet(() -> new long[0])) {
@@ -849,6 +902,8 @@ public final class CheckinData extends SavedData {
             playerTag.putLong(BALANCE_KEY, record.balance);
             playerTag.put(CURRENCY_REWARD_EVENTS_KEY, writeIds(record.currencyRewardEvents));
             playerTag.put(SHOP_PURCHASE_EVENTS_KEY, writeIds(record.shopPurchaseEvents));
+            playerTag.put(DIVINATION_REROLL_EVENTS_KEY, writeIds(record.divinationRerollEvents));
+            playerTag.put(CLOUD_STORAGE_EXPANSION_EVENTS_KEY, writeIds(record.cloudStorageExpansionEvents));
             playerTag.putLong(MAKEUP_CARDS_KEY, record.makeupCards);
             playerTag.put(MAKEUP_REWARD_EVENTS_KEY, writeIds(record.makeupCardRewardEvents));
             playerTag.putLongArray(MAKEUP_DAYS_KEY, record.makeupDays.stream().mapToLong(Long::longValue).toArray());
@@ -914,6 +969,18 @@ public final class CheckinData extends SavedData {
         APPLIED,
         ALREADY_APPLIED,
         OVERFLOW
+    }
+
+    public enum DivinationRerollChargeResult {
+        CHARGED,
+        ALREADY_CHARGED,
+        INSUFFICIENT_CURRENCY
+    }
+
+    public enum CloudStorageExpansionChargeResult {
+        CHARGED,
+        ALREADY_CHARGED,
+        INSUFFICIENT_CURRENCY
     }
 
     public enum ShopPurchaseChargeResult {
@@ -988,6 +1055,8 @@ public final class CheckinData extends SavedData {
         private long balance;
         private final Set<String> currencyRewardEvents = new HashSet<>();
         private final Set<String> shopPurchaseEvents = new HashSet<>();
+        private final Set<String> divinationRerollEvents = new HashSet<>();
+        private final Set<String> cloudStorageExpansionEvents = new HashSet<>();
         private long makeupCards;
         private final Set<String> makeupCardRewardEvents = new HashSet<>();
         private final Set<Long> makeupDays = new HashSet<>();

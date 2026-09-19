@@ -84,8 +84,11 @@ public final class CloudStorageJournalData extends SavedData {
         }
         Entry entry = new Entry(UUID.randomUUID(), ownerId, page, operation, Status.PREPARED, oldPage, newPage,
                 now, now, "", Resolution.NONE, "", false,
-                new SessionMetadata(sessionId, pageHash(openedPage), pageHash(newPage), changedSlots(openedPage, newPage),
-                        now, checkpointReason));
+                // The durable before image is the recovery source of truth for this checkpoint.
+                // Keep the opening image separately so a later checkpoint does not describe the
+                // whole session delta as though it were a single transaction.
+                new SessionMetadata(sessionId, pageHash(openedPage), pageHash(oldPage), pageHash(newPage),
+                        changedSlots(oldPage, newPage), changedSlots(openedPage, newPage), now, checkpointReason));
         entries.put(entry.operationId(), entry);
         setDirty();
         return entry;
@@ -312,25 +315,30 @@ public final class CloudStorageJournalData extends SavedData {
         SessionMetadata metadata = entry.sessionMetadata();
         if (metadata.sessionId() != null) tag.putString("session_id", metadata.sessionId().toString());
         tag.putString("opened_page_hash", metadata.openedPageHash());
+        tag.putString("before_page_hash", metadata.beforePageHash());
         tag.putString("target_page_hash", metadata.targetPageHash());
         tag.putLong("checkpoint_at", metadata.checkpointAt());
         tag.putString("checkpoint_reason", metadata.checkpointReason());
         net.minecraft.nbt.ListTag changed = new net.minecraft.nbt.ListTag();
         for (int slot : metadata.changedSlots()) changed.add(net.minecraft.nbt.IntTag.valueOf(slot));
         tag.put("changed_slots", changed);
+        net.minecraft.nbt.ListTag sessionChanged = new net.minecraft.nbt.ListTag();
+        for (int slot : metadata.sessionChangedSlots()) sessionChanged.add(net.minecraft.nbt.IntTag.valueOf(slot));
+        tag.put("session_changed_slots", sessionChanged);
         tag.put("before", CloudStorageData.encodePageSnapshot(entry.before(), registries));
         tag.put("after", CloudStorageData.encodePageSnapshot(entry.after(), registries));
         return tag;
     }
 
     private static Entry decode(UUID id, CompoundTag tag, HolderLookup.Provider registries) {
+        List<ItemStack> before = CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("before"), registries);
+        List<ItemStack> after = CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("after"), registries);
         return new Entry(id, UUID.fromString(tag.getStringOr("owner", "")), tag.getIntOr("page", -1),
                 Operation.parse(tag.getStringOr("operation", "")), Status.parse(tag.getStringOr("status", "")),
-                CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("before"), registries),
-                CloudStorageData.decodePageSnapshot(tag.getCompoundOrEmpty("after"), registries),
-                tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L), tag.getStringOr("reason", ""),
-                Resolution.parse(tag.getStringOr("resolution", "NONE")), tag.getStringOr("resolution_operator", ""),
-                tag.getBooleanOr("resolution_applied", false), SessionMetadata.fromTag(tag));
+                before, after, tag.getLongOr("created_at", 0L), tag.getLongOr("updated_at", 0L),
+                tag.getStringOr("reason", ""), Resolution.parse(tag.getStringOr("resolution", "NONE")),
+                tag.getStringOr("resolution_operator", ""), tag.getBooleanOr("resolution_applied", false),
+                SessionMetadata.fromTag(tag, before, after));
     }
 
     static Operation operationFor(List<ItemStack> before, List<ItemStack> after) {
@@ -483,30 +491,53 @@ public final class CloudStorageJournalData extends SavedData {
         }
     }
 
-    public record SessionMetadata(UUID sessionId, String openedPageHash, String targetPageHash,
-                                  List<Integer> changedSlots, long checkpointAt, String checkpointReason) {
+    public record SessionMetadata(UUID sessionId, String openedPageHash, String beforePageHash, String targetPageHash,
+                                  List<Integer> changedSlots, List<Integer> sessionChangedSlots,
+                                  long checkpointAt, String checkpointReason) {
         public SessionMetadata {
             openedPageHash = normalizedHash(openedPageHash);
+            beforePageHash = normalizedHash(beforePageHash);
             targetPageHash = normalizedHash(targetPageHash);
-            changedSlots = List.copyOf(changedSlots == null ? List.of() : changedSlots);
-            if (changedSlots.stream().anyMatch(slot -> slot == null || slot < 0 || slot >= CloudStorageData.SLOTS_PER_PAGE)) {
-                throw new IllegalArgumentException("Cloud storage changed slot is invalid");
-            }
+            changedSlots = validatedSlots(changedSlots);
+            sessionChangedSlots = validatedSlots(sessionChangedSlots);
             checkpointAt = Math.max(0L, checkpointAt);
             checkpointReason = normalize(checkpointReason);
         }
 
-        static SessionMetadata fromTag(CompoundTag tag) {
+        static SessionMetadata fromTag(CompoundTag tag, List<ItemStack> before, List<ItemStack> after) {
             UUID sessionId = null;
             String rawId = tag.getStringOr("session_id", "");
             if (!rawId.isBlank()) sessionId = UUID.fromString(rawId);
-            List<Integer> changed = new ArrayList<>();
-            for (int index = 0; index < tag.getListOrEmpty("changed_slots").size(); index++) {
-                tag.getListOrEmpty("changed_slots").getInt(index).ifPresent(changed::add);
-            }
+            List<Integer> legacyOrCheckpointChanged = slotsFromTag(tag, "changed_slots");
+            List<Integer> sessionChanged = tag.contains("session_changed_slots")
+                    ? slotsFromTag(tag, "session_changed_slots") : legacyOrCheckpointChanged;
+            // Older records only stored the opening hash and session-wide changed slots.  The
+            // before/after snapshots are authoritative, so derive the missing checkpoint fields
+            // from them instead of preserving the historical ambiguity.
             return new SessionMetadata(sessionId, tag.getStringOr("opened_page_hash", ""),
-                    tag.getStringOr("target_page_hash", ""), changed, tag.getLongOr("checkpoint_at", 0L),
-                    tag.getStringOr("checkpoint_reason", "legacy"));
+                    tag.getStringOr("before_page_hash", pageHash(before)), tag.getStringOr("target_page_hash", ""),
+                    tag.contains("before_page_hash") ? legacyOrCheckpointChanged
+                            : CloudStorageJournalData.changedSlots(before, after),
+                    sessionChanged, tag.getLongOr("checkpoint_at", 0L), tag.getStringOr("checkpoint_reason", "legacy"));
+        }
+
+        private static List<Integer> slotsFromTag(CompoundTag tag, String key) {
+            List<Integer> slots = new ArrayList<>();
+            for (int index = 0; index < tag.getListOrEmpty(key).size(); index++) {
+                tag.getListOrEmpty(key).getInt(index).ifPresent(slots::add);
+            }
+            return slots;
+        }
+
+        private static List<Integer> validatedSlots(List<Integer> slots) {
+            List<Integer> copy = List.copyOf(slots == null ? List.of() : slots);
+            if (copy.stream().anyMatch(slot -> slot == null || slot < 0 || slot >= CloudStorageData.SLOTS_PER_PAGE)) {
+                throw new IllegalArgumentException("Cloud storage changed slot is invalid");
+            }
+            if (copy.stream().distinct().count() != copy.size()) {
+                throw new IllegalArgumentException("Cloud storage changed slot is duplicated");
+            }
+            return copy;
         }
 
         private static String normalizedHash(String hash) {

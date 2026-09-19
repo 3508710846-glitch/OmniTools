@@ -40,6 +40,8 @@ public final class ConfigValidator {
                 || snapshot.sidebar() == null
                 || snapshot.leaderboards() == null
                 || snapshot.packages() == null
+                || snapshot.skills() == null
+                || snapshot.divination() == null
                 || snapshot.commandPermissions() == null) {
             throw new IllegalArgumentException("omnitools configuration snapshot is incomplete");
         }
@@ -67,16 +69,20 @@ public final class ConfigValidator {
                 validateReward(snapshot, reward, "CDK campaign " + campaign.id());
             }
         }
+        boolean requiresLegacyEffects = snapshot.titles().requiresLegacyEffectConfig();
         Set<String> effects = new HashSet<>();
-        for (TitleEffectConfig.EffectDefinition definition : snapshot.titleEffects().definitions()) {
-            effects.add(definition.id());
-            validateTitleEffect(definition, "legacy title effect " + definition.id());
+        if (requiresLegacyEffects) {
+            for (TitleEffectConfig.EffectDefinition definition : snapshot.titleEffects().definitions()) {
+                effects.add(definition.id());
+                validateTitleEffect(definition, "legacy title effect " + definition.id());
+            }
         }
         for (TitleConfig.TitleDefinition title : snapshot.titles().definitions()) {
             for (TitleEffectConfig.EffectDefinition definition : title.embeddedEffects()) {
                 validateTitleEffect(definition, "title " + title.id() + " effect " + definition.id());
             }
-            if (snapshot.enabled(ModuleId.TITLE_EFFECTS) && !title.inlineEffectsConfigured()) {
+            if (snapshot.enabled(ModuleId.TITLE_EFFECTS) && requiresLegacyEffects
+                    && !title.inlineEffectsConfigured()) {
                 for (String effectId : title.effects()) {
                     if (!effects.contains(effectId)) {
                         throw new IllegalArgumentException("title " + title.id()
@@ -85,7 +91,7 @@ public final class ConfigValidator {
                 }
             }
         }
-        if (snapshot.enabled(ModuleId.TITLE_EFFECTS) && !snapshot.enabled(ModuleId.TITLES)
+        if (requiresLegacyEffects && snapshot.enabled(ModuleId.TITLE_EFFECTS) && !snapshot.enabled(ModuleId.TITLES)
                 && !snapshot.titleEffects().definitions().isEmpty()) {
             throw new IllegalArgumentException("title_effects requires titles to be enabled");
         }

@@ -49,10 +49,40 @@ final class ModuleLifecycleRegistrar {
         if (ModMindEntry.isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
             ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "journal_reconcile",
                     "journal_retained_for_manual_recovery", () -> {
+                        CloudStorageData storage = CloudStorageData.get(server);
+                        CloudStorageData.ExpansionRecoveryReport expansionRecovery = storage.reconcileExpansions(server);
+                        if (expansionRecovery.committed() > 0 || expansionRecovery.rolledBack() > 0) {
+                            storage.flush(server);
+                            dev.modmind.omnitools.diagnostics.OperationalErrorReporter.global().info(
+                                    dev.modmind.omnitools.diagnostics.OperationalErrorReporter.Context
+                                            .forModule(ModuleId.CLOUD_STORAGE, "expansion_reconcile")
+                                            .withState("COMPLETE")
+                                            .withParameters(java.util.Map.of("committed", Integer.toString(expansionRecovery.committed()),
+                                                    "rolled_back", Integer.toString(expansionRecovery.rolledBack()),
+                                                    "unresolved", Integer.toString(expansionRecovery.unresolved())))
+                                            .withRecoveryAction("wallet_proven_page_expansions_reconciled"),
+                                    "Cloud storage expansion recovery completed");
+                        }
                         CloudStorageJournalData.RecoveryReport storageRecovery = CloudStorageJournalData.get(server)
-                                .reconcileStartup(server, CloudStorageData.get(server));
+                                .reconcileStartup(server, storage);
                         if (storageRecovery.committed() > 0 || storageRecovery.quarantined() > 0) {
                             ModMindEntry.logCloudStorageRecovery(storageRecovery);
+                        }
+                    });
+        }
+        if (ModMindEntry.isModuleEnabled(ModuleId.DIVINATION)) {
+            ModuleFaultBoundary.run(ModuleId.DIVINATION, "operation_reconcile",
+                    "divination_operations_retained_for_recovery", () -> {
+                        var report = ModMindEntry.divinationService().reconcileStartup(server);
+                        if (report.committed() > 0 || report.rolledBack() > 0) {
+                            dev.modmind.omnitools.diagnostics.OperationalErrorReporter.global().info(
+                                    dev.modmind.omnitools.diagnostics.OperationalErrorReporter.Context
+                                            .forModule(ModuleId.DIVINATION, "operation_reconcile")
+                                            .withState("COMPLETE")
+                                            .withParameters(java.util.Map.of("committed", Integer.toString(report.committed()),
+                                                    "rolled_back", Integer.toString(report.rolledBack())))
+                                            .withRecoveryAction("prepared_divination_operations_reconciled"),
+                                    "Divination operation recovery completed");
                         }
                     });
         }
@@ -71,7 +101,9 @@ final class ModuleLifecycleRegistrar {
 
     private static void onStopping(MinecraftServer server) {
         ModMindEntry.logServerStopping();
-        if (ModMindEntry.isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+        // A degraded or newly disabled module can still own mirrors opened before its state
+        // changed.  Finalising those sessions is a data-safety operation, not normal module work.
+        if (CloudStorageSessionManager.global().activeSessions() > 0) {
             ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "cloud_storage_stop_commit",
                     "session_journal_retained_for_recovery", () -> CloudStorageSessionManager.global().closeAllForStop());
         }

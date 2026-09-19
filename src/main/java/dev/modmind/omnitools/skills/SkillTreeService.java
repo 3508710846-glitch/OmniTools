@@ -52,7 +52,10 @@ public final class SkillTreeService {
     private final Map<RateLimitKey, Long> latestSourceTick = new HashMap<>();
     private final Map<UUID, LastPosition> lastPositions = new HashMap<>();
     private final Map<UUID, Long> craftOperationSequences = new HashMap<>();
-    private final Set<UUID> lumberChainsInProgress = new HashSet<>();
+    private static final int LUMBER_CHAIN_BLOCKS_PER_TICK = 8;
+    private static final int LUMBER_CHAIN_GLOBAL_BLOCKS_PER_TICK = 32;
+    /** Active Tree Feller jobs; each is budgeted in {@link #tick(MinecraftServer)}. */
+    private final Map<UUID, LumberChain> lumberChainsInProgress = new HashMap<>();
     private final Set<String> settledOperations = new java.util.LinkedHashSet<>();
     private final Map<String, Long> passiveTriggerCounts = new HashMap<>();
     private final SkillLedger transientLedger = new SkillLedger();
@@ -73,6 +76,7 @@ public final class SkillTreeService {
         latestSourceTick.clear();
         lastPositions.clear();
         craftOperationSequences.clear();
+        lumberChainsInProgress.clear();
     }
 
     public SkillTreeConfig config() { return config; }
@@ -120,6 +124,15 @@ public final class SkillTreeService {
         XpResult result = addSkillXp(player, skillId, event.amount(), event.source(), applyTitleXpBonus,
                 event.operationId());
         publishXpFeedback(player, event, skillId, before, result);
+        if (result.granted() && ModMindEntry.isModuleEnabled(ModuleId.DIVINATION)) {
+            dev.modmind.omnitools.divination.DivinationData.ReliefResult relief =
+                    ModMindEntry.divinationService().recordSuccessfulSkillAction(player, skillId, event.source(),
+                            event.operationId());
+            if (relief.completed()) {
+                player.displayClientMessage(dev.modmind.omnitools.ServerText
+                        .translatable("message.omnitools.divination.relief_completed"), true);
+            }
+        }
         if (!result.granted()) {
             audit("xp_rejected", event.operationId(), result.status().name().toLowerCase(java.util.Locale.ROOT));
         }
@@ -470,7 +483,8 @@ public final class SkillTreeService {
         long skilled = applyPassiveXpBonus(tree, before, requestedXp, source);
         if (mcmmoModule.enabled()) skilled = multiplyXp(skilled, config.settings().xpMultiplier());
         long boosted = applyTitleXpBonus ? applyTitleBonus(player, skilled) : skilled;
-        long accepted = Math.min(boosted, capacity);
+        long omened = ModMindEntry.divinationService().applySkillXpOmen(player, treeId, source, boosted);
+        long accepted = Math.min(omened, capacity);
         if (accepted <= 0L) return XpResult.rejected(Status.DAILY_LIMIT_REACHED);
 
         int level = Math.min(before.level(), config.settings().maxLevel());
@@ -514,10 +528,13 @@ public final class SkillTreeService {
                         tree.id(), source, before, after, System.currentTimeMillis());
                 if (prepared.isEmpty()) return XpResult.rejected(Status.DUPLICATE_OPERATION);
                 transactionId = prepared.get().transactionId();
-                // The PREPARED target must reach durable storage before this method can change
-                // progress. Later checkpoints may batch the progress and COMMITTED state because
-                // startup can deterministically finish this target from the saved evidence.
-                journal.flush(player.level().getServer());
+                // High-frequency gameplay sources are journaled and flushed as one coherent
+                // SavedData batch on the next one-second checkpoint.  A hard stop can therefore
+                // lose at most that short unflushed window, but cannot persist progress without
+                // its matching operation evidence.  Irreversible grants remain synchronous.
+                if (!source.rateLimited()) {
+                    journal.flush(player.level().getServer());
+                }
                 xpTransactionFlushPending = true;
             } catch (RuntimeException failure) {
                 audit("xp_prepare_failed", operationId, failure.getClass().getSimpleName());
@@ -535,6 +552,13 @@ public final class SkillTreeService {
                 // journal remains authoritative for new operations.
                 try { SkillLedgerData.get(player.level().getServer()).claim(player.getUUID(),
                         "xp:" + player.getUUID() + ":" + operationId); } catch (RuntimeException ignored) { }
+            }
+            if (journal != null && !source.rateLimited()) {
+                // Reward/package/command XP is low-frequency and may be coupled to a separate
+                // ledger, so keep its terminal transition durable before returning success.
+                journal.flush(player.level().getServer());
+                xpTransactionFlushPending = false;
+                lastXpTransactionFlushTick = player.level().getServer().getTickCount();
             }
             runCommittedXpSideEffects(player, data, tree, source, before, after, levelsGained, totalBefore, operationId);
             return new XpResult(Status.GRANTED, accepted, levelsGained, after,
@@ -657,38 +681,65 @@ public final class SkillTreeService {
         return true;
     }
 
-    /** Bounded same-log chain breaking; the guard prevents nested AFTER events from restarting it. */
+    /**
+     * Starts a bounded same-log Tree Feller job.  World mutation is intentionally deferred to the
+     * server tick budget: a 96-block tree no longer runs one breadth-first traversal inside the
+     * original block-break event.
+     */
     public synchronized int settleLumberjackChain(ServerPlayer player, ServerLevel world, BlockPos origin, BlockState source) {
         String activeSkill = mcmmoModule.enabled() ? "woodcutting" : "lumberjack";
         if (player == null || world == null || source == null || !source.is(BlockTags.LOGS)
-                || activeRemainingSeconds(player, activeSkill) <= 0L || !lumberChainsInProgress.add(player.getUUID())) return 0;
+                || player.getAbilities().instabuild || player.isSpectator()
+                || activeRemainingSeconds(player, activeSkill) <= 0L || lumberChainsInProgress.containsKey(player.getUUID())) return 0;
         String operationId = "lumberjack:" + player.getUUID() + ":" + origin.asLong() + ":" + world.getGameTime();
-        try {
-            if (!claimSideEffectOperation(player, operationId)) return 0;
-            int level = skillLevel(progress(player, activeSkill), "active");
-            int cap = 16 + (Math.max(1, level) - 1) * 80 / 9;
+        if (!claimSideEffectOperation(player, operationId)) return 0;
+        int level = skillLevel(progress(player, activeSkill), "active");
+        int cap = 16 + (Math.max(1, level) - 1) * 80 / 9;
+        ArrayDeque<BlockPos> pending = new ArrayDeque<>();
+        Set<BlockPos> visited = new HashSet<>();
+        pending.add(origin);
+        visited.add(origin);
+        lumberChainsInProgress.put(player.getUUID(), new LumberChain(player.getUUID(), world.dimension(), origin,
+                source.getBlock(), activeSkill, operationId, cap, pending, visited));
+        return 0;
+    }
+
+    private void processLumberChains(MinecraftServer server) {
+        int globalBudget = LUMBER_CHAIN_GLOBAL_BLOCKS_PER_TICK;
+        for (LumberChain chain : java.util.List.copyOf(lumberChainsInProgress.values())) {
+            if (globalBudget <= 0) break;
+            ServerPlayer player = server.getPlayerList().getPlayer(chain.playerId());
+            ServerLevel world = server.getLevel(chain.dimension());
+            if (player == null || world == null || player.level() != world || player.getAbilities().instabuild
+                    || player.isSpectator() || activeRemainingSeconds(player, chain.activeSkill()) <= 0L) {
+                lumberChainsInProgress.remove(chain.playerId());
+                continue;
+            }
+            int perPlayerBudget = Math.min(LUMBER_CHAIN_BLOCKS_PER_TICK, globalBudget);
             int broken = 0;
-            Set<BlockPos> visited = new HashSet<>();
-            ArrayDeque<BlockPos> pending = new ArrayDeque<>();
-            pending.add(origin);
-            visited.add(origin);
-            while (!pending.isEmpty() && broken < cap) {
-                BlockPos current = pending.removeFirst();
+            while (!chain.pending().isEmpty() && chain.broken() < chain.cap() && broken < perPlayerBudget) {
+                BlockPos current = chain.pending().removeFirst();
                 for (Direction direction : Direction.values()) {
                     BlockPos next = current.relative(direction);
-                    if (!visited.add(next) || next.distSqr(origin) > 18D * 18D) continue;
+                    if (!chain.visited().add(next) || next.distSqr(chain.origin()) > 18D * 18D) continue;
                     BlockState candidate = world.getBlockState(next);
-                    if (!candidate.is(source.getBlock()) || !candidate.is(BlockTags.LOGS)) continue;
+                    if (!candidate.is(chain.sourceBlock()) || !candidate.is(BlockTags.LOGS)) continue;
                     if (world.destroyBlock(next, true, player)) {
+                        chain.incrementBroken();
                         broken++;
-                        pending.addLast(next);
+                        chain.pending().addLast(next);
                     }
-                    if (broken >= cap) break;
+                    if (chain.broken() >= chain.cap() || broken >= perPlayerBudget) break;
                 }
             }
-            return broken;
-        } finally {
-            lumberChainsInProgress.remove(player.getUUID());
+            globalBudget -= broken;
+            if (chain.pending().isEmpty() || chain.broken() >= chain.cap()) {
+                lumberChainsInProgress.remove(chain.playerId());
+                if (chain.broken() > 0) {
+                    countPassive("woodcutting", "tree_feller_blocks");
+                    audit("tree_feller_complete", chain.operationId(), "broken=" + chain.broken());
+                }
+            }
         }
     }
 
@@ -927,6 +978,7 @@ public final class SkillTreeService {
     public synchronized void tick(MinecraftServer server) {
         if (server == null) return;
         flushPendingXpTransactions(server, false);
+        processLumberChains(server);
         flushMilestoneAnnouncements(server);
         if (server.getTickCount() % 20 == 0) {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -971,6 +1023,7 @@ public final class SkillTreeService {
         if (player != null) {
             lastPositions.remove(player.getUUID());
             craftOperationSequences.remove(player.getUUID());
+            lumberChainsInProgress.remove(player.getUUID());
         }
     }
 
@@ -1026,6 +1079,7 @@ public final class SkillTreeService {
 
     public void removeAll(MinecraftServer server) {
         if (server == null) return;
+        lumberChainsInProgress.clear();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             for (SkillTreeConfig.TreeDefinition tree : config.trees()) {
                 AttributeInstance instance = player.getAttribute(tree.attribute().holder());
@@ -1035,6 +1089,9 @@ public final class SkillTreeService {
     }
 
     private long applyTitleBonus(ServerPlayer player, long raw) {
+        // Skill-XP title effects obey the same global switch as potion/attribute title effects.
+        // Disabling title_effects must never leave a hidden XP-only bonus active.
+        if (!ModMindEntry.isModuleEnabled(ModuleId.TITLE_EFFECTS)) return raw;
         TitleConfig titles = ModMindEntry.titleConfig();
         if (!titles.effectsEnabled(player.getUUID())) return raw;
         double bonus = 0.0D;
@@ -1261,4 +1318,15 @@ public final class SkillTreeService {
     }
     private record RateLimitKey(UUID playerId, String treeId, SkillXpSource source) { }
     private record LastPosition(double x, double y, double z) { }
+    private record LumberChain(UUID playerId, net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension,
+                               BlockPos origin, Block sourceBlock, String activeSkill, String operationId, int cap,
+                               ArrayDeque<BlockPos> pending, Set<BlockPos> visited, int[] brokenCounter) {
+        LumberChain(UUID playerId, net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension,
+                    BlockPos origin, Block sourceBlock, String activeSkill, String operationId, int cap,
+                    ArrayDeque<BlockPos> pending, Set<BlockPos> visited) {
+            this(playerId, dimension, origin.immutable(), sourceBlock, activeSkill, operationId, cap, pending, visited, new int[] {0});
+        }
+        int broken() { return brokenCounter[0]; }
+        void incrementBroken() { brokenCounter[0]++; }
+    }
 }

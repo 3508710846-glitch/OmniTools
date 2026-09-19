@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,5 +25,20 @@ class AsyncAuditLogWriterTest {
 
         Files.deleteIfExists(log);
         Files.deleteIfExists(directory);
+    }
+
+    @Test
+    void writesAuditRecordWhenPathHasNoParent() throws Exception {
+        Path log = Path.of("omnitools-audit-" + UUID.randomUUID() + ".log");
+        AsyncAuditLogWriter writer = new AsyncAuditLogWriter();
+
+        try {
+            assertTrue(writer.submit(ModuleId.SHOP, "test_parentless_audit_write", log, "record-parentless\n"));
+            assertTrue(writer.flush(Duration.ofSeconds(2L)));
+            assertEquals("record-parentless\n", Files.readString(log));
+            assertEquals(1L, writer.metrics().completed());
+        } finally {
+            Files.deleteIfExists(log);
+        }
     }
 }

@@ -95,17 +95,21 @@ public final class RewardGrantService {
         }
         if (!canFitFully(player, pending)) {
             ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.PENDING, "inventory_full");
+            ledger.flush(player.level().getServer());
             return RewardGrantResult.pending(0, 0, "inventory_full");
         }
         try {
             // See grantItem: this boundary must stay conservative after a process interruption.
             ledger.beginApplying(event, rewardId, "inbox_item_delivery");
+            ledger.flush(player.level().getServer());
             insertFully(player, pending);
             ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.GRANTED, "");
+            ledger.flush(player.level().getServer());
             return RewardGrantResult.success(1, 0);
         } catch (RuntimeException exception) {
             ledger.mark(event, rewardId, RewardClaimLedger.EntryStatus.BLOCKED,
                     "item_delivery_outcome_unknown");
+            flushBlockedDelivery(ledger, player.level().getServer());
             System.err.println("[omnitools] Reward inbox delivery requires manual resolution: event="
                     + event.id() + ", reward=" + rewardId + ", player=" + player.getUUID() + " ("
                     + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
@@ -201,15 +205,29 @@ public final class RewardGrantService {
             return blocked(ledger, event, reward, "packages_disabled");
         }
         ledger.beginApplying(event, reward.id(), "package_create");
+        ledger.flush(player.level().getServer());
         try {
             packageService.create(player.level().getServer(), player.getUUID(), reward.packageId(), event.id(), grantKey);
+            // Persist both the durable APPLYING intent and the virtual package before claiming the
+            // reward.  A stop in this interval is safely reconciled by the stable grant key.
+            dev.modmind.omnitools.packages.PackageData.get(player.level().getServer()).flush(player.level().getServer());
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+            ledger.flush(player.level().getServer());
             return SingleResult.granted();
         } catch (IllegalStateException exception) {
+            if (dev.modmind.omnitools.packages.PackageData.get(player.level().getServer())
+                    .findByGrantKey(player.getUUID(), grantKey).isPresent()) {
+                ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED,
+                        "package_create_outcome_unknown");
+                flushBlockedDelivery(ledger, player.level().getServer());
+                return new SingleResult(RewardClaimLedger.EntryStatus.BLOCKED, "package_create_outcome_unknown");
+            }
             return blocked(ledger, event, reward, exception.getMessage() == null ? "package_create_failed" : exception.getMessage());
         } catch (RuntimeException exception) {
-            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
-            return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "package_create_failed");
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED,
+                    "package_create_outcome_unknown");
+            flushBlockedDelivery(ledger, player.level().getServer());
+            return new SingleResult(RewardClaimLedger.EntryStatus.BLOCKED, "package_create_outcome_unknown");
         }
     }
 
@@ -268,20 +286,39 @@ public final class RewardGrantService {
         ItemStack pending = ledger.queueItem(event, reward.id(), reward.createItemStack(), player.level().registryAccess());
         if (pending.isEmpty()) {
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");
+            ledger.flush(player.level().getServer());
             return new SingleResult(RewardClaimLedger.EntryStatus.FAILED, "invalid_item_snapshot");
         }
+        // The immutable payload is the recovery source of truth.  It must be on disk before the
+        // inventory capacity check or any later inventory mutation can make this reward visible.
+        ledger.flush(player.level().getServer());
         if (!canFitFully(player, pending)) {
             String reason = "inventory_full";
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.PENDING, reason);
+            ledger.flush(player.level().getServer());
             return new SingleResult(RewardClaimLedger.EntryStatus.PENDING, reason);
         }
         // The player inventory and world SavedData do not share a transaction. APPLYING makes an
         // interrupted delivery auditable; recovery blocks it for an administrator instead of
         // blindly replaying an item that may already be present.
-        ledger.beginApplying(event, reward.id(), "item_delivery");
-        insertFully(player, pending);
-        ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
-        return SingleResult.granted();
+        try {
+            ledger.beginApplying(event, reward.id(), "item_delivery");
+            // Do not insert an item until a restarted server can prove that delivery was in
+            // progress.  Recovery deliberately blocks this state instead of replaying it.
+            ledger.flush(player.level().getServer());
+            insertFully(player, pending);
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "");
+            ledger.flush(player.level().getServer());
+            return SingleResult.granted();
+        } catch (RuntimeException exception) {
+            ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED,
+                    "item_delivery_outcome_unknown");
+            flushBlockedDelivery(ledger, player.level().getServer());
+            System.err.println("[omnitools] Reward item delivery requires manual resolution: event="
+                    + event.id() + ", reward=" + reward.id() + ", player=" + player.getUUID() + " ("
+                    + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
+            return new SingleResult(RewardClaimLedger.EntryStatus.BLOCKED, "item_delivery_outcome_unknown");
+        }
     }
 
     /** Checks every candidate stack before mutating the inventory. */
@@ -360,10 +397,14 @@ public final class RewardGrantService {
         }
         ledger.beginApplying(event, reward.id(), "command_prepare");
         ledger.markCommandDispatched(event, reward.id(), command);
+        // Command side effects cannot be rolled back.  Persist the exact command and APPLYING
+        // state before dispatch so a crash can never turn it into an automatic replay.
+        ledger.flush(player.level().getServer());
         try {
             player.level().getServer().getCommands().performPrefixedCommand(
                     player.level().getServer().createCommandSourceStack(), command);
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.GRANTED, "command_dispatched");
+            ledger.flush(player.level().getServer());
             System.out.println("[omnitools] Dispatched reward command " + reward.id() + " for "
                     + player.getUUID() + " in event " + event.id() + ": " + command);
         } catch (RuntimeException exception) {
@@ -371,6 +412,7 @@ public final class RewardGrantService {
             // automatically; the administrator can inspect the persisted command and resolve it.
             ledger.mark(event, reward.id(), RewardClaimLedger.EntryStatus.BLOCKED,
                     "command_dispatch_failed_no_replay");
+            flushBlockedDelivery(ledger, player.level().getServer());
             System.err.println("[omnitools] Reward command " + reward.id() + " for " + player.getUUID()
                     + " is blocked for manual review in event " + event.id() + ": " + command
                     + " (" + exception.getClass().getSimpleName() + ": " + exception.getMessage() + ")");
@@ -378,6 +420,16 @@ public final class RewardGrantService {
                     "command_dispatch_failed_no_replay");
         }
         return SingleResult.granted();
+    }
+
+    /** A post-side-effect flush failure must remain conservative without hiding the root failure. */
+    private static void flushBlockedDelivery(RewardClaimLedger ledger, MinecraftServer server) {
+        try {
+            ledger.flush(server);
+        } catch (RuntimeException flushFailure) {
+            System.err.println("[omnitools] Could not persist conservative reward delivery state: "
+                    + flushFailure.getClass().getSimpleName() + ": " + flushFailure.getMessage());
+        }
     }
 
     private static SingleResult blocked(RewardClaimLedger ledger, RewardEvent event, RewardDefinition reward,
@@ -390,7 +442,8 @@ public final class RewardGrantService {
         return "item_delivery_outcome_unknown".equals(reason)
                 || "command_dispatch_outcome_unknown".equals(reason)
                 || "command_dispatch_failed_no_replay".equals(reason)
-                || "skill_xp_outcome_unknown".equals(reason);
+                || "skill_xp_outcome_unknown".equals(reason)
+                || "package_create_outcome_unknown".equals(reason);
     }
 
     private static String substitute(String command, ServerPlayer player) {

@@ -71,4 +71,19 @@ class CheckinMakeupDataTest {
         assertEquals(70L, data.getBalance(player));
         assertTrue(data.hasShopPurchaseCharge(player, transaction));
     }
+
+    @Test
+    void cloudStorageExpansionChargeUsesItsOwnIdempotencyMarker() {
+        CheckinData data = new CheckinData();
+        UUID player = UUID.randomUUID();
+        UUID operation = UUID.randomUUID();
+        data.addCurrency(player, 100L, "Tester");
+
+        assertEquals(CheckinData.CloudStorageExpansionChargeResult.CHARGED,
+                data.chargeCloudStorageExpansion(player, operation, 40L, "Tester"));
+        assertEquals(CheckinData.CloudStorageExpansionChargeResult.ALREADY_CHARGED,
+                data.chargeCloudStorageExpansion(player, operation, 40L, "Tester"));
+        assertEquals(60L, data.getBalance(player));
+        assertTrue(data.hasCloudStorageExpansionCharge(player, operation));
+    }
 }

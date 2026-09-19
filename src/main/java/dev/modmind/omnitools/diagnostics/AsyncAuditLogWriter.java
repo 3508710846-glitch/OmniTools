@@ -96,7 +96,18 @@ public final class AsyncAuditLogWriter {
     private void run() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                queue.take().run();
+                Job job = queue.take();
+                try {
+                    job.run();
+                } catch (RuntimeException exception) {
+                    // A malformed audit path or an unexpected job failure must not terminate the
+                    // daemon. The authoritative journal is persisted by the owning module; this
+                    // writer is only a best-effort diagnostic copy.
+                    failed.incrementAndGet();
+                    OperationalErrorReporter.global().warn(
+                            OperationalErrorReporter.Context.forFeature("audit_writer_job")
+                                    .withRecoveryAction("continue_audit_writer_after_job_failure"), exception);
+                }
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
@@ -104,15 +115,18 @@ public final class AsyncAuditLogWriter {
     }
 
     private void write(WriteJob job) {
-        IOException failure = null;
+        Throwable failure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                Files.createDirectories(job.path().getParent());
+                Path parent = job.path().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
                 Files.writeString(job.path(), job.line(), StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                 completed.incrementAndGet();
                 return;
-            } catch (IOException exception) {
+            } catch (IOException | RuntimeException exception) {
                 failure = exception;
                 if (attempt < MAX_ATTEMPTS) {
                     try {

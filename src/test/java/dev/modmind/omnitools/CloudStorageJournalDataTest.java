@@ -66,8 +66,29 @@ class CloudStorageJournalDataTest {
         assertEquals(List.of(4), metadata.changedSlots());
         assertEquals("close", metadata.checkpointReason());
         assertEquals(64, metadata.openedPageHash().length());
+        assertEquals(64, metadata.beforePageHash().length());
         assertEquals(64, metadata.targetPageHash().length());
         assertEquals(250L, metadata.checkpointAt());
+    }
+
+    @Test
+    void keepsCheckpointDeltaSeparateFromChangesSinceTheMenuOpened() {
+        List<ItemStack> opened = emptyPage();
+        List<ItemStack> before = emptyPage();
+        before.set(4, new ItemStack(Items.DIAMOND, 3)); // First checkpoint was already committed.
+        List<ItemStack> after = new ArrayList<>(before);
+        after.set(7, new ItemStack(Items.EMERALD, 1));
+        CloudStorageJournalData journal = new CloudStorageJournalData();
+
+        CloudStorageJournalData.Entry prepared = journal.prepare(OWNER, 0, CloudStorageJournalData.Operation.DEPOSIT,
+                before, after, 300L, UUID.randomUUID(), "checkpoint", opened);
+        CloudStorageJournalData.SessionMetadata metadata = CloudStorageJournalData.fromTag(
+                CloudStorageJournalData.toTag(journal)).find(prepared.operationId()).orElseThrow().sessionMetadata();
+
+        assertEquals(List.of(7), metadata.changedSlots());
+        assertEquals(List.of(4, 7), metadata.sessionChangedSlots());
+        assertTrue(!metadata.openedPageHash().equals(metadata.beforePageHash()));
+        assertTrue(!metadata.beforePageHash().equals(metadata.targetPageHash()));
     }
 
     @Test

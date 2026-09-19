@@ -24,15 +24,28 @@ public final class SkillEventRouter {
         boolean crop = state.getBlock() instanceof CropBlock;
         boolean matureCrop = !crop || ((CropBlock) state.getBlock()).isMaxAge(state);
         return routeBlock(state.is(BlockTags.LOGS), state.is(BlockTags.CROPS), matureCrop,
-                state.is(BlockTags.MINEABLE_WITH_SHOVEL));
+                state.is(BlockTags.MINEABLE_WITH_SHOVEL), state.is(BlockTags.MINEABLE_WITH_PICKAXE));
     }
 
+    /** Legacy test/extension overload keeps the former generic-mining assumption for callers
+     * without exact block-tag information. The live event path always uses the strict overload. */
     static Optional<BlockBreakRoute> routeBlock(boolean log, boolean crop, boolean matureCrop, boolean shovelMineable) {
+        return routeBlock(log, crop, matureCrop, shovelMineable, true);
+    }
+
+    /**
+     * Every normal block XP source must opt in through a vanilla mining tag.  Treating arbitrary
+     * blocks as mining targets made decorative, temporary and unknown mod blocks a default XP
+     * source, which is unsafe on a live economy server.
+     */
+    static Optional<BlockBreakRoute> routeBlock(boolean log, boolean crop, boolean matureCrop, boolean shovelMineable,
+                                                boolean pickaxeMineable) {
         if (crop && !matureCrop) return Optional.empty();
         if (log) return Optional.of(new BlockBreakRoute("woodcutting", SkillXpSource.BLOCK_BREAK));
         if (crop) return Optional.of(new BlockBreakRoute("herbalism", SkillXpSource.SURVIVAL));
         if (shovelMineable) return Optional.of(new BlockBreakRoute("excavation", SkillXpSource.BLOCK_BREAK));
-        return Optional.of(new BlockBreakRoute("mining", SkillXpSource.BLOCK_BREAK));
+        if (pickaxeMineable) return Optional.of(new BlockBreakRoute("mining", SkillXpSource.BLOCK_BREAK));
+        return Optional.empty();
     }
 
     public static CombatRoute entityKill(String heldItemPath) {

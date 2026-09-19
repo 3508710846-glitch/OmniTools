@@ -20,6 +20,7 @@
 - [排行榜](modules/leaderboards.md)
 - [礼包](modules/packages.md)
 - [技能树](modules/skills.md)
+- [每日占卜](modules/divination.md)
 - [云存储](modules/cloud-storage.md)
 - [权限](modules/permissions.md)
 - [命令菜单](modules/command-menu.md)

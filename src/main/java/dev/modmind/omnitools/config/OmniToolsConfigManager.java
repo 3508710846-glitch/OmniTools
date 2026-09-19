@@ -14,6 +14,7 @@ import dev.modmind.omnitools.cdk.CdkData;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.packages.PackageConfig;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
+import dev.modmind.omnitools.divination.DivinationConfig;
 import dev.modmind.omnitools.diagnostics.OperationalErrorReporter;
 import net.minecraft.server.MinecraftServer;
 import dev.modmind.omnitools.permissions.CommandPermissionConfig;
@@ -72,7 +73,19 @@ public final class OmniToolsConfigManager {
         try {
             LoadContext context = new LoadContext(server, server.registryAccess(), previous.root(), previous.common());
             java.util.Map<ModuleId, Object> loaded = snapshotModules(previous);
-            loaded.put(module, moduleRegistry.load(module, context));
+            try {
+                loaded.put(module, moduleRegistry.load(module, context));
+            } catch (Exception exception) {
+                if (module != ModuleId.TITLE_EFFECTS || previous.titles().requiresLegacyEffectConfig()) {
+                    throw exception;
+                }
+                loaded.put(ModuleId.TITLE_EFFECTS, TitleEffectConfig.empty());
+                OperationalErrorReporter.global().warn(
+                        OperationalErrorReporter.Context.forModule(ModuleId.TITLE_EFFECTS, "legacy_config_load")
+                                .withParameters(java.util.Map.of("path", ConfigPaths.moduleConfig(ModuleId.TITLE_EFFECTS).toString()))
+                                .withRecoveryAction("legacy_title_effects_ignored;embedded_title_effects_active"),
+                        exception);
+            }
             OmniToolsConfigSnapshot candidate = buildSnapshot(server, previous.root(), previous.common(), loaded);
             OmniToolsConfigSnapshot published = publish(candidate);
             return new ModuleReloadResult(true, module, "", previous, published);
@@ -125,10 +138,24 @@ public final class OmniToolsConfigManager {
         ConfigModuleRegistry.LoadReport report = moduleRegistry.loadAllIsolated(loadContext);
         java.util.Map<ModuleId, Object> loaded = new EnumMap<>(ModuleId.class);
         loaded.putAll(report.loaded());
+        java.util.Map<ModuleId, ConfigModuleRegistry.ModuleLoadException> failures =
+                new EnumMap<>(ModuleId.class);
+        failures.putAll(report.failures());
+        ConfigModuleRegistry.ModuleLoadException titleEffectFailure = failures.get(ModuleId.TITLE_EFFECTS);
+        TitleConfig candidateTitles = moduleConfig(loaded, ModuleId.TITLES, TitleConfig.empty());
+        if (titleEffectFailure != null && !candidateTitles.requiresLegacyEffectConfig()) {
+            failures.remove(ModuleId.TITLE_EFFECTS);
+            loaded.put(ModuleId.TITLE_EFFECTS, TitleEffectConfig.empty());
+            OperationalErrorReporter.global().warn(
+                    OperationalErrorReporter.Context.forModule(ModuleId.TITLE_EFFECTS, "legacy_config_load")
+                            .withParameters(java.util.Map.of("path", ConfigPaths.moduleConfig(ModuleId.TITLE_EFFECTS).toString()))
+                            .withRecoveryAction("legacy_title_effects_ignored;embedded_title_effects_active"),
+                    titleEffectFailure);
+        }
         java.util.Set<ModuleId> retainedModules = java.util.EnumSet.noneOf(ModuleId.class);
         java.util.Map<ModuleId, Object> previousModules = snapshotModules(snapshot);
         for (java.util.Map.Entry<ModuleId, ConfigModuleRegistry.ModuleLoadException> failure
-                : report.failures().entrySet()) {
+                : failures.entrySet()) {
             ModuleId module = failure.getKey();
             if (snapshot.enabled(module)) {
                 loaded.put(module, previousModules.get(module));
@@ -141,7 +168,7 @@ public final class OmniToolsConfigManager {
                                     ? "previous_valid_configuration_retained" : "module_marked_degraded"),
                     failure.getValue());
         }
-        return buildSnapshot(server, root, common, loaded, report.failures(), retainedModules);
+        return buildSnapshot(server, root, common, loaded, failures, retainedModules);
     }
 
     private OmniToolsConfigSnapshot buildSnapshot(MinecraftServer server, OmniToolsRootConfig root,
@@ -188,6 +215,7 @@ public final class OmniToolsConfigManager {
         LeaderboardConfig leaderboards = moduleConfig(loaded, ModuleId.LEADERBOARDS, LeaderboardConfig.empty());
         PackageConfig packages = moduleConfig(loaded, ModuleId.PACKAGES, PackageConfig.empty());
         SkillTreeConfig skills = moduleConfig(loaded, ModuleId.SKILLS, SkillTreeConfig.empty());
+        DivinationConfig divination = moduleConfig(loaded, ModuleId.DIVINATION, DivinationConfig.empty());
         CommandPermissionConfig commandPermissions = moduleConfig(loaded, ModuleId.PERMISSIONS,
                 CommandPermissionConfig.defaults());
         EnumMap<ModuleId, ModuleStatus> statuses = new EnumMap<>(ModuleId.class);
@@ -200,7 +228,7 @@ public final class OmniToolsConfigManager {
             }
         }
         OmniToolsConfigSnapshot candidate = new OmniToolsConfigSnapshot(root, rewards, onlineRewards, shop, titles, effects,
-                storage, achievements, cdk, commandMenus, sidebar, leaderboards, packages, skills, commandPermissions, statuses, revisions.get() + 1L,
+                storage, achievements, cdk, commandMenus, sidebar, leaderboards, packages, skills, divination, commandPermissions, statuses, revisions.get() + 1L,
                 common);
         CrossModuleValidator.validate(candidate);
         moduleRegistry.validateAll(loaded, candidate);
@@ -223,6 +251,7 @@ public final class OmniToolsConfigManager {
         modules.put(ModuleId.LEADERBOARDS, snapshot.leaderboards());
         modules.put(ModuleId.PACKAGES, snapshot.packages());
         modules.put(ModuleId.SKILLS, snapshot.skills());
+        modules.put(ModuleId.DIVINATION, snapshot.divination());
         return modules;
     }
 
@@ -323,6 +352,12 @@ public final class OmniToolsConfigManager {
                 return context.root().enabled(id()) ? SkillTreeConfig.load() : SkillTreeConfig.empty();
             }
         });
+        registry.register(new ConfigurableModule<DivinationConfig>() {
+            public ModuleId id() { return ModuleId.DIVINATION; }
+            public DivinationConfig load(LoadContext context) {
+                return context.root().enabled(id()) ? DivinationConfig.load() : DivinationConfig.empty();
+            }
+        });
         return registry;
     }
 
@@ -331,7 +366,7 @@ public final class OmniToolsConfigManager {
         OmniToolsConfigSnapshot published = new OmniToolsConfigSnapshot(candidate.root(), candidate.rewards(),
                 candidate.onlineRewards(), candidate.shop(), candidate.titles(), candidate.titleEffects(),
                 candidate.cloudStorage(), candidate.achievements(), candidate.cdk(), candidate.commandMenus(),
-                candidate.sidebar(), candidate.leaderboards(), candidate.packages(), candidate.skills(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
+                candidate.sidebar(), candidate.leaderboards(), candidate.packages(), candidate.skills(), candidate.divination(), candidate.commandPermissions(), candidate.statuses(), revision, candidate.common());
         snapshot = published;
         return published;
     }
@@ -396,7 +431,7 @@ public final class OmniToolsConfigManager {
         return new OmniToolsConfigSnapshot(root, CheckinRewardConfig.empty(), OnlineRewardConfig.empty(), ShopConfig.empty(),
                 TitleConfig.empty(), TitleEffectConfig.empty(), CloudStorageConfig.defaultConfig(),
                 AchievementConfig.empty(), CdkConfig.empty(), CommandMenuConfig.empty(), SidebarConfig.empty(),
-                LeaderboardConfig.empty(), PackageConfig.empty(), SkillTreeConfig.empty(),
+                LeaderboardConfig.empty(), PackageConfig.empty(), SkillTreeConfig.empty(), DivinationConfig.empty(),
                 CommandPermissionConfig.defaults(), statuses, 0L);
     }
 }

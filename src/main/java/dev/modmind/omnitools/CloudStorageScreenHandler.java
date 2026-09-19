@@ -119,7 +119,10 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
         if (!stillValid(player)) {
             if (player instanceof ServerPlayer serverPlayer && owner != null
                     && serverPlayer.getUUID().equals(owner.getUUID())) {
-                closeHandled = true;
+                // An invalidated menu (for example after the module circuit breaker trips) must
+                // stop accepting clicks, but its still-owned OPEN mirror still needs the normal
+                // close transaction.  Do not suppress removed(): it will either commit the exact
+                // mirror or retain it locked with its journal evidence for recovery.
                 serverPlayer.closeContainer();
             }
             return;
@@ -222,11 +225,51 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
             GuiFeedbackService.failure(player);
             return;
         }
-        long removed = currency.removeCurrency(owner.getUUID(), cost, player.getGameProfile().name());
-        CloudStorageData.PageUnlockResult result = CloudStorageData.get(player)
-                .unlockNextPage(owner.getUUID(), config.maxPages());
+        CloudStorageData storage = CloudStorageData.get(player);
+        CloudStorageData.ExpansionPreparation prepared = storage.prepareNextPageUnlock(owner.getUUID(), config.maxPages());
+        if (!prepared.prepared()) {
+            GuiFeedbackService.failure(player);
+            return;
+        }
+        try {
+            // Persist the exact page-access target before debiting wallet data. Startup can then
+            // prove whether a prepared expansion must be committed or rolled back.
+            storage.flush(player.level().getServer());
+        } catch (RuntimeException exception) {
+            storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "prepare_flush_failed");
+            GuiFeedbackService.failure(player);
+            return;
+        }
+        CheckinData.CloudStorageExpansionChargeResult charge = currency.chargeCloudStorageExpansion(owner.getUUID(),
+                prepared.operation().operationId(), cost, player.getGameProfile().name());
+        if (charge == CheckinData.CloudStorageExpansionChargeResult.INSUFFICIENT_CURRENCY) {
+            storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "insufficient_currency");
+            try {
+                storage.flush(player.level().getServer());
+            } catch (RuntimeException ignored) {
+                // No debit was accepted; a stale PREPARED record is safely rolled back at startup.
+            }
+            GuiFeedbackService.failure(player);
+            return;
+        }
+        try {
+            // This saves both the debit marker and PREPARED page target before access changes.
+            storage.flush(player.level().getServer());
+        } catch (RuntimeException exception) {
+            GuiFeedbackService.failure(player);
+            return;
+        }
+        CloudStorageData.PageUnlockResult result = storage.commitPreparedPageUnlock(owner.getUUID(),
+                prepared.operation().operationId());
         if (!result.unlocked()) {
-            currency.addCurrency(owner.getUUID(), removed, player.getGameProfile().name());
+            GuiFeedbackService.failure(player);
+            return;
+        }
+        try {
+            storage.flush(player.level().getServer());
+        } catch (RuntimeException exception) {
+            // The page may already be durable. Keep the committed journal entry rather than
+            // refunding a potentially successful debit and creating a duplicate expansion.
             GuiFeedbackService.failure(player);
             return;
         }
@@ -234,7 +277,12 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
     }
 
     private void closeSession(ServerPlayer player) {
-        if (session == null || sessionInventory == null) return;
+        // A disconnect/stop hook may already have synchronously committed and released this
+        // session before vanilla delivers the menu's delayed removed() callback. That stale
+        // callback must only return the carried cursor through super.removed(); it must never
+        // retry the old mirror and turn a completed close into a spurious FAILED session.
+        if (session == null || sessionInventory == null || !CloudStorageSessionManager.shouldCommitOnMenuClose(session,
+                CloudStorageSessionManager.global().owns(player, session))) return;
         CloudStorageCommitService.Result result = checkpoint(CloudStorageCommitService.Reason.CLOSE);
         if (result.committed()) {
             session.close();

@@ -110,6 +110,22 @@ class CloudStorageDataTest {
                 .getCompoundOrEmpty(OWNER.toString()));
     }
 
+    @Test
+    void pageExpansionUsesPreparedThenCommittedEvidence() {
+        CloudStorageData data = new CloudStorageData();
+
+        CloudStorageData.ExpansionPreparation prepared = data.prepareNextPageUnlock(OWNER, 2);
+
+        assertTrue(prepared.prepared());
+        assertEquals(1, data.unlockedPages(OWNER));
+        assertTrue(data.commitPreparedPageUnlock(OWNER, prepared.operation().operationId()).unlocked());
+        assertEquals(2, data.unlockedPages(OWNER));
+
+        CloudStorageData restored = CloudStorageData.fromTag(CloudStorageData.toTag(data));
+        assertEquals(2, restored.unlockedPages(OWNER));
+        assertTrue(restored.commitPreparedPageUnlock(OWNER, prepared.operation().operationId()).unlocked());
+    }
+
     private static List<ItemStack> pageWith(ItemStack first) {
         List<ItemStack> page = emptyPage();
         page.set(0, first);

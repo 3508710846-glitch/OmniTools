@@ -42,7 +42,9 @@ public enum CommandAction {
     PACKAGE_RESOLVE("package.resolve", CommandRole.ADMIN),
     PACKAGE_CANCEL("package.cancel", CommandRole.ADMIN),
     SKILLS_OPEN("skills.open", CommandRole.PLAYER),
-    SKILLS_ADMIN("skills.admin", CommandRole.ADMIN);
+    SKILLS_ADMIN("skills.admin", CommandRole.ADMIN),
+    DIVINATION_OPEN("divination.open", CommandRole.PLAYER),
+    DIVINATION_ADMIN("divination.admin", CommandRole.ADMIN);
 
     private final String id;
     private final CommandRole defaultRole;

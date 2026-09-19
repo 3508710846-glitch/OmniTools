@@ -19,6 +19,8 @@ class SkillEventRouterTest {
         assertEquals("woodcutting", SkillEventRouter.routeBlock(true, false, true, false).orElseThrow().skillId());
         assertEquals("excavation", SkillEventRouter.routeBlock(false, false, true, true).orElseThrow().skillId());
         assertEquals("mining", SkillEventRouter.routeBlock(false, false, true, false).orElseThrow().skillId());
+        assertEquals("mining", SkillEventRouter.routeBlock(false, false, true, false, true).orElseThrow().skillId());
+        assertFalse(SkillEventRouter.routeBlock(false, false, true, false, false).isPresent());
         assertFalse(SkillEventRouter.routeBlock(false, true, false, false).isPresent());
         assertEquals("herbalism", SkillEventRouter.routeBlock(false, true, true, false).orElseThrow().skillId());
     }

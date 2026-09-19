@@ -48,6 +48,35 @@ class TitleEffectConfigTest {
     }
 
     @Test
+    void onlyV1EffectReferencesRequireTheLegacyEffectConfig() {
+        JsonObject v2 = new JsonObject();
+        v2.addProperty("format_version", 2);
+        JsonArray v2Titles = new JsonArray();
+        JsonObject v2Title = new JsonObject();
+        v2Title.addProperty("id", "plain");
+        v2Title.addProperty("display", "Plain");
+        v2Title.addProperty("rarity", "common");
+        v2Title.add("effects", new JsonArray());
+        v2Titles.add(v2Title);
+        v2.add("titles", v2Titles);
+        assertEquals(false, TitleConfig.parse(v2).requiresLegacyEffectConfig());
+
+        JsonObject v1 = new JsonObject();
+        v1.addProperty("format_version", 1);
+        JsonArray v1Titles = new JsonArray();
+        JsonObject v1Title = new JsonObject();
+        v1Title.addProperty("id", "legacy");
+        v1Title.addProperty("display", "Legacy");
+        v1Title.addProperty("rarity", "common");
+        JsonArray effectIds = new JsonArray();
+        effectIds.add("speed_1");
+        v1Title.add("effects", effectIds);
+        v1Titles.add(v1Title);
+        v1.add("titles", v1Titles);
+        assertEquals(true, TitleConfig.parse(v1).requiresLegacyEffectConfig());
+    }
+
+    @Test
     void parsesV2TitlesAndKeepsV1EffectIdsCompatible() {
         JsonObject v2 = new JsonObject();
         v2.addProperty("format_version", 2);

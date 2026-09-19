@@ -40,6 +40,14 @@ public final class CloudStorageSessionManager {
         return session != null && active != null && session == active.session();
     }
 
+    /**
+     * A menu-close callback may persist only a live, still-owned mirror. Disconnect and stop
+     * hooks release successfully committed sessions before the vanilla menu teardown runs.
+     */
+    static boolean shouldCommitOnMenuClose(CloudStorageSession session, boolean stillOwned) {
+        return stillOwned && session != null && session.state() == CloudStorageSession.State.OPEN;
+    }
+
     public synchronized void release(ServerPlayer player, CloudStorageSession session) {
         if (player != null && session != null && owns(player, session)) {
             sessions.remove(player.getUUID());
@@ -56,11 +64,12 @@ public final class CloudStorageSessionManager {
     public void tick(MinecraftServer server) {
         if (server == null) return;
         java.util.List<ActiveSession> checkpoints = new java.util.ArrayList<>();
-        long tick = server.getTickCount();
+        long serverTick = server.getTickCount();
         synchronized (this) {
             for (ActiveSession active : sessions.values()) {
                 if (checkpoints.size() >= MAX_CHECKPOINTS_PER_TICK) break;
-                if (CloudStorageCommitService.due(active.session(), tick)) checkpoints.add(active);
+                long worldTick = checkpointClock(active.player().level().getGameTime(), serverTick);
+                if (CloudStorageCommitService.due(active.session(), worldTick)) checkpoints.add(active);
             }
         }
         for (ActiveSession active : checkpoints) {
@@ -77,12 +86,23 @@ public final class CloudStorageSessionManager {
         synchronized (this) {
             pendingReleases.entrySet().removeIf(entry -> {
                 PendingRelease release = entry.getValue();
-                if (tick < release.releaseAtTick()) return false;
                 ActiveSession active = sessions.get(entry.getKey());
-                if (active != null && active.session() == release.session()) sessions.remove(entry.getKey());
+                if (active == null || active.session() != release.session()) return true;
+                long worldTick = checkpointClock(active.player().level().getGameTime(), serverTick);
+                if (worldTick < release.releaseAtTick()) return false;
+                sessions.remove(entry.getKey());
                 return true;
             });
         }
+    }
+
+    /**
+     * Session changes and delayed releases are timestamped with ServerLevel game time.  Server
+     * tickCount restarts from zero after every boot, so it must never be compared directly with a
+     * persisted-world tick value when deciding whether a 20-tick checkpoint is due.
+     */
+    static long checkpointClock(long worldGameTime, long serverTick) {
+        return worldGameTime >= 0L ? worldGameTime : Math.max(0L, serverTick);
     }
 
     public synchronized int activeSessions() { return sessions.size(); }

@@ -23,7 +23,9 @@ public final class OmniToolsPlaceholderResolver {
             "online_today_minutes", "online_today_hms", "title_id", "title", "title_plain",
             "title_effects_enabled", "title_remaining_days", "title_remaining_hours", "title_remaining_hms",
             "title_is_temporary", "title_is_equipped", "achievements_unlocked", "achievements_claimed",
-            "achievements_total", "skill_engine", "skill_power_level"));
+            "achievements_total", "skill_engine", "skill_power_level", "divination_rank", "divination_theme",
+            "divination_remaining_hms", "divination_relief_progress", "divination_relief_goal",
+            "divination_resolved", "divination_bonus_percent"));
         for (String skill : CANONICAL_SKILLS) {
             ids.add("skill_level_" + skill);
             ids.add("skill_xp_" + skill);
@@ -65,6 +67,9 @@ public final class OmniToolsPlaceholderResolver {
             case "achievements_unlocked", "achievements_claimed", "achievements_total" -> achievementValue(player, id);
             case "skill_engine" -> skillEngineValue(player);
             case "skill_power_level" -> skillPowerValue(player);
+            case "divination_rank", "divination_theme", "divination_remaining_hms",
+                    "divination_relief_progress", "divination_relief_goal", "divination_resolved",
+                    "divination_bonus_percent" -> divinationValue(player, id);
             default -> fallback(id);
         };
     }
@@ -170,6 +175,30 @@ public final class OmniToolsPlaceholderResolver {
                 : Math.max(0L, entitlement.remainingActiveTicks() / 20L);
     }
 
+    private static Component divinationValue(ServerPlayer player, String id) {
+        if (!ModMindEntry.isModuleEnabled(ModuleId.DIVINATION)) return fallback(id);
+        var reading = ModMindEntry.divinationService().current(player);
+        if (reading == null) return switch (id) {
+            case "divination_remaining_hms" -> value("00:00:00");
+            case "divination_resolved" -> value("false");
+            default -> value("0");
+        };
+        java.time.ZoneId zone = ModMindEntry.configuredZone(player.level().getServer());
+        long remaining = java.time.Duration.between(java.time.Instant.now(),
+                java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant()).getSeconds();
+        return switch (id) {
+            case "divination_rank" -> value(reading.rank().serializedName());
+            case "divination_theme" -> value(reading.theme().serializedName());
+            case "divination_remaining_hms" -> value(formatHms(Math.max(0L, remaining)));
+            case "divination_relief_progress" -> value(Integer.toString(reading.reliefProgress()));
+            case "divination_relief_goal" -> value(Integer.toString(reading.reliefGoal()));
+            case "divination_resolved" -> value(Boolean.toString(reading.resolved()));
+            case "divination_bonus_percent" -> value(Long.toString(Math.round(
+                    reading.activeBonus(ModMindEntry.divinationService().config().settings().omenBuffCap()) * 100.0D)));
+            default -> fallback(id);
+        };
+    }
+
     private static Component achievementValue(ServerPlayer player, String id) {
         if (!ModMindEntry.isModuleEnabled(ModuleId.ACHIEVEMENTS)) {
             return fallback(id);
@@ -185,9 +214,11 @@ public final class OmniToolsPlaceholderResolver {
 
     private static Component fallback(String id) {
         return switch (id) {
-            case "checkin_today", "title_effects_enabled", "title_is_temporary", "title_is_equipped" ->
+            case "checkin_today", "title_effects_enabled", "title_is_temporary", "title_is_equipped",
+                    "divination_resolved" ->
                     value("false");
-            case "title_id", "title", "title_plain", "online_today_hms", "title_remaining_hms" ->
+            case "title_id", "title", "title_plain", "online_today_hms", "title_remaining_hms",
+                    "divination_remaining_hms" ->
                     value(id.endsWith("hms") ? "00:00:00" : "");
             default -> value("0");
         };

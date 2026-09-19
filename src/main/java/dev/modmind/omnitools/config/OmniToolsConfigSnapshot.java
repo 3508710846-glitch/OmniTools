@@ -14,6 +14,7 @@ import dev.modmind.omnitools.cdk.CdkConfig;
 import dev.modmind.omnitools.leaderboard.LeaderboardConfig;
 import dev.modmind.omnitools.packages.PackageConfig;
 import dev.modmind.omnitools.skills.SkillTreeConfig;
+import dev.modmind.omnitools.divination.DivinationConfig;
 
 import java.time.ZoneId;
 import java.util.EnumMap;
@@ -30,6 +31,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                     LeaderboardConfig leaderboards,
                                     PackageConfig packages,
                                     SkillTreeConfig skills,
+                                    DivinationConfig divination,
                                     CommandPermissionConfig commandPermissions,
                                     Map<ModuleId, ModuleStatus> statuses, long revision,
                                     CommonConfig common) implements ConfigSnapshot {
@@ -41,7 +43,20 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    SkillTreeConfig skills, CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, packages, skills, commandPermissions, statuses, revision,
+                commandMenus, sidebar, leaderboards, packages, skills, DivinationConfig.empty(), commandPermissions, statuses, revision,
+                CommonConfig.empty());
+    }
+
+    public OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardConfig rewards,
+                                   OnlineRewardConfig onlineRewards, ShopConfig shop, TitleConfig titles,
+                                   TitleEffectConfig titleEffects, CloudStorageConfig cloudStorage,
+                                   AchievementConfig achievements, CdkConfig cdk, CommandMenuConfig commandMenus,
+                                   SidebarConfig sidebar, LeaderboardConfig leaderboards, PackageConfig packages,
+                                   SkillTreeConfig skills, DivinationConfig divination,
+                                   CommandPermissionConfig commandPermissions,
+                                   Map<ModuleId, ModuleStatus> statuses, long revision) {
+        this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
+                commandMenus, sidebar, leaderboards, packages, skills, divination, commandPermissions, statuses, revision,
                 CommonConfig.empty());
     }
 
@@ -53,7 +68,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, packages, SkillTreeConfig.empty(), commandPermissions, statuses, revision, CommonConfig.empty());
+                commandMenus, sidebar, leaderboards, packages, SkillTreeConfig.empty(), DivinationConfig.empty(), commandPermissions, statuses, revision, CommonConfig.empty());
     }
 
     /** Compatibility constructor retained for integrations compiled against the leaderboard-only snapshot. */
@@ -65,7 +80,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
                                    CommandPermissionConfig commandPermissions,
                                    Map<ModuleId, ModuleStatus> statuses, long revision) {
         this(root, rewards, onlineRewards, shop, titles, titleEffects, cloudStorage, achievements, cdk,
-                commandMenus, sidebar, leaderboards, PackageConfig.empty(), SkillTreeConfig.empty(), commandPermissions, statuses, revision,
+                commandMenus, sidebar, leaderboards, PackageConfig.empty(), SkillTreeConfig.empty(), DivinationConfig.empty(), commandPermissions, statuses, revision,
                 CommonConfig.empty());
     }
 
@@ -84,6 +99,7 @@ public record OmniToolsConfigSnapshot(OmniToolsRootConfig root, CheckinRewardCon
         leaderboards = leaderboards == null ? LeaderboardConfig.empty() : leaderboards;
         packages = packages == null ? PackageConfig.empty() : packages;
         skills = skills == null ? SkillTreeConfig.empty() : skills;
+        divination = divination == null ? DivinationConfig.empty() : divination;
         common = common == null ? CommonConfig.empty() : common;
     }
 

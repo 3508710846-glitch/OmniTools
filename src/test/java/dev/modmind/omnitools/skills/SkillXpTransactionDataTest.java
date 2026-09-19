@@ -132,6 +132,22 @@ class SkillXpTransactionDataTest {
                 progress(2, 2L, 50L), 102L).isPresent());
     }
 
+    @Test
+    void malformedTransactionEvidenceIsPreservedAcrossTheNextSave() {
+        CompoundTag root = new CompoundTag();
+        CompoundTag entries = new CompoundTag();
+        CompoundTag broken = new CompoundTag();
+        broken.putString("player", "not-a-uuid");
+        broken.putString("operation", "block:broken");
+        entries.put("not-a-transaction-id", broken);
+        root.put("entries", entries);
+
+        SkillXpTransactionData restored = SkillXpTransactionData.fromTag(root);
+
+        assertEquals(broken, SkillXpTransactionData.toTag(restored).getCompoundOrEmpty("entries")
+                .getCompoundOrEmpty("not-a-transaction-id"));
+    }
+
     private static SkillTreeData.Progress progress(int level, long currentXp, long totalXp) {
         return new SkillTreeData.Progress(level, currentXp, totalXp, 1, 0, 0, 0, 0,
                 Set.of("active"), 0L, 10L, 1L, 0L, Map.of("active", 1), 0L, 0L);

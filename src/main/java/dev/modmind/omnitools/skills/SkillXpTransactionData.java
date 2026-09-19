@@ -38,6 +38,8 @@ public final class SkillXpTransactionData extends SavedData {
             DataFixTypes.SAVED_DATA_COMMAND_STORAGE);
 
     private final Map<String, Entry> entries = new LinkedHashMap<>();
+    /** Broken historical evidence must survive the next save for offline diagnosis/recovery. */
+    private final Map<String, CompoundTag> malformedEntries = new LinkedHashMap<>();
     private final Map<OperationKey, String> blockingTransactions = new LinkedHashMap<>();
     private long nextSequence = 1L;
 
@@ -333,7 +335,7 @@ public final class SkillXpTransactionData extends SavedData {
         SkillXpTransactionData data = new SkillXpTransactionData();
         CompoundTag tags = root.getCompoundOrEmpty(ENTRIES_KEY);
         for (String key : tags.keySet()) {
-            CompoundTag tag = tags.getCompoundOrEmpty(key);
+            CompoundTag tag = tags.getCompoundOrEmpty(key).copy();
             try {
                 Entry entry = new Entry(key, Math.max(1L, tag.getLongOr("sequence", tag.getLongOr("created_at", 1L))),
                         UUID.fromString(tag.getStringOr("player", "")),
@@ -345,9 +347,13 @@ public final class SkillXpTransactionData extends SavedData {
                         tag.getStringOr("reason", ""));
                 data.entries.put(key, entry);
                 data.nextSequence = Math.max(data.nextSequence, entry.sequence() + 1L);
-            } catch (RuntimeException ignored) {
-                // Keep malformed data out of the active map; the main cloud journal follows the
-                // same fail-safe policy and reports the problem through the regular loader.
+            } catch (RuntimeException exception) {
+                // Do not turn a malformed transaction into a silent loss of recovery evidence.
+                // It stays byte-for-byte in the SavedData map and is excluded only from automatic
+                // reconciliation because its owner/snapshots cannot be trusted.
+                System.err.println("[omnitools] Retaining malformed skill XP transaction " + key + ": "
+                        + describe(exception));
+                data.malformedEntries.put(key, tag);
             }
         }
         data.trim();
@@ -373,8 +379,18 @@ public final class SkillXpTransactionData extends SavedData {
             tag.put("after", SkillTreeData.encodeProgress(entry.after()));
             tags.put(entry.transactionId(), tag);
         }
+        for (Map.Entry<String, CompoundTag> entry : data.malformedEntries.entrySet()) {
+            if (!tags.contains(entry.getKey())) {
+                tags.put(entry.getKey(), entry.getValue().copy());
+            }
+        }
         root.put(ENTRIES_KEY, tags);
         return root;
+    }
+
+    private static String describe(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
     }
 
     public enum Status {

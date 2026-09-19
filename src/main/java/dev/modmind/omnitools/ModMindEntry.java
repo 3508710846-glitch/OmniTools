@@ -72,6 +72,9 @@ import dev.modmind.omnitools.skills.SkillXpEvent;
 import dev.modmind.omnitools.skills.SkillEventRouter;
 import dev.modmind.omnitools.skills.McmmoSkillModule;
 import dev.modmind.omnitools.skills.SkillHudService;
+import dev.modmind.omnitools.divination.DivinationConfig;
+import dev.modmind.omnitools.divination.DivinationData;
+import dev.modmind.omnitools.divination.DivinationService;
 import dev.modmind.omnitools.diagnostics.AsyncAuditLogWriter;
 import dev.modmind.omnitools.diagnostics.ModuleFaultBoundary;
 import dev.modmind.omnitools.diagnostics.ModuleHealthRegistry;
@@ -96,6 +99,7 @@ public final class ModMindEntry implements ModInitializer {
     private static final PackageService PACKAGE_SERVICE = new PackageService(ModMindEntry::rewardGrantService);
     private static final RewardGrantService REWARD_GRANT_SERVICE = new RewardGrantService(PACKAGE_SERVICE);
     private static final SkillHudService SKILL_HUD_SERVICE = new SkillHudService();
+    private static final DivinationService DIVINATION_SERVICE = new DivinationService();
     private static final SkillTreeService SKILL_TREE_SERVICE = createSkillTreeService();
     private static final ShopPurchaseService SHOP_PURCHASE_SERVICE = new ShopPurchaseService();
     private static final OmniToolsConfigManager CONFIG_MANAGER = new OmniToolsConfigManager();
@@ -161,7 +165,8 @@ public final class ModMindEntry implements ModInitializer {
             }
         });
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
-            if (player instanceof ServerPlayer serverPlayer && isModuleEnabled(ModuleId.SKILLS)) {
+            if (player instanceof ServerPlayer serverPlayer && !serverPlayer.getAbilities().instabuild
+                    && !serverPlayer.isSpectator() && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "block_break_xp", serverPlayer,
                         "skip_current_xp_event", () -> {
                             SkillEventRouter.blockBreak(state).ifPresent(route -> {
@@ -178,7 +183,12 @@ public final class ModMindEntry implements ModInitializer {
             }
         });
         ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((world, entity, killedEntity, damageSource) -> {
-            if (entity instanceof ServerPlayer player && isModuleEnabled(ModuleId.SKILLS)) {
+            // Player kills and non-hostile entities do not generate combat XP.  This keeps PvP,
+            // passive-animal farms and accidental low-value kills outside the progression loop;
+            // supported hostile mod mobs normally inherit Monster as well.
+            if (entity instanceof ServerPlayer player && !player.getAbilities().instabuild && !player.isSpectator()
+                    && killedEntity instanceof net.minecraft.world.entity.monster.Monster
+                    && isModuleEnabled(ModuleId.SKILLS)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.SKILLS, "entity_kill_xp", player,
                         "skip_current_xp_event", () -> {
                             String heldItem = BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath();
@@ -253,7 +263,10 @@ public final class ModMindEntry implements ModInitializer {
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             ServerPlayer player = handler.getPlayer();
-            if (isModuleEnabled(ModuleId.CLOUD_STORAGE)) {
+            // A circuit breaker blocks new cloud-storage interaction, not the authoritative
+            // close of a mirror that was already opened.  Skipping this path after a runtime
+            // fault would leave the last in-memory page without a final journaled commit.
+            if (CloudStorageSessionManager.global().hasActiveSession(player)) {
                 ModuleFaultBoundary.runPlayerEvent(ModuleId.CLOUD_STORAGE, "cloud_storage_disconnect_commit", player,
                         "session_journal_retained_for_recovery", () -> CloudStorageSessionManager.global().closeFor(
                                 player, CloudStorageCommitService.Reason.DISCONNECT));
@@ -334,7 +347,8 @@ public final class ModMindEntry implements ModInitializer {
                             CommandAction.LEADERBOARDS_OPEN, CommandAction.LEADERBOARDS_CHAT,
                             CommandAction.PACKAGE_OPEN, CommandAction.PACKAGE_GIVE, CommandAction.PACKAGE_INSPECT,
                             CommandAction.PACKAGE_REMOVE, CommandAction.PACKAGE_RESOLVE, CommandAction.PACKAGE_CANCEL,
-                            CommandAction.SKILLS_OPEN, CommandAction.SKILLS_ADMIN))
+                            CommandAction.SKILLS_OPEN, CommandAction.SKILLS_ADMIN,
+                            CommandAction.DIVINATION_OPEN, CommandAction.DIVINATION_ADMIN))
                     .executes(context -> openCheckinMenu(context.getSource().getPlayerOrException()))
                     .then(Commands.literal("open")
                             .requires(COMMAND_PERMISSIONS.requirement(CommandAction.CHECKIN_OPEN))
@@ -348,6 +362,7 @@ public final class ModMindEntry implements ModInitializer {
                     .then(leaderboardCommand("leaderboard"))
                     .then(packageCommand())
                     .then(skillTreeCommand())
+                    .then(divinationCommand("divination"))
                     .then(checkinCardsAndMakeupCommand())
                     .then(cdkCommand())
                     .then(sidebarCommand())
@@ -429,6 +444,10 @@ public final class ModMindEntry implements ModInitializer {
             target.register(packageCommand("packages"));
         });
         commands.register(ModuleId.SKILLS, target -> target.register(skillTreeCommand()));
+        commands.register(ModuleId.DIVINATION, target -> {
+            target.register(divinationCommand("divination"));
+            target.register(divinationCommand("fortune"));
+        });
         commands.register(ModuleId.DAILY_CHECKIN, target -> target.register(Commands.literal("balance")
                 .requires(COMMAND_PERMISSIONS.requirementAny(CommandAction.CURRENCY_BALANCE_SELF,
                         CommandAction.CURRENCY_BALANCE_OTHER))
@@ -518,6 +537,7 @@ public final class ModMindEntry implements ModInitializer {
         achievementService = AchievementService.empty();
         SKILL_TREE_SERVICE.replace(SkillTreeConfig.empty());
         SKILL_HUD_SERVICE.replaceSettings(SkillTreeConfig.empty().settings().hud());
+        DIVINATION_SERVICE.replace(DivinationConfig.empty());
         CDK_SERVICE.replace(CdkConfig.empty());
         LEADERBOARD_SERVICE.replace(LeaderboardConfig.empty());
         OperationalErrorReporter.global().info(OperationalErrorReporter.Context.forFeature("server_starting")
@@ -609,6 +629,7 @@ public final class ModMindEntry implements ModInitializer {
         LEADERBOARD_SERVICE.replace(snapshot.leaderboards());
         SKILL_TREE_SERVICE.replace(snapshot.skills());
         SKILL_HUD_SERVICE.replaceSettings(snapshot.skills().settings().hud());
+        DIVINATION_SERVICE.replace(snapshot.divination());
         // Keep existing achievement menus bound to the live service. Its revision
         // invalidates their cached progress on the next menu refresh after reload.
         achievementService.replace(snapshot.achievements());
@@ -619,6 +640,8 @@ public final class ModMindEntry implements ModInitializer {
     public static SkillTreeService skillTreeService() { return SKILL_TREE_SERVICE; }
 
     public static SkillHudService skillHudService() { return SKILL_HUD_SERVICE; }
+
+    public static DivinationService divinationService() { return DIVINATION_SERVICE; }
 
     public static ShopPurchaseService shopPurchaseService() { return SHOP_PURCHASE_SERVICE; }
 
@@ -822,9 +845,11 @@ public final class ModMindEntry implements ModInitializer {
                 + " createdAt=" + entry.createdAt() + " updatedAt=" + entry.updatedAt() + " beforeItems="
                 + cloudStorageItemCount(entry.before()) + " afterItems=" + cloudStorageItemCount(entry.after())
                 + " session=" + entry.sessionMetadata().sessionId() + " openedHash="
-                + entry.sessionMetadata().openedPageHash() + " targetHash="
+                + entry.sessionMetadata().openedPageHash() + " beforeHash="
+                + entry.sessionMetadata().beforePageHash() + " targetHash="
                 + entry.sessionMetadata().targetPageHash() + " changedSlots="
-                + entry.sessionMetadata().changedSlots() + " checkpoint="
+                + entry.sessionMetadata().changedSlots() + " sessionChangedSlots="
+                + entry.sessionMetadata().sessionChangedSlots() + " checkpoint="
                 + entry.sessionMetadata().checkpointAt() + "/" + entry.sessionMetadata().checkpointReason()
                 + " reason=" + entry.reason()), false);
         return 1;
@@ -854,6 +879,27 @@ public final class ModMindEntry implements ModInitializer {
     private static long cloudStorageItemCount(List<net.minecraft.world.item.ItemStack> items) {
         return items.stream().filter(stack -> !stack.isEmpty()).mapToLong(net.minecraft.world.item.ItemStack::getCount)
                 .sum();
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> divinationCommand(String literal) {
+        return Commands.literal(literal)
+                .requires(COMMAND_PERMISSIONS.requirement(CommandAction.DIVINATION_OPEN)
+                        .and(source -> isModuleEnabled(ModuleId.DIVINATION)))
+                .executes(context -> openDivinationMenu(context.getSource().getPlayerOrException()))
+                .then(Commands.literal("open").requires(COMMAND_PERMISSIONS.requirement(CommandAction.DIVINATION_OPEN))
+                        .executes(context -> openDivinationMenu(context.getSource().getPlayerOrException())));
+    }
+
+    private static int openDivinationMenu(ServerPlayer player) {
+        if (!isModuleEnabled(ModuleId.DIVINATION)
+                || !COMMAND_PERMISSIONS.canUse(player, CommandAction.DIVINATION_OPEN)) {
+            player.displayClientMessage(ServerText.translatable("message.omnitools.module_disabled"), true);
+            return 0;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (syncId, inventory, ignored) -> DivinationScreenHandler.createServer(syncId, inventory, player),
+                ServerText.translatable("gui.omnitools.divination.title")));
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> skillTreeCommand() {
@@ -2362,6 +2408,10 @@ public final class ModMindEntry implements ModInitializer {
                     && player.containerMenu instanceof SkillTreeScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.SKILLS_OPEN)
                     && player.containerMenu instanceof SkillTreeScreenHandler)
+                    || (!snapshot.enabled(ModuleId.DIVINATION)
+                    && player.containerMenu instanceof DivinationScreenHandler)
+                    || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.DIVINATION_OPEN)
+                    && player.containerMenu instanceof DivinationScreenHandler)
                     || (!snapshot.enabled(ModuleId.CLOUD_STORAGE)
                     && player.containerMenu instanceof CloudStorageScreenHandler)
                     || (!COMMAND_PERMISSIONS.canUse(player, CommandAction.STORAGE_OPEN)
