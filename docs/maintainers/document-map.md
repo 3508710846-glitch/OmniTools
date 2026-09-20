@@ -1,5 +1,7 @@
 # 文档地图
 
+管理员跨模块命令、权限动作与恢复顺序统一维护在 `docs/guides/commands-and-permissions.md`；该页只索引真实已注册命令，模块参数仍由各模块页面维护。
+
 本页定义文档的真源和维护边界。`canonical` 页面可维护事实；`redirect` 仅保留旧链接；`archive` 是历史记录；`internal` 不面向用户；`example` 与 `schema` 是可复制数据或编辑器约束，不取代说明页面。
 
 | 路径 | 标记 | 负责人 | 唯一职责 / 真源关系 |

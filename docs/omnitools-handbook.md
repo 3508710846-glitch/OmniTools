@@ -413,7 +413,7 @@ config/omnitools/
 }
 ```
 
-**字段重点**：定义 ID、`display`、`description`、`icon`、`mode`（`all`/`random_one`）、`version`、条目 `item`/`nbt`、`quantity` 和可选 `skill_xp`。技能经验支持固定、随机、玩家自选三种模式；随机优先未满级候选树，所有候选树满级时转为精通经验。单条数量、礼包总量、条目数和 SNBT 大小均有限制；礼包禁止嵌套。
+**字段重点**：定义 ID、`display`、`description`、`icon`、`mode`（`all`/`random_one`）、`version`、条目 `item`/`nbt`、`quantity` 和可选 `skill_xp`。技能经验支持固定、随机、玩家自选三种模式；随机优先未满级候选技能。所有候选技能满级时仍会固定选择其中一项，经验写入该技能的溢出经验兼容记录，不再提升等级或能力。单条数量、礼包总量、条目数和 SNBT 大小均有限制；礼包禁止嵌套。
 
 **指令与权限**：玩家使用 `/omnitools packages` 或 `/omnitools package open`（`package.open`，`PLAYER`）；管理员使用 `give`、`list`、`inspect`、`resolve`、`cancel`、`remove`（分别需要对应 `package.*` 的 `ADMIN` 权限）。`resolve` 必须明确指定堆 UUID 和 `delivered|pending confirm`，不存在一键重试；`resolve`、`cancel`、`remove` 会写入 `config/omnitools/package-audit.log`。
 
@@ -425,17 +425,17 @@ config/omnitools/
 
 **高级示例与原始文档**：[packages.jsonc](examples/config-platform/packages.jsonc)、[packages.schema.json](schemas/packages.schema.json)、[礼包原文](modules/packages.md)。
 
-## 14. 技能树
+## 14. 技能模块
 
-**用途与场景**：独立记录每棵树的经验、等级、技能点、属性投资、技能解锁和精通经验。玩家通过 `/skills` 查看六棵默认技能树：采集、战斗、防御、狩猎、制造和生存。
+**用途与场景**：当前实现是 Fabric 服务端内置的 mcMMO 风格行为兼容层，不依赖 Bukkit/Spigot 版 mcMMO。玩家通过 `/skills` 查看 Mining、Woodcutting、Herbalism、Excavation、Swords、Axes、Archery、Acrobatics、Repair 和 Alchemy 十项技能。
 
-**固定规则**：单树最高 `2000` 级，每棵固定四个技能，等级 `1/250/750/1500` 分别解锁；每 `500` 级获得一点技能点。自动属性最高 `30%`，四点属性强化最多额外 `20%`，单树最终属性严格封顶 `50%`。满级后新增经验转为精通经验，不再增加战力。
+**固定规则**：每项技能等级范围为 `0–1000`。等级 `100` 解锁主动和被动能力，能力在 `100 / 250 / 500 / 750 / 1000` 阶段成长。当前引擎不消费旧专业树技能点，也不应用旧专业树的常驻属性加成；满级后经验只进入溢出经验兼容记录，不再提高等级或能力。
 
-**经验与公告**：方块、击杀、制作和有效移动会结算对应树经验，并受来源白名单、间隔、每日上限及异常行为限制。玩家每次升级会收到聊天提示；单树或总等级首次跨过百级时可发送限频全服公告。
+**经验与反馈**：方块、击杀、制作等有效服务端行为会结算对应技能经验，并受来源白名单、间隔、每日上限和幂等账本约束。经验通过个人 BossBar 合并显示，升级时提供标题、音效和 ActionBar；主动能力的持续时间通过 ActionBar 显示。
 
-**称号、奖励与礼包**：称号 `SKILL_XP` 效果只提高技能经验。统一奖励 `skill_xp` 只能投放固定树，默认应用称号加成；礼包 `skill_xp` 支持固定、随机和玩家自选。随机或选择结果会先持久化，重试不会换树或重复发放；所有候选树满级时经验转为精通经验。
+**称号、奖励与礼包**：称号 `SKILL_XP` 效果只提高技能经验，不提高能力上限。统一奖励 `skill_xp` 投放固定技能；礼包 `skill_xp` 支持固定、随机和玩家自选。随机或选择结果会先持久化，重试不会换技能或重复发放。新配置必须使用 `mining`、`swords`、`repair` 等 canonical ID；旧 ID 只用于兼容读取。
 
-**开关、数据与原始文档**：`modules.skills.enabled` 默认开启，配置位于 `skills/config.json`，修改后使用 `/omnitools reload skills`。关闭模块会移除当前技能属性但保留 SavedData 进度。完整配置、技能说明、命令与验收步骤见[技能树原文](modules/skills.md)。
+**开关、数据与原始文档**：`modules.skills.enabled` 默认开启，配置位于 `config/omnitools/skills/config.json`，修改后使用 `/omnitools reload skills`。关闭模块不会删除 SavedData 进度。当前尚未实现 Fishing、Taming、Salvage、Smelting、Party 经验共享、`/skills top` 或真正 mcMMO 的双向数据导入；完整配置、技能说明、命令与验收步骤见[技能模块原文](modules/skills.md)。
 
 ## 15. 排行榜模块
 

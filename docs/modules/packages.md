@@ -121,14 +121,16 @@ config/omnitools/packages/config.json
 ```json
 {
   "skill_xp": [
-    { "id": "combat_fixed", "mode": "fixed", "tree": "combat", "amount": 1000 },
-    { "id": "random_training", "mode": "random", "trees": ["gathering", "combat", "crafting"], "amount": 1000 },
-    { "id": "chosen_training", "mode": "player_choice", "trees": ["combat", "defense"], "amount": 2000 }
+    { "id": "mining_fixed", "mode": "fixed", "tree": "mining", "amount": 1000 },
+    { "id": "random_training", "mode": "random", "trees": ["mining", "swords", "repair"], "amount": 1000 },
+    { "id": "chosen_training", "mode": "player_choice", "trees": ["swords", "archery"], "amount": 2000 }
   ]
 }
 ```
 
-`fixed` 直接锁定配置树；`random` 会在玩家确认打开时，优先从未满级的候选树中等概率选择一个，先将结果写入礼包实例并落盘，再发放经验；`player_choice` 会打开技能树选择界面，玩家只能选择该实例快照中的候选树。选择结果同样先持久化。若所有候选树均已满级，经验会转入对应技能树的精通经验。`title_bonus` 缺省为 `false`；设为 `true` 时，该条经验会应用当前佩戴称号的技能经验加成，并继续受技能树总加成上限约束。经验发放使用稳定的礼包实例 ID 作为奖励账本事件键，已成功发放的条目重试时不会重复增加经验；中断在经验写入边界的条目会保守阻塞，等待管理员处理。
+`fixed` 直接锁定配置技能；`random` 会在玩家确认打开时，优先从未满级的候选技能中等概率选择一个，先将结果写入礼包实例并落盘，再发放经验；`player_choice` 会打开技能选择界面，玩家只能选择该实例快照中的候选技能。选择结果同样先持久化。若所有候选技能均已满级，系统仍会从候选项中选择一项，经验写入该技能的溢出经验兼容记录，不再提升等级或能力。`title_bonus` 缺省为 `false`；设为 `true` 时，该条经验会应用当前佩戴称号的技能经验加成，并继续受技能经验总加成上限约束。经验发放使用稳定的礼包实例 ID 作为奖励账本事件键，已成功发放的条目重试时不会重复增加经验；中断在经验写入边界的条目会保守阻塞，等待管理员处理。
+
+新配置应使用当前技能模块的 canonical ID：`mining`、`woodcutting`、`herbalism`、`excavation`、`swords`、`axes`、`archery`、`acrobatics`、`repair`、`alchemy`。`gathering`、`combat`、`defense`、`crafting` 等旧专业树 ID 仅用于兼容历史数据，不应继续写入新礼包。
 
 实例会保存实例 UUID、所有者 UUID、礼包 ID 和版本、名称、描述、图标、模式、物品原型、数量、技能经验候选项及解析结果、来源事件、`grantKey`、状态、授予时间和随机选择索引。配置修改不会改变既有快照。
 

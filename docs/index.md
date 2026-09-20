@@ -1,5 +1,7 @@
 # OmniTools 文档
 
+> [新手管理员快速手册](guides/admin-quickstart.md)：从安装、配置到备份、恢复和上线验收。
+
 这是唯一的文档导航入口。所有可复制的 `json` 代码块都符合严格 JSON；带注释的 `jsonc` 仅用于教学，不能直接放进 `config/`。旧根目录页面仅保留外部链接兼容，当前规则以本页链接的主说明为准。
 
 ## 新手开始
@@ -38,6 +40,7 @@
 ## 运维与升级
 
 - [模块管理与热重载](guides/module-management.md)
+- [命令与权限操作手册](guides/commands-and-permissions.md)
 - [配置升级](guides/upgrade-guide.md)
 - [备份与恢复](guides/backup-and-recovery.md)
 - [奖励一致性与奖励箱](guides/reward-consistency.md)

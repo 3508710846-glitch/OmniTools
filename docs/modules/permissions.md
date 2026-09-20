@@ -73,7 +73,11 @@
     "package.inspect": "ADMIN",
     "package.remove": "ADMIN",
     "package.resolve": "ADMIN",
-    "package.cancel": "ADMIN"
+    "package.cancel": "ADMIN",
+    "skills.open": "PLAYER",
+    "skills.admin": "ADMIN",
+    "divination.open": "PLAYER",
+    "divination.admin": "ADMIN"
   }
 }
 ```

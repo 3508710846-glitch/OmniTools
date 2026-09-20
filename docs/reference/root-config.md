@@ -66,7 +66,8 @@
     "sidebar": { "enabled": true },
     "leaderboards": { "enabled": false },
     "packages": { "enabled": false },
-    "skills": { "enabled": true }
+    "skills": { "enabled": true },
+    "divination": { "enabled": true }
   }
 }
 ```
@@ -82,9 +83,9 @@
 | `cooldown_ticks` | 0--72000 | 10 | 每玩家可配置命令冷却。 |
 | `allow_command_rewards` | 布尔 | `false` | 指令奖励总开关。 |
 | `integrations.placeholder_api.enabled` | 布尔 | `true` | API 未安装时仍可启动。 |
-| `modules.<id>.enabled` | 布尔 | 权限模块为 false，其余 true | 禁用会关闭相关界面并停止模块处理。 |
+| `modules.<id>.enabled` | 布尔 | `permissions`、`leaderboards`、`packages` 为 false，其余 true | 禁用会关闭相关界面并停止模块处理。 |
 
-`modules.packages.enabled` 默认值为 `false`，`modules.skills.enabled` 默认值为 `true`。礼包配置文件可以提前存在，但启用前不会创建或打开礼包实例；礼包奖励引用该模块时必须同时启用。禁用技能树会关闭技能树界面、停止技能经验结算并移除当前技能属性，但不会删除玩家进度；重新启用后会继续使用已保存的数据。
+`modules.packages.enabled` 默认值为 `false`，`modules.skills.enabled` 与 `modules.divination.enabled` 默认值为 `true`。礼包配置文件可以提前存在，但启用前不会创建或打开礼包实例；礼包奖励引用该模块时必须同时启用。禁用技能模块会关闭技能界面并停止技能经验结算，但不会删除玩家进度；重新启用后会继续使用已保存的数据。禁用占卜模块同样不会删除玩家的历史签文。
 
 旧格式兼容：升级器会将旧根配置迁移到 v4 并创建备份。旧服已迁移出的 `allowed_roots: ["*"]` 保留可用性但会记录宽松模式警告；新服不要复制它。v3 及更早配置升级时，新增的 CDK 模块保持关闭，需管理员在 v4 根配置中显式启用。
 

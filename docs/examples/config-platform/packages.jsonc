@@ -37,9 +37,9 @@
       ],
       "skill_xp": [
         {
-          "id": "starter_gathering_xp",
+          "id": "starter_mining_xp",
           "mode": "fixed",
-          "tree": "gathering",
+          "tree": "mining",
           "amount": 1000
         }
       ]
@@ -86,14 +86,14 @@
         {
           "id": "random_training",
           "mode": "random",
-          "trees": ["gathering", "combat", "defense", "hunting", "crafting", "survival"],
+          "trees": ["mining", "woodcutting", "herbalism", "excavation", "swords", "axes", "archery", "acrobatics", "repair", "alchemy"],
           "amount": 1000,
           "title_bonus": false
         },
         {
           "id": "chosen_training",
           "mode": "player_choice",
-          "trees": ["gathering", "combat", "crafting"],
+          "trees": ["mining", "swords", "repair"],
           "amount": 2000,
           "title_bonus": true
         }
