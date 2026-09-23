@@ -556,10 +556,10 @@ config/omnitools/
 **最小配置**：
 
 ```json
-{ "format_version": 1, "expansionCost": 100, "maxPages": 2 }
+{ "format_version": 2, "expansionCost": 100, "priceMultiplier": 1.1, "roundingMode": "CEILING", "maxPages": 20 }
 ```
 
-**字段重点**：`expansionCost` 非负；`maxPages` 只能为 `1` 或 `2`。第一页固定存在，没有 `default_pages` 字段。
+**字段重点**：`expansionCost` 是第 2 页基础价格；第 N 页使用 `基础价格 × priceMultiplier^(N-2)` 重新计算。`maxPages` 可为 `1--20`，且包含固定存在的免费第一页；`roundingMode` 可为 `CEILING`、`FLOOR` 或 `HALF_UP`。配置下调不会删除历史玩家已拥有的页面。
 
 **指令与权限**：`/omnitools storage` 默认 `ADMIN`；权限文件可将 `storage.open` 授予其他角色。
 

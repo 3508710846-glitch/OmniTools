@@ -2,11 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "OmniTools cloud storage configuration",
   "type": "object",
-  "required": ["format_version", "expansionCost", "maxPages"],
+  "required": ["format_version", "expansionCost", "priceMultiplier", "roundingMode", "maxPages"],
   "properties": {
-    "format_version": { "const": 1 },
+    "format_version": { "const": 2 },
     "expansionCost": { "type": "integer", "minimum": 0 },
-    "maxPages": { "type": "integer", "minimum": 1, "maximum": 2 }
+    "priceMultiplier": { "type": "number", "minimum": 1, "maximum": 10 },
+    "roundingMode": { "enum": ["CEILING", "FLOOR", "HALF_UP"] },
+    "maxPages": { "type": "integer", "minimum": 1, "maximum": 20 }
   },
   "additionalProperties": false
 }

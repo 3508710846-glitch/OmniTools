@@ -126,6 +126,39 @@ class CloudStorageDataTest {
         assertTrue(restored.commitPreparedPageUnlock(OWNER, prepared.operation().operationId()).unlocked());
     }
 
+    @Test
+    void expandsFromTheFreeFirstPageThroughTheConfiguredTwentiethPage() {
+        CloudStorageData data = new CloudStorageData();
+
+        for (int targetPage = 2; targetPage <= CloudStorageConfig.MAX_PAGES; targetPage++) {
+            CloudStorageData.ExpansionPreparation prepared = data.prepareNextPageUnlock(OWNER,
+                    CloudStorageConfig.MAX_PAGES);
+            assertTrue(prepared.prepared());
+            assertEquals(targetPage, prepared.operation().targetUnlockedPages());
+            assertTrue(data.commitPreparedPageUnlock(OWNER, prepared.operation().operationId()).unlocked());
+        }
+
+        assertEquals(CloudStorageConfig.MAX_PAGES, data.unlockedPages(OWNER));
+        assertTrue(!data.prepareNextPageUnlock(OWNER, CloudStorageConfig.MAX_PAGES).prepared());
+    }
+
+    @Test
+    void retainsHistoricalPageCountsAboveTheConfiguredPurchasableLimit() {
+        CompoundTag root = new CompoundTag();
+        CompoundTag players = new CompoundTag();
+        CompoundTag record = new CompoundTag();
+        record.putInt("unlocked_pages", 24);
+        record.put("pages", new CompoundTag());
+        players.put(OWNER.toString(), record);
+        root.put("players", players);
+
+        CloudStorageData restored = CloudStorageData.fromTag(root);
+
+        assertEquals(24, restored.unlockedPages(OWNER));
+        assertEquals(24, CloudStorageData.toTag(restored).getCompoundOrEmpty("players")
+                .getCompoundOrEmpty(OWNER.toString()).getIntOr("unlocked_pages", 0));
+    }
+
     private static List<ItemStack> pageWith(ItemStack first) {
         List<ItemStack> page = emptyPage();
         page.set(0, first);

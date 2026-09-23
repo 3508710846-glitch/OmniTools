@@ -73,7 +73,7 @@ public final class CloudStorageJournalData extends SavedData {
     public synchronized Entry prepare(UUID ownerId, int page, Operation operation, List<ItemStack> before,
                                       List<ItemStack> after, long now, UUID sessionId, String checkpointReason,
                                       List<ItemStack> openedPageSnapshot) {
-        if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES || operation == null || now <= 0L) {
+        if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_STORED_PAGES || operation == null || now <= 0L) {
             throw new IllegalArgumentException("Cloud storage journal entry is invalid");
         }
         List<ItemStack> oldPage = CloudStorageData.validatePage(before, registries);
@@ -109,7 +109,7 @@ public final class CloudStorageJournalData extends SavedData {
      * before/after snapshots impossible to audit.
      */
     public synchronized boolean hasUnresolvedOperation(UUID ownerId, int page) {
-        if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES) {
+        if (ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_STORED_PAGES) {
             return false;
         }
         return entries.values().stream().anyMatch(entry -> entry.ownerId().equals(ownerId)
@@ -445,7 +445,7 @@ public final class CloudStorageJournalData extends SavedData {
                         Resolution resolution, String resolutionOperator, boolean resolutionApplied,
                         SessionMetadata sessionMetadata) {
         public Entry {
-            if (operationId == null || ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_PAGES
+            if (operationId == null || ownerId == null || page < 0 || page >= CloudStorageConfig.MAX_STORED_PAGES
                     || operation == null || status == null || resolution == null || sessionMetadata == null
                     || createdAt <= 0L || updatedAt <= 0L) {
                 throw new IllegalArgumentException("Cloud storage journal entry is invalid");

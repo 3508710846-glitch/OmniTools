@@ -43,6 +43,7 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
     private final CloudStorageSessionInventory sessionInventory;
     private final SimpleContainer controls = new SimpleContainer(9);
     private boolean closeHandled;
+    private boolean upgradeInProgress;
 
     public CloudStorageScreenHandler(int syncId, Inventory inventory) {
         this(syncId, inventory, null, CloudStorageConfig.defaultConfig(), null, null);
@@ -209,71 +210,85 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
     }
 
     private void unlockNextPage(ServerPlayer player) {
-        CloudStorageCommitService.Result committed = checkpoint(CloudStorageCommitService.Reason.PAGE_SWITCH);
-        if (!committed.committed()) {
-            abortFailedSession(committed.reason());
-            return;
-        }
-        int unlockedPages = availablePages();
-        if (unlockedPages >= config.maxPages()) {
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        CheckinData currency = CheckinData.get(player);
-        long cost = config.expansionCost();
-        if (currency.getBalance(owner.getUUID()) < cost) {
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        CloudStorageData storage = CloudStorageData.get(player);
-        CloudStorageData.ExpansionPreparation prepared = storage.prepareNextPageUnlock(owner.getUUID(), config.maxPages());
-        if (!prepared.prepared()) {
-            GuiFeedbackService.failure(player);
-            return;
-        }
+        if (upgradeInProgress) return;
+        upgradeInProgress = true;
         try {
-            // Persist the exact page-access target before debiting wallet data. Startup can then
-            // prove whether a prepared expansion must be committed or rolled back.
-            storage.flush(player.level().getServer());
-        } catch (RuntimeException exception) {
-            storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "prepare_flush_failed");
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        CheckinData.CloudStorageExpansionChargeResult charge = currency.chargeCloudStorageExpansion(owner.getUUID(),
-                prepared.operation().operationId(), cost, player.getGameProfile().name());
-        if (charge == CheckinData.CloudStorageExpansionChargeResult.INSUFFICIENT_CURRENCY) {
-            storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "insufficient_currency");
+            CloudStorageCommitService.Result committed = checkpoint(CloudStorageCommitService.Reason.PAGE_SWITCH);
+            if (!committed.committed()) {
+                abortFailedSession(committed.reason());
+                return;
+            }
+            int unlockedPages = availablePages();
+            if (unlockedPages >= config.maxPages()) {
+                GuiFeedbackService.failure(player);
+                player.displayClientMessage(ServerText.translatable("message.omnitools.storage.maxed"), true);
+                return;
+            }
+            long cost = config.expansionCostForNextPage(unlockedPages);
+            CheckinData currency = CheckinData.get(player);
+            if (currency.getBalance(owner.getUUID()) < cost) {
+                GuiFeedbackService.failure(player);
+                player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost,
+                        currency.getBalance(owner.getUUID())), true);
+                return;
+            }
+            CloudStorageData storage = CloudStorageData.get(player);
+            CloudStorageData.ExpansionPreparation prepared = storage.prepareNextPageUnlock(owner.getUUID(), config.maxPages());
+            if (!prepared.prepared()) {
+                GuiFeedbackService.failure(player);
+                return;
+            }
+            try {
+                // Persist the exact page-access target before debiting wallet data. Startup can then
+                // prove whether a prepared expansion must be committed or rolled back.
+                storage.flush(player.level().getServer());
+            } catch (RuntimeException exception) {
+                storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "prepare_flush_failed");
+                GuiFeedbackService.failure(player);
+                return;
+            }
+            CheckinData.CloudStorageExpansionChargeResult charge = currency.chargeCloudStorageExpansion(owner.getUUID(),
+                    prepared.operation().operationId(), cost, player.getGameProfile().name());
+            if (charge == CheckinData.CloudStorageExpansionChargeResult.INSUFFICIENT_CURRENCY) {
+                storage.rollbackPreparedPageUnlock(owner.getUUID(), prepared.operation().operationId(), "insufficient_currency");
+                try {
+                    storage.flush(player.level().getServer());
+                } catch (RuntimeException ignored) {
+                    // No debit was accepted; a stale PREPARED record is safely rolled back at startup.
+                }
+                GuiFeedbackService.failure(player);
+                player.displayClientMessage(ServerText.translatable("message.omnitools.storage.insufficient", cost,
+                        currency.getBalance(owner.getUUID())), true);
+                return;
+            }
+            try {
+                // This saves both the debit marker and PREPARED page target before access changes.
+                storage.flush(player.level().getServer());
+            } catch (RuntimeException exception) {
+                GuiFeedbackService.failure(player);
+                return;
+            }
+            CloudStorageData.PageUnlockResult result = storage.commitPreparedPageUnlock(owner.getUUID(),
+                    prepared.operation().operationId());
+            if (!result.unlocked()) {
+                GuiFeedbackService.failure(player);
+                return;
+            }
             try {
                 storage.flush(player.level().getServer());
-            } catch (RuntimeException ignored) {
-                // No debit was accepted; a stale PREPARED record is safely rolled back at startup.
+            } catch (RuntimeException exception) {
+                // The page may already be durable. Keep the committed journal entry rather than
+                // refunding a potentially successful debit and creating a duplicate expansion.
+                GuiFeedbackService.failure(player);
+                return;
             }
-            GuiFeedbackService.failure(player);
-            return;
+            GuiFeedbackService.success(player);
+            player.displayClientMessage(ServerText.translatable("message.omnitools.storage.expanded",
+                    result.unlockedPages(), cost, currency.getBalance(owner.getUUID())), true);
+            switchPage(player, result.unlockedPages() - 1);
+        } finally {
+            upgradeInProgress = false;
         }
-        try {
-            // This saves both the debit marker and PREPARED page target before access changes.
-            storage.flush(player.level().getServer());
-        } catch (RuntimeException exception) {
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        CloudStorageData.PageUnlockResult result = storage.commitPreparedPageUnlock(owner.getUUID(),
-                prepared.operation().operationId());
-        if (!result.unlocked()) {
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        try {
-            storage.flush(player.level().getServer());
-        } catch (RuntimeException exception) {
-            // The page may already be durable. Keep the committed journal entry rather than
-            // refunding a potentially successful debit and creating a duplicate expansion.
-            GuiFeedbackService.failure(player);
-            return;
-        }
-        switchPage(player, result.unlockedPages() - 1);
     }
 
     private void closeSession(ServerPlayer player) {
@@ -304,7 +319,7 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
 
     private int availablePages() {
         return Math.max(CloudStorageConfig.MIN_PAGES,
-                Math.min(config.maxPages(), CloudStorageData.get(owner).unlockedPages(owner.getUUID())));
+                Math.min(CloudStorageConfig.MAX_STORED_PAGES, CloudStorageData.get(owner).unlockedPages(owner.getUUID())));
     }
 
     private void notifyCommitFailure(String reason) {
@@ -339,9 +354,21 @@ public final class CloudStorageScreenHandler extends AbstractContainerMenu {
                 session.page() + 1, unlocked), Component.literal("session=" + session.sessionId()).withStyle(ChatFormatting.DARK_GRAY))));
         controls.setItem(4, status);
         controls.setItem(8, GuiNavigationService.close());
-        if (unlocked < config.maxPages()) controls.setItem(6, namedItem(Items.EMERALD,
-                ServerText.translatable("gui.omnitools.storage.upgrade").withStyle(ChatFormatting.GREEN),
-                List.of(ServerText.translatable("gui.omnitools.storage.upgrade_price", config.expansionCost()))));
+        if (unlocked < config.maxPages()) {
+            long cost = config.expansionCostForNextPage(unlocked);
+            controls.setItem(6, namedItem(Items.EMERALD,
+                    ServerText.translatable("gui.omnitools.storage.upgrade").withStyle(ChatFormatting.GREEN),
+                    List.of(
+                            ServerText.translatable("gui.omnitools.storage.upgrade_current_pages", unlocked, config.maxPages()),
+                            ServerText.translatable("gui.omnitools.storage.upgrade_next_page", unlocked + 1),
+                            ServerText.translatable("gui.omnitools.storage.upgrade_price", cost),
+                            ServerText.translatable("gui.omnitools.storage.upgrade_after_pages", unlocked + 1,
+                                    config.maxPages()))));
+        } else {
+            controls.setItem(6, namedItem(Items.BARRIER,
+                    ServerText.translatable("gui.omnitools.storage.maxed").withStyle(ChatFormatting.RED),
+                    List.of(ServerText.translatable("gui.omnitools.storage.maxed_hint", config.maxPages()))));
+        }
     }
 
     private static ItemStack namedItem(net.minecraft.world.item.Item item, Component name, List<Component> lore) {

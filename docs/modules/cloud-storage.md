@@ -2,7 +2,7 @@
 
 ## 1. 用途与场景
 
-云存储为每位玩家提供原版 6 行箱子。默认可用第一页，玩家可花货币扩容到第二页。
+云存储为每位玩家提供原版 6 行箱子。默认可用第一页，玩家可花货币扩容到最多 20 页。
 
 ## 2. 前置条件、关联模块与开关
 
@@ -18,35 +18,39 @@
 
 ## 5. 注释教学版 `jsonc`
 
-解析器的实际字段只有扩容价格与最大页数；第一页固定存在，不能通过配置改为 0 页或超过 2 页。
+第一页固定存在。第 2 页价格使用基础价格；之后每页按 `expansionCost × priceMultiplier^(目标页-2)` 从基础价格重新计算，不能配置为 0 页或超过 20 页。
 
 教学版，不能直接复制：
 
 ```jsonc
 {
-  "format_version": 1, // 云存储配置格式版本。
-  "expansionCost": 100, // 解锁第二页需要的货币。
-  "maxPages": 2 // 最大总页数；只能为 1 或 2。
+  "format_version": 2, // 云存储配置格式版本。
+  "expansionCost": 100, // 解锁第 2 页的基础价格。
+  "priceMultiplier": 1.1, // 每个后续页面的价格乘数。
+  "roundingMode": "CEILING", // CEILING、FLOOR 或 HALF_UP。
+  "maxPages": 20 // 最大总页数，包含默认免费第一页。
 }
 ```
 
 ## 6. 可直接复制版 `json`
 
 ```json
-{ "format_version": 1, "expansionCost": 100, "maxPages": 2 }
+{ "format_version": 2, "expansionCost": 100, "priceMultiplier": 1.1, "roundingMode": "CEILING", "maxPages": 20 }
 ```
 
 ## 7. 字段表
 
 | 字段 | 类型 | 必填 | 默认/范围 | 常见错误 |
 | --- | --- | --- | --- | --- |
-| `format_version` | 整数 | 否 | 1 | 非整数。 |
+| `format_version` | 整数 | 否 | 2 | 非整数。 |
 | `expansionCost` | 非负整数 | 是 | 默认 100 | 使用负数。 |
-| `maxPages` | 整数 | 是 | 1--2，默认 2 | 写 3 或 0。 |
+| `priceMultiplier` | 小数 | 是 | 1--10，默认 1.1 | 小于 1。 |
+| `roundingMode` | 字符串 | 是 | `CEILING`、`FLOOR`、`HALF_UP` | 其他拼写。 |
+| `maxPages` | 整数 | 是 | 1--20，默认 20 | 写 21 或 0。 |
 
 ## 8. 全部配置场景
 
-`maxPages: 1` 禁止扩容，`maxPages: 2` 开启一页付费扩容。没有名为 `default_pages` 的配置字段；默认页数由实现固定为 1。
+`maxPages: 1` 禁止扩容，`maxPages: 20` 允许购买第 2 至第 20 页。`CEILING` 向上取整、`FLOOR` 向下取整、`HALF_UP` 四舍五入；价格最低为 1。没有名为 `default_pages` 的配置字段；默认页数由实现固定为 1。配置下调后已拥有更多页面的历史玩家保留原容量，但无法继续扩容。
 
 ## 9. 指令、权限与默认角色
 

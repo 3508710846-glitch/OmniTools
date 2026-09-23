@@ -104,7 +104,7 @@ public final class CloudStorageData extends SavedData {
     }
 
     public synchronized void savePage(UUID playerId, int page, List<ItemStack> items) {
-        if (page < 0 || page >= CloudStorageConfig.MAX_PAGES) {
+        if (page < 0 || page >= CloudStorageConfig.MAX_STORED_PAGES) {
             throw new IllegalArgumentException("Cloud storage page is out of range");
         }
         if (items.size() != SLOTS_PER_PAGE) {
@@ -219,7 +219,7 @@ public final class CloudStorageData extends SavedData {
     }
 
     synchronized void replacePage(UUID playerId, int page, List<ItemStack> items) {
-        if (page < 0 || page >= CloudStorageConfig.MAX_PAGES || items == null || items.size() != SLOTS_PER_PAGE) {
+        if (page < 0 || page >= CloudStorageConfig.MAX_STORED_PAGES || items == null || items.size() != SLOTS_PER_PAGE) {
             throw new IllegalArgumentException("Cloud storage page is out of range");
         }
         rejectQuarantinedRecord(playerId);
@@ -499,7 +499,7 @@ public final class CloudStorageData extends SavedData {
     }
 
     private static int clampPageCount(int value) {
-        return Math.max(CloudStorageConfig.MIN_PAGES, Math.min(CloudStorageConfig.MAX_PAGES, value));
+        return Math.max(CloudStorageConfig.MIN_PAGES, Math.min(CloudStorageConfig.MAX_STORED_PAGES, value));
     }
 
     private static List<ItemStack> emptyPage() {

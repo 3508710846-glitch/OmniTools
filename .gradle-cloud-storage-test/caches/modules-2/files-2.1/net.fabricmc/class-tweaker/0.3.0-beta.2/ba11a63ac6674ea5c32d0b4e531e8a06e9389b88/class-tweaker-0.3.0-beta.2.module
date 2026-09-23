@@ -1,0 +1,160 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "net.fabricmc",
+    "module": "class-tweaker",
+    "version": "0.3.0-beta.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "9.1.0"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-commons",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-tree",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "net.fabricmc",
+          "module": "tiny-remapper",
+          "version": {
+            "requires": "0.11.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "class-tweaker-0.3.0-beta.2.jar",
+          "url": "class-tweaker-0.3.0-beta.2.jar",
+          "size": 61748,
+          "sha512": "8f696aac5c15e7d8d33a4181c6da8608ed2f037c4e369aca3c3ff1c2c03f11b9a8e89f380296625e646b1435625a7099aaa4d1680ac319df91b50657f33065b0",
+          "sha256": "47c5101083aa8d735eb88b5ff8d760ca69555460a7cf7c1142583b7aa664bc49",
+          "sha1": "71c710f85eb78d1873f548bad325bdd6d8992f82",
+          "md5": "65a95a10ec857f2fa5b2fc1013e31d8f"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-commons",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-tree",
+          "version": {
+            "requires": "9.8"
+          }
+        },
+        {
+          "group": "net.fabricmc",
+          "module": "tiny-remapper",
+          "version": {
+            "requires": "0.11.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "class-tweaker-0.3.0-beta.2.jar",
+          "url": "class-tweaker-0.3.0-beta.2.jar",
+          "size": 61748,
+          "sha512": "8f696aac5c15e7d8d33a4181c6da8608ed2f037c4e369aca3c3ff1c2c03f11b9a8e89f380296625e646b1435625a7099aaa4d1680ac319df91b50657f33065b0",
+          "sha256": "47c5101083aa8d735eb88b5ff8d760ca69555460a7cf7c1142583b7aa664bc49",
+          "sha1": "71c710f85eb78d1873f548bad325bdd6d8992f82",
+          "md5": "65a95a10ec857f2fa5b2fc1013e31d8f"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "class-tweaker-0.3.0-beta.2-sources.jar",
+          "url": "class-tweaker-0.3.0-beta.2-sources.jar",
+          "size": 37036,
+          "sha512": "4971058d7d993d2c923bee6d9dd37288df80efc3f2be260538752ba74b67d902a7b9c0c21213db20ff39713cc7fce5b6d1e538fc347d6008a107b61128a83c76",
+          "sha256": "70b500ed3a84b18b881702694525677b40ea9379fcd8f8547449e147d2535f70",
+          "sha1": "364d54f2d237e3c51f274c42efcb9d28daa7693f",
+          "md5": "d9c1fa518a4782968f9f68b7f25de72c"
+        }
+      ]
+    },
+    {
+      "name": "javadocElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "class-tweaker-0.3.0-beta.2-javadoc.jar",
+          "url": "class-tweaker-0.3.0-beta.2-javadoc.jar",
+          "size": 4308654,
+          "sha512": "941f5e8fddc6969f6e6719e3f760ff1483c920e98e66121a8db5c8ed684e8ef49fe5b1fb708427be9baf0b9db6cfef12ddec3cba065385cb405d18cded3c2dc1",
+          "sha256": "1c47ede62ee92066342e837197c5f49e98d7899130ec1590fe5faef601f5ba1e",
+          "sha1": "fd8193323c5204b2998261c3d654755bdb139e6b",
+          "md5": "d56a7b2f7b6fe525028be80ba19b46a7"
+        }
+      ]
+    }
+  ]
+}

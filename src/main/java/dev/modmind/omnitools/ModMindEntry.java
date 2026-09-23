@@ -139,6 +139,10 @@ public final class ModMindEntry implements ModInitializer {
                 ModuleFaultBoundary.run(ModuleId.CLOUD_STORAGE, "session_checkpoint_tick", "session_checkpoint_skipped",
                         () -> CloudStorageSessionManager.global().tick(server));
             }
+            if (isModuleEnabled(ModuleId.DIVINATION)) {
+                ModuleFaultBoundary.run(ModuleId.DIVINATION, "visual_tick", "skip_current_animation_tick",
+                        () -> DivinationScreenHandler.tickAnimations(server));
+            }
             if (isModuleEnabled(ModuleId.ONLINE_REWARD)) {
                 ModuleFaultBoundary.run(ModuleId.ONLINE_REWARD, "server_tick", "skip_current_tick",
                         () -> onlineTimeRewardService().tick(server));

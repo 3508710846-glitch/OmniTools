@@ -1,0 +1,153 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "net.fabricmc",
+    "module": "tiny-remapper",
+    "version": "0.14.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.8"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.9.1"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-commons",
+          "version": {
+            "requires": "9.9.1"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "tiny-remapper-0.14.0.jar",
+          "url": "tiny-remapper-0.14.0.jar",
+          "size": 242319,
+          "sha512": "cf8491ef74c6133f492f299450920648c35e9ce4db220f119c9b56aa2eaa87de4160c04af845aeed0be2aaa683f1793d4fc8856cec0d9d09017be8ef0deb4a0b",
+          "sha256": "0a86f606ca086bd7f90cededa884d23d014696a7d97a8bedc159f9efc5e6026a",
+          "sha1": "e9249ca2d1503164c4d4c9891e683d776b95af76",
+          "md5": "87bae82a4801d7c2f9480d5e0cb98da0"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-tree",
+          "version": {
+            "requires": "9.9.1"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-util",
+          "version": {
+            "requires": "9.9.1"
+          }
+        },
+        {
+          "group": "net.fabricmc",
+          "module": "mapping-io",
+          "version": {
+            "requires": "0.7.1"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm",
+          "version": {
+            "requires": "9.9.1"
+          }
+        },
+        {
+          "group": "org.ow2.asm",
+          "module": "asm-commons",
+          "version": {
+            "requires": "9.9.1"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "tiny-remapper-0.14.0.jar",
+          "url": "tiny-remapper-0.14.0.jar",
+          "size": 242319,
+          "sha512": "cf8491ef74c6133f492f299450920648c35e9ce4db220f119c9b56aa2eaa87de4160c04af845aeed0be2aaa683f1793d4fc8856cec0d9d09017be8ef0deb4a0b",
+          "sha256": "0a86f606ca086bd7f90cededa884d23d014696a7d97a8bedc159f9efc5e6026a",
+          "sha1": "e9249ca2d1503164c4d4c9891e683d776b95af76",
+          "md5": "87bae82a4801d7c2f9480d5e0cb98da0"
+        }
+      ]
+    },
+    {
+      "name": "shadowRuntimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "shadowed",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "tiny-remapper-0.14.0-fat.jar",
+          "url": "tiny-remapper-0.14.0-fat.jar",
+          "size": 836572,
+          "sha512": "e97d67988d33a459708e1549cdaab6e45902aafa4784265611674d1b7838b5a52b7c51cf0c94544164874902154f0f04b1aa886800f6f786a7777e8f3c114006",
+          "sha256": "9dbaf8030981338373abe029cd9c07732bff437887a56de1735ba2c3c76b0acf",
+          "sha1": "2864d531510952968f02e42c037e73e232687bd1",
+          "md5": "9eba0ccf19eb3bf3747fac572aa91f0f"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "tiny-remapper-0.14.0-sources.jar",
+          "url": "tiny-remapper-0.14.0-sources.jar",
+          "size": 135290,
+          "sha512": "da4583be7fe06342bfb2cb20480f24596fe5a414cfbaff5caae27687183509fd3ecc589bab45109f7e2d7fa1f23b1ff9924ce57a188bb7191e098db8e273456a",
+          "sha256": "1ee2af8d76d639d75f259b9b0120821bc77b1b6e6ce1134120726698435e3154",
+          "sha1": "b10aa5f72bf30bd36b3a3c7708010f042dde2db2",
+          "md5": "abb9cb8e2b9e654adbbba231d61b2c9e"
+        }
+      ]
+    }
+  ]
+}
